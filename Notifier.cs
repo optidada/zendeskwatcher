@@ -25,6 +25,7 @@ public sealed class Notifier(Action<string, long?> onAction)
     public const string ActionNone = "none";
     public const string ActionUpdate = "update";
     public const string ActionTake = "take";
+    public const string ActionSettings = "settings";
 
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups = new(onAction);
@@ -46,6 +47,15 @@ public sealed class Notifier(Action<string, long?> onAction)
         NotificationKind.MyTicket, "Sign-in required", "Your Zendesk session has expired", "Click to sign in again.")
     {
         Action = ActionSignIn
+    }, Settings);
+
+    /// <summary>Monitored groups that Zendesk no longer lists. Shown even when paused; click opens Settings.</summary>
+    public void ShowMissingGroups(IReadOnlyCollection<string> names) => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Zendesk Watcher",
+        names.Count == 1 ? "A monitored group was not found" : $"{names.Count} monitored groups were not found",
+        $"{string.Join(", ", names)}: deleted, or you no longer have access. Open Settings to untick {(names.Count == 1 ? "it" : "them")}.")
+    {
+        Action = ActionSettings
     }, Settings);
 
     /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>

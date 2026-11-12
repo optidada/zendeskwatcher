@@ -107,6 +107,7 @@ public sealed class TrayAppContext : ApplicationContext
                 OpenUrl($"{_settings.BaseUrl}/agent");
                 break;
             case Notifier.ActionSignIn:
+            case Notifier.ActionSettings:
                 ShowSettings();
                 break;
             case Notifier.ActionTake when ticketId is { } takeId:

@@ -21,6 +21,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private const int MaxLinesPerToast = 4;
     private static readonly TimeSpan ForgetUnassignedAfter = TimeSpan.FromDays(1);
 
+    /// <summary>Missing groups already reported in this run, so restarting the watcher doesn't repeat it.</summary>
+    private static readonly HashSet<long> ReportedMissingGroups = [];
+
     private WatchState _state = new();
     private Dictionary<long, string> _groupNames = [];
 
@@ -45,8 +48,18 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         _groupNames = settings.WatchedGroups.ToDictionary(g => g.Id, g => g.Name);
         try
         {
-            foreach (var group in await zendesk.GetGroupsAsync(ct))
+            var groups = await zendesk.GetGroupsAsync(ct);
+            foreach (var group in groups)
                 _groupNames[group.Id] = group.Name;
+
+            // A monitored group Zendesk no longer lists just returns no tickets; say so once instead of going quiet.
+            var listed = groups.Select(g => g.Id).ToHashSet();
+            var missing = settings.WatchedGroups.Where(g => !g.IsNoGroup && !listed.Contains(g.Id)).ToList();
+            if (missing.Count > 0)
+                Log.Info($"Monitored group(s) not found in Zendesk: {string.Join(", ", missing.Select(g => $"{g.Name} ({g.Id})"))}");
+            var unreported = missing.Where(g => ReportedMissingGroups.Add(g.Id)).ToList();
+            if (unreported.Count > 0)
+                notifier.ShowMissingGroups(unreported.Select(g => g.Name).ToList());
         }
         catch (HttpRequestException ex)
         {

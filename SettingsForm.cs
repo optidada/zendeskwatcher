@@ -535,7 +535,18 @@ public sealed class SettingsForm : Form
             SetAccount($"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}", AccountState.SignedIn);
 
             var groups = await client.GetGroupsAsync(CancellationToken.None);
-            SetGroups(groups.Select(g => new GroupItem(g.Id, g.Name)));
+            var loaded = groups.Select(g => new GroupItem(g.Id, g.Name)).ToList();
+
+            // Keep monitored groups that Zendesk didn't return, flagged, so they can be unticked.
+            // Not removed automatically: an agent who may only list assignable groups won't see every group.
+            var loadedIds = loaded.Select(g => g.Id).ToHashSet();
+            var missing = _allGroups
+                .Where(g => g.Id != WatchedGroup.NoGroupId && _selectedGroups.Contains(g.Id) && !loadedIds.Contains(g.Id))
+                .Select(g => g with { Missing = true })
+                .ToList();
+            if (missing.Count > 0)
+                Log.Info($"Settings: monitored group(s) not found in Zendesk: {string.Join(", ", missing.Select(g => $"{g.Name} ({g.Id})"))}");
+            SetGroups(loaded.Concat(missing));
             _reloadGroups.Enabled = true;
         }
         catch (AuthRequiredException)
@@ -645,7 +656,7 @@ public sealed class SettingsForm : Form
         _groups.BeginUpdate();
         _groups.Items.Clear();
         foreach (var group in monitored)
-            _groups.Items.Add(new ListViewItem(group.Name) { Tag = group, Checked = true, Group = _monitoredSection, BackColor = Theme.AccentSoft, Font = Theme.BodyBold });
+            _groups.Items.Add(new ListViewItem(group.DisplayName) { Tag = group, Checked = true, Group = _monitoredSection, BackColor = Theme.AccentSoft, Font = Theme.BodyBold, ForeColor = group.Missing ? Theme.TextMuted : Theme.Text });
         foreach (var group in others)
             _groups.Items.Add(new ListViewItem(group.Name) { Tag = group, Checked = false, Group = _otherSection, BackColor = Theme.Surface, Font = Theme.Body });
         _monitoredSection.Header = $"Monitored · {monitored.Count}";
@@ -674,6 +685,19 @@ public sealed class SettingsForm : Form
         _suppressGroupEvents = true;
         _groups.BeginUpdate();
         _groups.Items.Remove(item);
+
+        if (group.Missing && !monitored)
+        {
+            // A group that no longer exists has nowhere to go once unticked.
+            _allGroups.Remove(group);
+            _otherSection.Header = $"Other groups · {_otherSection.Items.Count}";
+            _monitoredSection.Header = $"Monitored · {_monitoredSection.Items.Count}";
+            _groups.EndUpdate();
+            _suppressGroupEvents = false;
+            UpdateGroupsHint();
+            return;
+        }
+
         item.Checked = monitored;
         item.Group = section;
         item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
@@ -707,10 +731,12 @@ public sealed class SettingsForm : Form
 
     private void UpdateGroupsHint()
     {
-        var realGroups = _allGroups.Count - 1; // minus "(No group)"
-        _groupsHint.Text = realGroups <= 0
+        var realGroups = _allGroups.Count(g => g.Id != WatchedGroup.NoGroupId && !g.Missing);
+        var missing = _allGroups.Count(g => g.Missing);
+        _groupsHint.Text = (realGroups <= 0
             ? $"{_selectedGroups.Count} monitored · sign in to load your groups"
-            : $"{_selectedGroups.Count} monitored · {realGroups} groups available";
+            : $"{_selectedGroups.Count} monitored · {realGroups} groups available")
+            + (missing > 0 ? $" · {missing} not found in Zendesk" : "");
     }
 
     // ------------------------------------------------------------------ save
@@ -876,8 +902,10 @@ public sealed class SettingsForm : Form
         Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
     };
 
-    private sealed record GroupItem(long Id, string Name)
+    /// <param name="Missing">Monitored, but not in the list loaded from Zendesk (deleted, or no longer visible to you).</param>
+    private sealed record GroupItem(long Id, string Name, bool Missing = false)
     {
+        public string DisplayName => Missing ? $"{Name} (not found in Zendesk)" : Name;
         public override string ToString() => Name;
     }
 }
