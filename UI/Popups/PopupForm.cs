@@ -456,7 +456,8 @@ public sealed class PopupForm : Form
             return;
         }
 
-        using var path = Theme.RoundedRect(new RectangleF(rect.X + 0.5f, rect.Y + 0.5f, rect.Width - 1, rect.Height - 1), rect.Height / 2f);
+        var radius = _palette.ButtonRadius == UiPalette.Pill ? rect.Height / 2f : Math.Min(_palette.ButtonRadius * _s, rect.Height / 2f);
+        using var path = Theme.RoundedRect(new RectangleF(rect.X + 0.5f, rect.Y + 0.5f, rect.Width - 1, rect.Height - 1), radius);
         if (primary)
         {
             using var fill = new SolidBrush(hover ? Blend(_accent, _palette.Dark ? Color.White : Color.Black, 0.15f) : _accent);

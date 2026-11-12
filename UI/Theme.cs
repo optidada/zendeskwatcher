@@ -178,7 +178,7 @@ public static class Theme
 
     private static Button StyledButton(string text, Color back, Color fore, Color border, Color hover)
     {
-        var button = new Button
+        var button = new RoundButton
         {
             Text = text,
             AutoSize = true,
@@ -207,6 +207,10 @@ public static class Theme
         PlaceholderText = placeholder,
         Margin = new Padding(0, 2, 0, 2)
     };
+
+    /// <summary>The current theme's button corner radius for a button of this height (pixels at this scale).</summary>
+    public static float ButtonRadius(float height, float scale) =>
+        Current.ButtonRadius == UiPalette.Pill ? height / 2 : Math.Min(Current.ButtonRadius * scale, height / 2);
 
     public static GraphicsPath RoundedRect(RectangleF r, float radius)
     {

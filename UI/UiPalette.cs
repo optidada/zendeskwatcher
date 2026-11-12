@@ -13,6 +13,22 @@ public sealed record UiPalette(
     Color Sidebar, Color SidebarHover, Color SidebarText, Color SidebarTitle,
     bool Dark)
 {
+    /// <summary>A button radius meaning "fully round" (a pill).</summary>
+    public const float Pill = -1;
+
+    /// <summary>Corner radius of buttons at 96 dpi: 0 is square, <see cref="Pill"/> fully round. Decided by the theme.</summary>
+    public float ButtonRadius { get; init; } = 6;
+
+    /// <summary>The theme's button shape; the popups use the same (see <see cref="Popups.PopupPalette.ButtonRadius"/>).</summary>
+    public static float ButtonRadiusFor(NotificationTheme theme) => theme switch
+    {
+        NotificationTheme.Terminal => 0,
+        NotificationTheme.NeonDark or NotificationTheme.CozyPurple => Pill,
+        NotificationTheme.CleanLight => 8,
+        NotificationTheme.WindowsNative => 4, // like Windows 11
+        _ => 6                                // Optimizely
+    };
+
     /// <summary>All colors, in a fixed order (matches the constructor).</summary>
     public Color[] Roles =>
     [
@@ -28,7 +44,7 @@ public sealed record UiPalette(
         NotificationTheme.CozyPurple => CozyPurple,
         NotificationTheme.Optimizely => Optimizely,
         _ => CleanLight
-    }).Distinct();
+    }).Distinct() with { ButtonRadius = ButtonRadiusFor(theme) };
 
     private static readonly UiPalette CleanLight = new(
         Window: Rgb(243, 244, 246), Surface: Rgb(255, 255, 255), Border: Rgb(229, 231, 235), Text: Rgb(17, 24, 39), TextMuted: Rgb(107, 114, 128),

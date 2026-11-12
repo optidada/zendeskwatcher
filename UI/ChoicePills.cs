@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 namespace ZendeskWatcher.UI;
 
 /// <summary>
-/// A row of round buttons where exactly one is selected (a segmented control), in the current theme's colors.
+/// A row of buttons where exactly one is selected (a segmented control), in the current theme's colors and button shape.
 /// Click a pill, or use the arrow keys when it has focus.
 /// </summary>
 public sealed class ChoicePills : Control
@@ -65,6 +65,17 @@ public sealed class ChoicePills : Control
         return rects;
     }
 
+    /// <summary>A pill in the theme's button shape (square in Terminal).</summary>
+    private GraphicsPath Shape(RectangleF r)
+    {
+        var radius = Theme.ButtonRadius(r.Height, DeviceDpi / 96f);
+        if (radius > 0)
+            return Theme.RoundedRect(r, radius);
+        var path = new GraphicsPath();
+        path.AddRectangle(r);
+        return path;
+    }
+
     private int HitTest(Point p) => Array.FindIndex(PillRects(), r => r.Contains(p));
 
     protected override void OnPaint(PaintEventArgs e)
@@ -78,7 +89,7 @@ public sealed class ChoicePills : Control
         {
             var r = rects[i];
             var selected = i == _selected;
-            using var path = Theme.RoundedRect(r, r.Height / 2);
+            using var path = Shape(r);
             if (selected)
             {
                 using var fill = new SolidBrush(Theme.Accent);
@@ -93,7 +104,7 @@ public sealed class ChoicePills : Control
             {
                 using var focus = new Pen(Theme.Text) { DashStyle = DashStyle.Dot };
                 var inner = RectangleF.Inflate(r, -3, -3);
-                using var innerPath = Theme.RoundedRect(inner, inner.Height / 2);
+                using var innerPath = Shape(inner);
                 g.DrawPath(focus, innerPath);
             }
             TextRenderer.DrawText(g, _labels[i], selected ? Theme.BodyBold : Theme.Body, Rectangle.Round(r),

@@ -10,6 +10,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - **Statistics** (new page in Settings): ticket notifications of the last 30 days per kind, and what you did with them: opened, took it, snoozed, closed or let them time out. Kept on your PC only.
 - "Show the comment text" moved to Settings → Appearance → Content: it applies to your tickets, CC tickets and colleagues' tickets.
 - "Check Zendesk every": five round buttons (30 s, 1, 2, 3 or 5 min) instead of a seconds box; other saved values move to the nearest one.
+- **Button shapes follow the style**: rounded in Optimizely and Clean light, fully round in Neon dark and Cozy, square in Terminal, lightly rounded in Windows. Applies to the Settings window and the popups.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10

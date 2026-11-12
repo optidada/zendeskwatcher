@@ -23,6 +23,9 @@ public sealed class PopupPalette
     /// <summary>Text on the accent-colored button (dark on pastel accents).</summary>
     public Color OnAccent { get; init; } = Color.White;
 
+    /// <summary>Button corner radius at 96 dpi, as in the Settings window (<see cref="UiPalette.ButtonRadiusFor"/>).</summary>
+    public float ButtonRadius { get; init; } = UiPalette.Pill;
+
     public required Func<string?, NotificationKind, Color> Accent { get; init; }
 
     public static PopupPalette For(NotificationTheme theme) => theme switch
@@ -72,6 +75,7 @@ public sealed class PopupPalette
     /// <summary>The optimizely.com palette: fir greens, lime ("lfgreen") accent, light neutrals, pink and light blue.</summary>
     public static readonly PopupPalette Optimizely = new()
     {
+        ButtonRadius = UiPalette.ButtonRadiusFor(NotificationTheme.Optimizely),
         Name = "Optimizely",
         Background = Color.FromArgb(0x0D, 0x3A, 0x29),    // midfir
         BackgroundEnd = Color.FromArgb(0x08, 0x25, 0x1A), // darkfir
@@ -116,6 +120,7 @@ public sealed class PopupPalette
 
     public static readonly PopupPalette CleanLight = new()
     {
+        ButtonRadius = UiPalette.ButtonRadiusFor(NotificationTheme.CleanLight),
         Name = "Clean light",
         Background = Color.White,
         BackgroundEnd = Color.FromArgb(249, 250, 251),
