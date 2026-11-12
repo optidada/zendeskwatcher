@@ -15,7 +15,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - **Reset to defaults** under Settings → General: everything except your account and monitored groups, applied when you click Save.
 - New ticket notifications stay about 10 seconds by default (was 5).
 - Every popup has a Close button (the same as ✕ and right-click). Ticket notifications also have Snooze; the start summary and app messages don't.
-- Starting Zendesk Watcher while it's already running shows a notification instead of a dialog box; click it to open Settings.
+- Starting Zendesk Watcher while it's already running shows a short notification instead of a dialog box.
 - The Zendesk subdomain is filled in on first start.
 - Help colleagues: the first time you switch it on, colleagues in your own region start unticked. Your region is listed last, and in each region the covered colleagues come first.
 - Questions and messages in Settings look like the rest of the app, with buttons that say what they do (Save / Don't save / Cancel).

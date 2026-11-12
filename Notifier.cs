@@ -224,12 +224,12 @@ public sealed class Notifier : INotificationSink
         Style = Settings.SummaryStyle
     });
 
-    /// <summary>The app was started again while running. Shown even when paused; a click opens Settings.</summary>
+    /// <summary>The app was started again while running: a short, quiet message with only Close. Shown even when paused.</summary>
     public void ShowAlreadyRunning() => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", "Zendesk Watcher is already running",
-        "It's the icon in the system tray, next to the clock. Click here to open Settings.")
+        "It's the icon in the system tray, next to the clock.")
     {
-        Action = ActionSettings,
+        Action = ActionInfo,
         Style = QuietInfo
     }, Settings);
 
@@ -409,7 +409,7 @@ public sealed class Notifier : INotificationSink
                 ActionSignIn => "Sign in",
                 ActionUpdate => "Update now",
                 ActionSettings => "Open Settings",
-                ActionInfo => "OK",
+                ActionInfo => "Close",
                 _ => content.TicketId is null ? "Open Zendesk" : "Open ticket"
             })
             .AddArgument("action", action);

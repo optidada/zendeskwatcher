@@ -306,7 +306,7 @@ public sealed class PopupForm : Form
             Notifier.ActionUpdate => _palette.Terminal ? "[ update ]" : "Update now",
             Notifier.ActionSignIn => _palette.Terminal ? "[ sign in ]" : "Sign in",
             Notifier.ActionSettings => _palette.Terminal ? "[ settings ]" : "Open Settings",
-            Notifier.ActionInfo => _palette.Terminal ? "[ ok ]" : "OK",
+            Notifier.ActionInfo => _palette.Terminal ? "[ close ]" : "Close",
             _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
         };
         // The second button: Snooze on ticket notifications, Close on everything else (summary, welcome, update), none
