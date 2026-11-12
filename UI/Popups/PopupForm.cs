@@ -159,12 +159,10 @@ public sealed class PopupForm : Form
     }
 
     /// <summary>What the second button does: snooze tickets, close app messages; nothing for "OK" messages (OK closes).</summary>
-    private Result SecondButton => _content.ResolvedAction switch
-    {
-        Notifier.ActionInfo => Result.None,
-        Notifier.ActionSettings or Notifier.ActionSignIn or Notifier.ActionUpdate => Result.Dismiss,
-        _ => Result.Snooze
-    };
+    private Result SecondButton =>
+        _content.ResolvedAction == Notifier.ActionInfo ? Result.None
+        : _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone ? Result.Snooze // tickets, and their samples
+        : Result.Dismiss; // the start summary, welcome, update ready, sign-in, …
 
     public void Dismiss(Result outcome)
     {
@@ -308,7 +306,7 @@ public sealed class PopupForm : Form
             Notifier.ActionInfo => _palette.Terminal ? "[ ok ]" : "OK",
             _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
         };
-        // The second button: Snooze on ticket notifications, Close on app messages (welcome, update, sign-in), none
+        // The second button: Snooze on ticket notifications, Close on everything else (summary, welcome, update), none
         // on quick "OK" messages.
         _snoozeLabel = SecondButton switch
         {
