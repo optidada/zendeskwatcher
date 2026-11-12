@@ -799,8 +799,9 @@ public sealed class SettingsForm : Form
             _ => Theme.Neutral
         };
 
-        _signIn.Visible = state != AccountState.SignedIn;
-        _signIn.Enabled = state != AccountState.Checking;
+        // While checking it isn't known yet whether you're signed in, so neither button is offered.
+        _signIn.Visible = state is AccountState.SignedOut or AccountState.Error;
+        _signIn.Enabled = true;
         _signOut.Visible = state is AccountState.SignedIn or AccountState.Error;
     }
 
