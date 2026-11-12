@@ -371,6 +371,16 @@ public sealed class NavItem : Control
         set { _selected = value; Invalidate(); }
     }
 
+    /// <summary>A sub-page, shown indented (and a little lower) under the page before it.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Sub
+    {
+        get => _sub;
+        set { _sub = value; Height = value ? 34 : 42; Invalidate(); }
+    }
+
+    private bool _sub;
+
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
 
@@ -384,7 +394,8 @@ public sealed class NavItem : Control
             g.FillRectangle(accent, 0, 8, 4, Height - 16);
         }
 
-        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Font, new Rectangle(24, 0, Width - 24, Height),
+        var indent = _sub ? 40 : 24;
+        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Font, new Rectangle(indent, 0, Width - indent, Height),
             _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
     }
 }

@@ -106,6 +106,8 @@ internal sealed class AppearancePage : SettingsPage
             _summarySound, _summaryDisplay, _appSound, _appDisplay, _commentText, _showLogo, _groupByType);
     }
 
+    public override bool IsSubPage => true; // under Notifications: how they look and sound
+
     public override void Load(Settings settings)
     {
         Kit.Select(_newSound, settings.NewTicketStyle.Sound);

@@ -57,6 +57,9 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// <summary>Writes this page's choices into <paramref name="settings"/>.</summary>
     public abstract void Apply(Settings settings);
 
+    /// <summary>Shown indented under Notifications in the sidebar.</summary>
+    public virtual bool IsSubPage => false;
+
     /// <summary>The page is about to be shown (e.g. to refresh what depends on other pages).</summary>
     public virtual void OnShowing() { }
 
