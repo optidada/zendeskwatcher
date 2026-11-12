@@ -284,20 +284,23 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             .OrderBy(a => a.CreatedAt);
 
         var lines = new List<string>();
+        var logLines = new List<string>(); // never with comment text: the log may be shared when troubleshooting
         foreach (var audit in audits)
         {
             var author = audit.AuthorId == SystemUserId ? "Zendesk" : await zendesk.GetUserNameAsync(audit.AuthorId, ct);
             foreach (var ev in audit.Events)
             {
-                if (await DescribeAsync(ev, author, ct) is { } line)
-                    lines.Add(line);
+                if (await DescribeAsync(ev, author, settings.ShowCommentText, ct) is not { } line)
+                    continue;
+                lines.Add(line);
+                logLines.Add(ev.Type == "Comment" ? (await DescribeAsync(ev, author, withText: false, ct))! : line);
             }
         }
 
         if (lines.Count == 0)
             return;
 
-        Log.Info($"Ticket #{ticket.Id}: {string.Join(" | ", lines)}");
+        Log.Info($"Ticket #{ticket.Id}: {string.Join(" | ", logLines)}");
 
         var shown = lines.TakeLast(MaxLinesPerToast).ToList();
         if (lines.Count > shown.Count)
@@ -315,15 +318,16 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     private static string GroupLabel(WatchedGroup group) => group.IsNoGroup ? "No group" : group.Name;
 
-    private async Task<string?> DescribeAsync(AuditEvent ev, string author, CancellationToken ct)
+    /// <param name="withText">Include (the start of) the comment text, or only say who commented.</param>
+    private async Task<string?> DescribeAsync(AuditEvent ev, string author, bool withText, CancellationToken ct)
     {
         switch (ev.Type)
         {
             case "Comment" when ev.Public == true && settings.NotifyPublicReplies:
-                return $"{author} replied: {Snippet(ev)}";
+                return withText ? $"{author} replied: {Snippet(ev)}" : $"{author} replied";
 
             case "Comment" when ev.Public == false && settings.NotifyInternalNotes:
-                return $"{author} added an internal note: {Snippet(ev)}";
+                return withText ? $"{author} added an internal note: {Snippet(ev)}" : $"{author} added an internal note";
 
             case "Change" when ev.FieldName == "status" && settings.NotifyStatusChanges:
                 return $"Status {Text(ev.PreviousValue) ?? "?"} → {Text(ev.Value)} ({author})";
@@ -346,7 +350,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
     }
 
-    private static TrackedTicket ToTracked(Ticket t) => new() { Subject = t.Subject, Status = t.Status, UpdatedAt = t.UpdatedAt };
+    // Only what change detection needs: no subjects or other ticket content in state.json.
+    private static TrackedTicket ToTracked(Ticket t) => new() { Status = t.Status, UpdatedAt = t.UpdatedAt };
 
     private static string? Text(JsonElement? value) => value?.ValueKind switch
     {

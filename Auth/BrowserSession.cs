@@ -201,6 +201,17 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
         await _web.EnsureCoreWebView2Async(environment);
         _web.CoreWebView2.NavigationCompleted += (_, _) => _lastNavigation = DateTime.UtcNow;
+
+        // API responses are fetched with cache: 'no-store'; also remove anything cached before (older versions, or
+        // pages of the sign-in flow). Cookies (the login) are kept.
+        try
+        {
+            await _web.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.DiskCache | CoreWebView2BrowsingDataKinds.CacheStorage);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Browser session: could not clear the cache", ex);
+        }
         _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
         UseLowMemory(true);
@@ -309,10 +320,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
         const string ToResult = ".then(async r => JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: await r.text() }))";
         var script = method is null
-            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', headers: {{ 'Accept': 'application/json' }} }})" + ToResult
-            : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', headers: {{ 'Accept': 'application/json' }} }})" +
+            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + ToResult
+            : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
               ".then(r => r.json()).then(me => " +
-              $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', " +
+              $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
               "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': (me.user && me.user.authenticity_token) || '' }, " +
               $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + ToResult;
 

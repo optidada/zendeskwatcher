@@ -54,7 +54,6 @@ public sealed class WatchState
 
 public sealed class TrackedTicket
 {
-    public string? Subject { get; set; }
     public string? Status { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

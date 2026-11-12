@@ -26,6 +26,9 @@ public sealed class Settings
     public bool NotifyAssignmentChanges { get; set; } = true;
     public bool NotifyPriorityChanges { get; set; } = true;
 
+    /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
+    public bool ShowCommentText { get; set; } = true;
+
     // Appearance of the notifications
     public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Standard };
     public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail, Display = ToastDisplay.Standard };

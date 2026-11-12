@@ -57,6 +57,7 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _status = Check("Status changes");
     private readonly CheckBox _assignment = Check("Reassignment and group moves");
     private readonly CheckBox _priority = Check("Priority changes");
+    private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
 
     // Appearance
@@ -318,6 +319,12 @@ public sealed class SettingsForm : Form
         for (var i = 0; i < changeTypes.Length; i++)
             options.Controls.Add(changeTypes[i], i % 2, i / 2);
         which.Body.Controls.Add(options);
+        _commentText.Margin = new Padding(0, 10, 0, 0);
+        which.Body.Controls.Add(_commentText);
+        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
+            "the Windows notification center; the custom popups are never stored.", Theme.Small, Theme.TextMuted, CardWidth - 44);
+        privacy.Margin = new Padding(50, 0, 0, 0);
+        which.Body.Controls.Add(privacy);
         page.Controls.Add(which);
 
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", CardWidth);
@@ -439,6 +446,7 @@ public sealed class SettingsForm : Form
         _status.Checked = settings.NotifyStatusChanges;
         _assignment.Checked = settings.NotifyAssignmentChanges;
         _priority.Checked = settings.NotifyPriorityChanges;
+        _commentText.Checked = settings.ShowCommentText;
         _startup.Checked = StartupRegistration.IsEnabled;
         Select(_newSound, settings.NewTicketStyle.Sound);
         Select(_newDisplay, settings.NewTicketStyle.Display);
@@ -493,7 +501,7 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _startup, _showLogo, _groupByType })
+        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _startup, _showLogo, _groupByType })
             box.CheckedChanged += (_, _) => UpdateSaveState();
 
         Shown += async (_, _) =>
@@ -541,6 +549,7 @@ public sealed class SettingsForm : Form
         s.NotifyStatusChanges = _status.Checked;
         s.NotifyAssignmentChanges = _assignment.Checked;
         s.NotifyPriorityChanges = _priority.Checked;
+        s.ShowCommentText = _commentText.Checked;
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
         s.ShowAppLogo = _showLogo.Checked;
@@ -1072,6 +1081,17 @@ public sealed class SettingsForm : Form
                 using var bitmap = new Bitmap(form.Width, form.Height);
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(dir, $"{theme}-{page}.png"));
+
+                // And the bottom of long pages.
+                if (form._content.VerticalScroll.Visible)
+                {
+                    form._content.AutoScrollPosition = new Point(0, form._content.DisplayRectangle.Height);
+                    Application.DoEvents();
+                    using var bottom = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(bottom, new Rectangle(Point.Empty, bottom.Size));
+                    bottom.Save(Path.Combine(dir, $"{theme}-{page}-bottom.png"));
+                    form._content.AutoScrollPosition = Point.Empty;
+                }
             }
             form.Hide();
         }

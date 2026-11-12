@@ -53,6 +53,7 @@ internal static class Program
         ToastNotificationManagerCompat.OnActivated += e =>
             TrayAppContext.Current?.OnToastActivated(ToastArguments.Parse(e.Argument));
 
+        Log.DropOldLogsOnce();
         Log.Info("Started");
         var app = new TrayAppContext();
         if (args.Contains("--test-popups"))

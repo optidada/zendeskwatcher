@@ -21,6 +21,26 @@ public static class Log
     private static readonly object Gate = new();
 
     public static void Info(string message) => Write("INFO", message);
+
+    /// <summary>
+    /// Starts a fresh log once: logs from before 1.2.2 could contain comment text, which is no longer logged.
+    /// </summary>
+    public static void DropOldLogsOnce()
+    {
+        var marker = Path.Combine(AppPaths.DataDir, "log-without-comments");
+        if (File.Exists(marker))
+            return;
+        try
+        {
+            File.Delete(AppPaths.LogFile);
+            File.Delete(AppPaths.LogFile + ".old");
+            File.WriteAllText(marker, "Logs no longer contain comment text; older logs were removed.");
+        }
+        catch
+        {
+            // Never block startup over this; try again next time.
+        }
+    }
     public static void Error(string message, Exception? ex = null) => Write("ERROR", ex is null ? message : $"{message}: {ex}");
 
     private static void Write(string level, string message)

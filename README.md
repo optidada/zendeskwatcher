@@ -56,9 +56,11 @@ To reopen Settings, double-click the tray icon or right-click it and choose **Se
 | File | Content |
 |---|---|
 | `settings.json` | Settings written by the Settings window |
-| `WebView2\` | Browser profile with your Zendesk/Okta cookies |
-| `state.json` | Tickets already seen and notified |
-| `log.txt` | Log, useful when something doesn't work |
+| `WebView2\` | Browser profile with your Zendesk/Okta cookies. API responses are not cached (`no-store`), and the cache is cleared at every start |
+| `state.json` | Ticket IDs, status and timestamps of tickets already seen. No subjects or other ticket content |
+| `log.txt` | Log, useful when something doesn't work. Ticket IDs, names and change types, but never comment text, so it's safe to share |
+
+**What is read from Zendesk:** the API always returns complete objects (tickets with their description, audits with comment text, user profiles); the app keeps only what it needs in memory (ticket ID, subject, status, priority, group, assignee, CC/follower IDs, timestamps; change types and, for notifications, the first 140 characters of a comment; user names) and discards the rest. The only change it ever makes is **Take it** (assigning a ticket to you). Turn off *Show the comment text in notifications* under Notifications to keep comment text out of notifications too.
 
 Delete `state.json` to reset what has been seen. Use **Sign out** in Settings to clear the cookies.
 
