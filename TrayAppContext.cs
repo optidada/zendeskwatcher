@@ -469,20 +469,13 @@ public sealed class TrayAppContext : ApplicationContext
         _tray.Icon = frames[_pulseFrame];
     }
 
-    /// <summary>
-    /// For snoozed popups: a new unassigned ticket must still be unassigned and open; any other ticket must not be
-    /// solved or closed. Not signed in yet: assume it's still needed.
-    /// </summary>
+    /// <summary>For snoozed popups (see <see cref="TicketRules.StillNeedsAttention"/>). Not signed in yet: assume it's still needed.</summary>
     private async Task<bool> StillNeededAsync(NotificationContent content)
     {
         if (_taker is not { } taker || content.TicketId is not { } id)
             return true;
         var ticket = (await taker.Client.GetTicketsAsync([id], CancellationToken.None)).FirstOrDefault();
-        if (ticket is null)
-            return false; // deleted, or no longer visible to you
-        return content.Kind == NotificationKind.NewTicket
-            ? ticket.IsOpen && ticket.AssigneeId is null
-            : ticket.IsOpen;
+        return TicketRules.StillNeedsAttention(content.Kind, ticket);
     }
 
     // ------------------------------------------------------------------ feedback

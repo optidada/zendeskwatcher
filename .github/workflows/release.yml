@@ -28,6 +28,10 @@ jobs:
         shell: bash
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
+      # A failing notification rule stops the release before anything is built or published.
+      - name: Test
+        run: dotnet test tests/ZendeskWatcher.Tests -c Release
+
       # Framework-dependent keeps the installer small (~17 MB instead of ~65 MB). Setup installs the
       # .NET Desktop Runtime and WebView2 when they're missing (see --framework below).
       - name: Publish

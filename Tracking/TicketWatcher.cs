@@ -14,7 +14,7 @@ namespace ZendeskWatcher.Tracking;
 /// </list>
 /// The first poll of each list only records the current tickets, so starting the app does not flood notifications.
 /// </summary>
-public sealed partial class TicketWatcher(Settings settings, ZendeskClient zendesk, Notifier notifier)
+public sealed partial class TicketWatcher(Settings settings, ZendeskClient zendesk, INotificationSink notifier)
 {
     private const long SystemUserId = -1;
     private const int MaxSeparateUnassignedToasts = 5;
@@ -165,7 +165,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             var tickets = candidates
                 .Select(t => live.GetValueOrDefault(t.Id))
                 .OfType<Ticket>()
-                .Where(t => t.AssigneeId is null && t.IsOpen && t.GroupId == (group.IsNoGroup ? null : group.Id))
+                .Where(t => TicketRules.IsReallyUnassigned(t, group))
                 .ToList();
             if (tickets.Count < candidates.Count)
                 Log.Info($"Search returned {candidates.Count - tickets.Count} ticket(s) {group.Describe()} that are no longer unassigned: " +
@@ -269,20 +269,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             lines.Add("Help colleagues: " + (priorities.Count is 0 or 4 ? "all priorities" : string.Join(", ", priorities)));
         }
 
-        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", Greeting(DateTime.Now, Me?.Name), string.Join("\n", lines));
-    }
-
-    /// <summary>"Good morning, Daniel" (05-10), "Good day, Daniel" (10-18), "Good evening, Daniel" (otherwise).</summary>
-    internal static string Greeting(DateTime localTime, string? fullName)
-    {
-        var greeting = localTime.Hour switch
-        {
-            >= 5 and < 10 => "Good morning",
-            >= 10 and < 18 => "Good day",
-            _ => "Good evening"
-        };
-        var firstName = fullName?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return firstName is null ? greeting : $"{greeting}, {firstName}";
+        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", TicketRules.Greeting(DateTime.Now, Me?.Name), string.Join("\n", lines));
     }
 
     private async Task CheckMyTicketsAsync(CancellationToken ct)
@@ -383,9 +370,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
             // Once it's assigned to me, my-ticket tracking reports it; don't notify twice.
             if (ticket.UpdatedAt > tracked.UpdatedAt && ticket.AssigneeId != me)
-                await ReportChangesAsync(ticket, since: tracked.UpdatedAt, ct, context: Involvement(ticket, me) ?? "CC");
+                await ReportChangesAsync(ticket, since: tracked.UpdatedAt, ct, context: TicketRules.Involvement(ticket, me) ?? "CC");
 
-            if (Relevant(ticket) && Involvement(ticket, me) is not null)
+            if (Relevant(ticket) && TicketRules.Involvement(ticket, me) is not null)
                 _state.CcTickets[ticket.Id] = ToTracked(ticket);
             else
                 _state.CcTickets.Remove(ticket.Id);
@@ -393,7 +380,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         foreach (var ticket in added)
         {
-            await ReportChangesAsync(ticket, since: previousWatermark, ct, context: Involvement(ticket, me) ?? "CC");
+            await ReportChangesAsync(ticket, since: previousWatermark, ct, context: TicketRules.Involvement(ticket, me) ?? "CC");
             _state.CcTickets[ticket.Id] = ToTracked(ticket);
         }
     }
@@ -436,7 +423,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                     continue; // your own tickets are covered by "my tickets"
                 if (excluded.Contains(assigneeId))
                     continue; // a colleague you chose not to cover
-                if (!settings.HelpPriorities.Contains(string.IsNullOrEmpty(ticket.Priority) ? "normal" : ticket.Priority))
+                if (!TicketRules.MatchesHelpPriority(ticket.Priority, settings.HelpPriorities))
                     continue; // not a priority you chose (no priority counts as normal)
                 var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
                 if (ticket.UpdatedAt <= seen)
@@ -497,25 +484,15 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// </summary>
     private (bool? Away, DateTime Local) OutsideWorkingHours(User? user, DateTimeOffset now)
     {
-        var zone = ResolveTimeZone(user?.IanaTimeZone) ?? ResolveTimeZone(user?.TimeZone);
+        var zone = TicketRules.ResolveTimeZone(user?.IanaTimeZone) ?? TicketRules.ResolveTimeZone(user?.TimeZone);
         if (zone is null)
             return (null, default);
         var local = TimeZoneInfo.ConvertTime(now, zone).DateTime;
         return (IsOutsideHours(local), local);
     }
 
-    /// <summary>Weekend, or before/after the working hours, for a local time.</summary>
     private bool IsOutsideHours(DateTime local) =>
-        local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
-        local.Hour < settings.WorkdayStartHour || local.Hour >= settings.WorkdayEndHour;
-
-    internal static TimeZoneInfo? ResolveTimeZone(string? id) =>
-        !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) ? zone : null;
-
-    /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>
-    private static string? Involvement(Ticket t, long me) =>
-        t.EmailCcIds.Contains(me) || t.CollaboratorIds.Contains(me) ? "You're CC" :
-        t.FollowerIds.Contains(me) ? "You follow" : null;
+        TicketRules.IsOutsideHours(local, settings.WorkdayStartHour, settings.WorkdayEndHour);
 
     /// <summary>Reads the audits since the last known update and notifies about changes made by someone else.</summary>
     /// <param name="context">Shown next to the heading, e.g. "You're CC" for tickets that aren't mine.</param>
@@ -578,14 +555,6 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private static string English(DateTime value, string format) =>
         value.ToString(format, System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
 
-    /// <summary>"pending" → "Pending", "hold" → "On-hold", as Zendesk shows them.</summary>
-    private static string? StatusLabel(string? status) => status?.ToLowerInvariant() switch
-    {
-        null or "" => null,
-        "hold" => "On-hold",
-        var other => char.ToUpperInvariant(other[0]) + other[1..]
-    };
-
     private static string CreatedLabel(Ticket t)
     {
         var local = t.CreatedAt.ToLocalTime();
@@ -606,7 +575,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 return withText ? $"{author} added an internal note: {Snippet(ev)}" : $"{author} added an internal note";
 
             case "Change" when ev.FieldName == "status" && settings.NotifyStatusChanges:
-                return $"Status {StatusLabel(Text(ev.PreviousValue)) ?? "?"} → {StatusLabel(Text(ev.Value))} ({author})";
+                return $"Status {TicketRules.StatusLabel(Text(ev.PreviousValue)) ?? "?"} → {TicketRules.StatusLabel(Text(ev.Value))} ({author})";
 
             case "Change" when ev.FieldName == "priority" && settings.NotifyPriorityChanges:
                 return $"Priority {NotificationContent.LabelForPriority(Text(ev.PreviousValue)) ?? "None"} → {NotificationContent.LabelForPriority(Text(ev.Value)) ?? "None"} ({author})";

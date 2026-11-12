@@ -1,8 +1,10 @@
 namespace ZendeskWatcher;
 
-/// <summary>Per-user data folder: %LOCALAPPDATA%\ZendeskWatcher.</summary>
+/// <summary>Per-user data folder: %LOCALAPPDATA%\ZendeskWatcher (tests point it elsewhere with ZENDESKWATCHER_DATA_DIR).</summary>
 public static class AppPaths
 {
+    public const string DataDirVariable = "ZENDESKWATCHER_DATA_DIR";
+
     public static string DataDir { get; } = CreateDataDir();
 
     public static string StateFile => Path.Combine(DataDir, "state.json");
@@ -10,7 +12,9 @@ public static class AppPaths
 
     private static string CreateDataDir()
     {
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZendeskWatcher");
+        var dir = Environment.GetEnvironmentVariable(DataDirVariable) is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZendeskWatcher");
         Directory.CreateDirectory(dir);
         return dir;
     }

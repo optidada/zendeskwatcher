@@ -1,3 +1,4 @@
+using ZendeskWatcher.Tracking;
 using ZendeskWatcher.UI;
 using ZendeskWatcher.Zendesk;
 
@@ -799,7 +800,7 @@ public sealed class SettingsForm : Form
                 _memberCache = null; // Reload fetches the group members again too
             _client = client;
             _meId = me.Id;
-            _myRegion = RegionOf(ZoneOf(me) ?? LocalZone());
+            _myRegion = TimeRegions.Of(ZoneOf(me) ?? LocalZone());
             RefreshHelpPeople();
             var sessionMs = clock.ElapsedMilliseconds;
 
@@ -1413,32 +1414,12 @@ public sealed class SettingsForm : Form
     /// <summary>A group member offered under "Assignees". Zone: their IANA time zone, null if it can't be used.</summary>
     private sealed record Member(long Id, string Name, string? Zone)
     {
-        public TimeRegion Region => RegionOf(Zone);
+        public TimeRegion Region => TimeRegions.Of(Zone);
     }
-
-    /// <summary>Regions the assignees are grouped by, in display order.</summary>
-    private enum TimeRegion { Americas, EuropeAfrica, AsiaPacific, Other, NoTimeZone }
-
-    private static string RegionName(TimeRegion region) => region switch
-    {
-        TimeRegion.Americas => "Americas",
-        TimeRegion.EuropeAfrica => "Europe & Africa",
-        TimeRegion.AsiaPacific => "Asia & Pacific",
-        TimeRegion.Other => "Other time zones",
-        _ => "No time zone (always skipped)"
-    };
-
-    private static TimeRegion RegionOf(string? zone) => zone is null ? TimeRegion.NoTimeZone : zone.Split('/')[0] switch
-    {
-        "America" or "US" or "Canada" or "Brazil" or "Chile" or "Mexico" => TimeRegion.Americas,
-        "Europe" or "Africa" or "Atlantic" or "Arctic" => TimeRegion.EuropeAfrica,
-        "Asia" or "Australia" or "Pacific" or "Indian" or "Antarctica" => TimeRegion.AsiaPacific,
-        _ => TimeRegion.Other
-    };
 
     /// <summary>The IANA id of a profile's time zone, if it can be used (the same rule "Help colleagues" applies).</summary>
     private static string? ZoneOf(User user) =>
-        IanaId(ZendeskWatcher.Tracking.TicketWatcher.ResolveTimeZone(user.IanaTimeZone) ?? ZendeskWatcher.Tracking.TicketWatcher.ResolveTimeZone(user.TimeZone));
+        IanaId(TicketRules.ResolveTimeZone(user.IanaTimeZone) ?? TicketRules.ResolveTimeZone(user.TimeZone));
 
     private static string? LocalZone() => IanaId(TimeZoneInfo.Local);
 
@@ -1551,7 +1532,7 @@ public sealed class SettingsForm : Form
             var boxes = new List<CheckBox>();
             if (region is { } r)
             {
-                var title = Theme.Label(RegionName(r) + (r == _myRegion ? "  ·  your region" : ""), Theme.Small, Theme.TextMuted);
+                var title = Theme.Label(TimeRegions.Name(r) + (r == _myRegion ? "  ·  your region" : ""), Theme.Small, Theme.TextMuted);
                 title.Margin = new Padding(0, 6, 12, 2);
                 title.UseMnemonic = false; // show the "&" in "Europe & Africa"
                 var all = LinkLabel("All", Theme.Small);

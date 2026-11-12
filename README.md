@@ -24,6 +24,10 @@ dotnet run -c Release
 
 Or build and start `bin\Release\net10.0-windows10.0.17763.0\ZendeskWatcher.exe`.
 
+**Tests:** `dotnet test tests/ZendeskWatcher.Tests`. They cover the notification rules (`Tracking/TicketRules.cs`) and
+the unassigned-ticket check end to end against a fake Zendesk, in a temp data folder (never your real state). The
+release workflow runs them first; a failing test stops the release.
+
 On first start the **Settings** window opens:
 
 1. **Account:** enter the subdomain (`episerver` for episerver.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.

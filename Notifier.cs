@@ -20,7 +20,14 @@ public enum NotificationKind
 /// Shows notifications as custom popups (Neon dark, Terminal, Clean light) or as Windows toasts, depending on the theme.
 /// While presenting or in full screen, Windows toasts are used so nothing pops up over the screen.
 /// </summary>
-public sealed class Notifier
+/// <summary>Where the ticket checks send notifications; the real <see cref="Notifier"/>, or a recorder in tests.</summary>
+public interface INotificationSink
+{
+    void Show(NotificationContent content);
+    void ShowMissingGroups(IReadOnlyCollection<string> names);
+}
+
+public sealed class Notifier : INotificationSink
 {
     public const string ActionOpenTicket = "open";
     public const string ActionOpenZendesk = "zendesk";
