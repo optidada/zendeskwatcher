@@ -150,6 +150,24 @@ public sealed class TrayAppContext : ApplicationContext
     }
 
     /// <summary>One shared browser session (one embedded browser profile), pointed at the configured account.</summary>
+    /// <summary>
+    /// The session for the Settings window. Looking at a different account (a new subdomain, not saved yet) points the
+    /// shared hidden browser elsewhere, so checking pauses until it's saved or the window is closed.
+    /// </summary>
+    private IZendeskSession CreateSessionForSettings(Settings settings)
+    {
+        if (settings.Subdomain != _settings.Subdomain && _loopCts is not null)
+            PauseChecking("Paused while Settings looks at another Zendesk account");
+        return CreateSession(settings);
+    }
+
+    private void PauseChecking(string status)
+    {
+        _loopCts?.Cancel();
+        _loopCts = null;
+        SetStatus(status);
+    }
+
     private IZendeskSession CreateSession(Settings settings)
     {
         _browser ??= new BrowserSession();
@@ -249,22 +267,25 @@ public sealed class TrayAppContext : ApplicationContext
             return;
         }
 
-        // Pause polling while the window is open; it shares the embedded browser and may switch the account.
-        _loopCts?.Cancel();
-        _loopCts = null;
-        SetStatus("Paused while Settings is open");
-
-        // A normal (not modal) window, so notifications stay clickable while it's open.
-        var form = new SettingsForm(_settings, CreateSession, _notifier, knownSignedOut);
+        // A normal (not modal) window, so notifications stay clickable while it's open. Checking keeps running with
+        // the saved settings; Save applies changes right away. It only pauses while signing in or out, or while the
+        // window looks at a different Zendesk account (the hidden browser is shared).
+        var form = new SettingsForm(_settings, CreateSessionForSettings, _notifier, knownSignedOut);
         _settingsForm = form;
+        form.Saved += saved =>
+        {
+            _settings = saved;
+            Start(openSettingsIfNeeded: false);
+        };
+        form.SessionChanging += () => PauseChecking("Paused while signing in or out");
+        form.SessionChanged += () => Start(openSettingsIfNeeded: false);
         form.FormClosed += (_, _) =>
         {
             _settingsForm = null;
-            // Result holds the last saved settings (unchanged if nothing was saved). Restart either way:
-            // the user may have signed in or out in the window.
-            _settings = form.Result;
-            MemoryTrim.Soon(); // the window and its controls are gone (closed forms dispose themselves)
-            Start(openSettingsIfNeeded: false);
+            _settings = form.Result; // the last saved settings
+            MemoryTrim.Soon();       // the window and its controls are gone (closed forms dispose themselves)
+            if (_loopCts is null)
+                Start(openSettingsIfNeeded: false); // was paused (or never started): resume
         };
         form.Show();
         form.Activate();

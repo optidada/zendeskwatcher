@@ -30,9 +30,9 @@ On first start the **Settings** window opens:
 2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon.
 3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, and how often to check.
 
-**Save** stores your changes and keeps the window open, so you can continue on other pages. They take effect when you close the window. **Close** asks before discarding unsaved changes.
+**Save** stores your changes and applies them right away; the window stays open, so you can continue on other pages. **Close** asks before discarding unsaved changes.
 
-To reopen Settings, double-click the tray icon or right-click it and choose **Settings…**. Polling pauses while Settings is open.
+To reopen Settings, double-click the tray icon or right-click it and choose **Settings…**. Checking keeps running while Settings is open (with the saved settings); it only pauses while you sign in or out, or look at a different Zendesk account.
 
 ## Tray icon
 

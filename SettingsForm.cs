@@ -124,6 +124,15 @@ public sealed class SettingsForm : Form
     /// <summary>The last saved settings; the original settings if nothing was saved.</summary>
     public Settings Result { get; private set; }
 
+    /// <summary>Settings were saved; the app applies them right away (checking keeps running while this window is open).</summary>
+    public event Action<Settings>? Saved;
+
+    /// <summary>A sign-in or sign-out is about to start: the app pauses checking until <see cref="SessionChanged"/>.</summary>
+    public event Action? SessionChanging;
+
+    /// <summary>The sign-in or sign-out has finished.</summary>
+    public event Action? SessionChanged;
+
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false)
         : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0)
     {
@@ -753,6 +762,7 @@ public sealed class SettingsForm : Form
         _signingIn = true;
         SetAccount("Sign in in the window that opened…", AccountState.Checking);
 
+        SessionChanging?.Invoke();
         try
         {
             await _sessionFactory(connection).SignInAsync(this, CancellationToken.None);
@@ -773,6 +783,7 @@ public sealed class SettingsForm : Form
         {
             _signingIn = false;
             Activate();
+            SessionChanged?.Invoke();
         }
 
         await RefreshAccountAsync(force: true);
@@ -780,9 +791,11 @@ public sealed class SettingsForm : Form
 
     private void SignOut()
     {
+        SessionChanging?.Invoke();
         _sessionFactory(Current()).SignOut();
         _reloadGroups.Enabled = false;
         SetAccount("Signed out.", AccountState.SignedOut);
+        SessionChanged?.Invoke();
     }
 
     private enum AccountState { SignedOut, Checking, SignedIn, Error }
@@ -1043,6 +1056,7 @@ public sealed class SettingsForm : Form
         _saveState.ForeColor = Theme.Success;
         UpdateSaveState();
         Log.Info("Settings saved");
+        Saved?.Invoke(result);
         return true;
     }
 
