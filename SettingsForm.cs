@@ -37,7 +37,9 @@ public sealed class SettingsForm : Form
         Font = Theme.Body, ForeColor = Theme.TextMuted, BackColor = Theme.Surface, Visible = false
     };
     private readonly ListViewGroup _monitoredSection = new("Monitored");
+    private readonly ListViewGroup _suggestedSection = new("Suggested");
     private readonly ListViewGroup _otherSection = new("Other groups");
+    private Dictionary<long, Suggestion> _suggestions = [];
     private readonly Label _groupsHint = Theme.Label("Sign in to load your groups.", Theme.Small, Theme.TextMuted);
     private readonly Button _reloadGroups = Theme.SecondaryButton("Reload");
     private List<GroupItem> _allGroups = [];
@@ -263,7 +265,7 @@ public sealed class SettingsForm : Form
             $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +
             "Whether you get notifications is set under Notifications.", CardWidth);
         _groups.Columns.Add("Group");
-        _groups.Groups.AddRange([_monitoredSection, _otherSection]);
+        _groups.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         var listHost = _groupsHost;
         listHost.Size = _groups.Size;
         listHost.Margin = _groups.Margin;
@@ -591,6 +593,9 @@ public sealed class SettingsForm : Form
                 .ToList();
             if (missing.Count > 0)
                 Log.Info($"Settings: monitored group(s) not found in Zendesk: {string.Join(", ", missing.Select(g => $"{g.Name} ({g.Id})"))}");
+            await LoadSuggestionsAsync(client, me.Id);
+            if (key != _loadedFor)
+                return;
             SetGroups(loaded.Concat(missing));
             _reloadGroups.Enabled = true;
         }
@@ -690,21 +695,26 @@ public sealed class SettingsForm : Form
     }
 
     /// <summary>Monitored groups first (highlighted), then the others; both filtered by the search box.</summary>
+    /// <summary>Monitored groups first (highlighted), then suggestions, then the rest; all filtered by the search box.</summary>
     private void ShowGroupList()
     {
         var filter = _groupFilter.Text.Trim();
         var visible = _allGroups.Where(g => filter.Length == 0 || g.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        var monitored = visible.Where(g => _selectedGroups.Contains(g.Id)).ToList();
-        var others = visible.Where(g => !_selectedGroups.Contains(g.Id)).ToList();
+        var ordered = visible
+            .OrderBy(g => SectionFor(g) == _monitoredSection ? 0 : SectionFor(g) == _suggestedSection ? 1 : 2)
+            .ThenBy(g => g, Comparer<GroupItem>.Create((x, y) => CompareInSection(x, y, SectionFor(x))))
+            .ToList();
 
         _suppressGroupEvents = true;
         _groups.BeginUpdate();
         _groups.Items.Clear();
-        foreach (var group in monitored)
-            _groups.Items.Add(new ListViewItem(group.DisplayName) { Tag = group, Checked = true, Group = _monitoredSection, BackColor = Theme.AccentSoft, Font = Theme.BodyBold, ForeColor = group.Missing ? Theme.TextMuted : Theme.Text });
-        foreach (var group in others)
-            _groups.Items.Add(new ListViewItem(group.Name) { Tag = group, Checked = false, Group = _otherSection, BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body });
-        UpdateSectionHeaders(monitored.Count, others.Count);
+        foreach (var group in ordered)
+        {
+            var item = new ListViewItem { Tag = group };
+            Style(item, group, SectionFor(group));
+            _groups.Items.Add(item);
+        }
+        UpdateSectionHeaders();
         _groups.EndUpdate();
         _groups.FitColumn();
         _suppressGroupEvents = false;
@@ -712,9 +722,40 @@ public sealed class SettingsForm : Form
         UpdateGroupsHint();
     }
 
+    /// <summary>Monitored if ticked; suggested if it's one of your groups or has your tickets; otherwise the rest.</summary>
+    private ListViewGroup SectionFor(GroupItem group) =>
+        _selectedGroups.Contains(group.Id) ? _monitoredSection
+        : !group.Missing && _suggestions.ContainsKey(group.Id) ? _suggestedSection
+        : _otherSection;
+
+    /// <summary>Suggestions: groups you're a member of first, then by how many of your tickets they have. Others: by name.</summary>
+    private int CompareInSection(GroupItem a, GroupItem b, ListViewGroup section)
+    {
+        if (section == _suggestedSection && _suggestions.TryGetValue(a.Id, out var sa) && _suggestions.TryGetValue(b.Id, out var sb))
+        {
+            var byMember = sb.Member.CompareTo(sa.Member);
+            if (byMember != 0) return byMember;
+            var byTickets = sb.Tickets.CompareTo(sa.Tickets);
+            if (byTickets != 0) return byTickets;
+        }
+        return _allGroups.IndexOf(a).CompareTo(_allGroups.IndexOf(b));
+    }
+
+    private void Style(ListViewItem item, GroupItem group, ListViewGroup section)
+    {
+        var monitored = section == _monitoredSection;
+        item.Text = section == _suggestedSection && _suggestions.TryGetValue(group.Id, out var why)
+            ? $"{group.Name}  ·  {why.Reason}"
+            : group.DisplayName;
+        item.Checked = monitored;
+        item.Group = section;
+        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
+        item.Font = monitored ? Theme.BodyBold : Theme.Body;
+        item.ForeColor = group.Missing ? Theme.TextMuted : Theme.Text;
+    }
+
     /// <summary>
-    /// Moves one row to the Monitored or Other section, in name order, without rebuilding the list
-    /// (a rebuild resets the scroll position).
+    /// Moves one row to its section, in order, without rebuilding the list (a rebuild resets the scroll position).
     /// </summary>
     private void MoveGroupItem(ListViewItem item)
     {
@@ -722,48 +763,76 @@ public sealed class SettingsForm : Form
             return; // the list was rebuilt in the meantime
 
         var group = (GroupItem)item.Tag!;
-        var monitored = _selectedGroups.Contains(group.Id);
-        var section = monitored ? _monitoredSection : _otherSection;
-        int Order(ListViewItem i) => _allGroups.IndexOf((GroupItem)i.Tag!);
+        var section = SectionFor(group);
 
         _suppressGroupEvents = true;
         _groups.BeginUpdate();
         _groups.Items.Remove(item);
 
-        if (group.Missing && !monitored)
+        if (group.Missing && section != _monitoredSection)
         {
             // A group that no longer exists has nowhere to go once unticked.
             _allGroups.Remove(group);
-            UpdateSectionHeaders(_monitoredSection.Items.Count, _otherSection.Items.Count);
-            _groups.EndUpdate();
-            _suppressGroupEvents = false;
-            UpdateGroupsHint();
-            return;
+        }
+        else
+        {
+            Style(item, group, section);
+            // Rows show in collection order within their section.
+            var index = _groups.Items.Cast<ListViewItem>().ToList()
+                .FindIndex(i => i.Group == section && CompareInSection(group, (GroupItem)i.Tag!, section) < 0);
+            _groups.Items.Insert(index < 0 ? _groups.Items.Count : index, item);
         }
 
-        item.Checked = monitored;
-        item.Group = section;
-        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
-        item.Font = monitored ? Theme.BodyBold : Theme.Body;
-        item.ForeColor = group.Missing ? Theme.TextMuted : Theme.Text;
-
-        // Rows show in collection order within their section.
-        var order = Order(item);
-        var index = _groups.Items.Cast<ListViewItem>().ToList().FindIndex(i => i.Group == section && Order(i) > order);
-        _groups.Items.Insert(index < 0 ? _groups.Items.Count : index, item);
-
-        UpdateSectionHeaders(_monitoredSection.Items.Count, _otherSection.Items.Count);
+        UpdateSectionHeaders();
         _groups.EndUpdate();
         _suppressGroupEvents = false;
 
         UpdateGroupsHint();
     }
 
-    /// <summary>"Other groups" only makes sense next to monitored ones; with none monitored it's just "Groups".</summary>
-    private void UpdateSectionHeaders(int monitored, int others)
+    /// <summary>"Other groups" only makes sense next to monitored or suggested ones; alone it's just "Groups".</summary>
+    private void UpdateSectionHeaders()
     {
+        var monitored = _monitoredSection.Items.Count;
+        var suggested = _suggestedSection.Items.Count;
+        var others = _otherSection.Items.Count;
         _monitoredSection.Header = $"Monitored · {monitored}";
-        _otherSection.Header = monitored == 0 ? $"Groups · {others}" : $"Other groups · {others}";
+        _suggestedSection.Header = $"Suggested · {suggested}";
+        _otherSection.Header = monitored + suggested == 0 ? $"Groups · {others}" : $"Other groups · {others}";
+    }
+
+    /// <summary>
+    /// Why a group is suggested: you're a member, and/or some of your open tickets are in it.
+    /// Loaded with the group list; never fatal.
+    /// </summary>
+    private async Task LoadSuggestionsAsync(ZendeskClient client, long meId)
+    {
+        try
+        {
+            var memberOf = (await client.GetMyGroupIdsAsync(meId, CancellationToken.None)).ToHashSet();
+            var myTickets = await client.GetMyOpenTicketsAsync(CancellationToken.None);
+            var ticketCounts = myTickets.Where(t => t.GroupId is not null).GroupBy(t => t.GroupId!.Value).ToDictionary(g => g.Key, g => g.Count());
+
+            _suggestions = memberOf.Union(ticketCounts.Keys)
+                .ToDictionary(id => id, id => new Suggestion(memberOf.Contains(id), ticketCounts.GetValueOrDefault(id)));
+            Log.Info($"Settings: {_suggestions.Count} suggested group(s) ({memberOf.Count} memberships, tickets in {ticketCounts.Count} group(s))");
+        }
+        catch (Exception ex) when (ex is not AuthRequiredException)
+        {
+            Log.Error("Settings: could not load group suggestions", ex);
+            _suggestions = [];
+        }
+    }
+
+    private sealed record Suggestion(bool Member, int Tickets)
+    {
+        public string Reason => (Member, Tickets) switch
+        {
+            (true, 0) => "you're a member",
+            (true, var n) => $"you're a member · {n} of your tickets",
+            (false, 1) => "1 of your tickets",
+            (false, var n) => $"{n} of your tickets"
+        };
     }
 
     private void SetGroupsLoading(bool loading)
@@ -991,7 +1060,8 @@ public sealed class SettingsForm : Form
             form.ShowInTaskbar = false;
             form.Show();
             Application.DoEvents();
-            form.SetGroups([new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding")]);
+            form._suggestions = new() { [3] = new Suggestion(false, 2), [4] = new Suggestion(true, 6) };
+            form.SetGroups([new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding"), new GroupItem(5, "Partner Support")]);
             form.SelectTheme(theme);
             for (var page = 0; page < form._pages.Count; page++)
             {

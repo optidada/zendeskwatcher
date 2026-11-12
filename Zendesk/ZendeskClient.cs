@@ -44,6 +44,21 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
+    /// <summary>The groups the user is a member of (used to suggest groups to monitor).</summary>
+    public async Task<List<long>> GetMyGroupIdsAsync(long userId, CancellationToken ct)
+    {
+        try
+        {
+            return (await GetAllPagesAsync<GroupMembershipsResponse, GroupMembership>($"/api/v2/users/{userId}/group_memberships.json", r => r.GroupMemberships, ct))
+                .Select(m => m.GroupId).ToList();
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
+        {
+            return (await GetAllPagesAsync<GroupsResponse, Group>($"/api/v2/users/{userId}/groups.json", r => r.Groups, ct))
+                .Select(g => g.Id).ToList();
+        }
+    }
+
     /// <summary>
     /// Open, unassigned tickets in a group, or with no group at all for <see cref="WatchedGroup.NoGroupId"/>.
     /// Uses the search index, which can lag 1-3 minutes.
