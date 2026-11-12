@@ -141,6 +141,8 @@ public sealed class TrayAppContext : ApplicationContext
         if (!_settings.IsConnectionConfigured)
         {
             SetStatus("Not configured – open Settings", _iconOff);
+            if (openSettingsIfNeeded && Settings.IsFirstRun)
+                _notifier.ShowWelcome();
             if (openSettingsIfNeeded)
                 ShowSettings();
             return;

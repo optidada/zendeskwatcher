@@ -83,8 +83,12 @@ public sealed class Settings
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
 
+    /// <summary>True when no settings file existed at start: the very first start (shows the welcome).</summary>
+    public static bool IsFirstRun { get; private set; }
+
     public static Settings Load()
     {
+        IsFirstRun = !File.Exists(FilePath);
         try
         {
             if (File.Exists(FilePath))

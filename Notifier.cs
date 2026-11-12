@@ -54,6 +54,15 @@ public sealed class Notifier(Action<string, long?> onAction)
     }, Settings);
 
     /// <summary>Monitored groups that Zendesk no longer lists. Shown even when paused; click opens Settings.</summary>
+    /// <summary>The very first start: what to do next. Click opens Settings.</summary>
+    public void ShowWelcome() => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
+        "Enter your Zendesk subdomain (e.g. episerver) and sign in. Then pick the groups to watch, and make the " +
+        "notifications yours under Notifications and Appearance.")
+    {
+        Action = ActionSettings
+    }, Settings);
+
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher",
         names.Count == 1 ? "A monitored group was not found" : $"{names.Count} monitored groups were not found",
