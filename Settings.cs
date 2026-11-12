@@ -70,6 +70,16 @@ public sealed class Settings
     /// <summary>Whether a snoozed popup shows again only if its ticket still needs attention.</summary>
     public SnoozeBehavior SnoozeBehavior { get; set; } = SnoozeBehavior.IfStillNeeded;
 
+    /// <summary>The ticket priorities, in Zendesk's words. Tickets without a priority count as "normal".</summary>
+    public static readonly string[] AllPriorities = ["urgent", "high", "normal", "low"];
+
+    /// <summary>Only changes on my tickets with these (current) priorities notify.</summary>
+    public List<string> MyTicketPriorities { get; set; } = [.. AllPriorities];
+
+    /// <summary>Only changes on CC'd / followed tickets with these (current) priorities notify. Urgent and high by default:
+    /// you're only watching these, so the important ones are enough.</summary>
+    public List<string> CcTicketPriorities { get; set; } = ["urgent", "high"];
+
     /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 

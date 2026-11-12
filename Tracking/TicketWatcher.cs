@@ -423,7 +423,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                     continue; // your own tickets are covered by "my tickets"
                 if (excluded.Contains(assigneeId))
                     continue; // a colleague you chose not to cover
-                if (!TicketRules.MatchesHelpPriority(ticket.Priority, settings.HelpPriorities))
+                if (!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities))
                     continue; // not a priority you chose (no priority counts as normal)
                 var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
                 if (ticket.UpdatedAt <= seen)
@@ -500,6 +500,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private async Task ReportChangesAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct, string? context = null,
         NotificationKind kind = NotificationKind.MyTicket)
     {
+        // Not a priority you chose: stay quiet (and skip reading its changes). The caller still records the ticket's
+        // new state, so these changes don't pop up later if the priority is ticked again.
+        var priorities = kind == NotificationKind.CcTicket ? settings.CcTicketPriorities : settings.MyTicketPriorities;
+        if (!TicketRules.MatchesPriority(ticket.Priority, priorities))
+            return;
+
         var me = Me!.Id;
         var audits = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
             .Where(a => a.AuthorId != me)

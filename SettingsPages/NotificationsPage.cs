@@ -26,6 +26,8 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly ComboBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
     private readonly ComboBox _snoozeBehavior = Kit.Combo(SnoozeBehaviorOptions, width: 300);
     private readonly NumericUpDown _interval = new() { Minimum = 30, Maximum = 3600, Increment = 15, Width = 80, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle };
+    private readonly PriorityChecks _myPriorities = new(new Padding(50, 0, 0, 6));
+    private readonly PriorityChecks _ccPriorities = new(new Padding(50, 0, 0, 6));
     private readonly HelpColleaguesCard _help;
 
     public NotificationsPage(SettingsContext context, GroupsPage groups)
@@ -35,9 +37,12 @@ internal sealed class NotificationsPage : SettingsPage
         unassigned.Body.Controls.Add(_notifyUnassigned);
         Panel.Controls.Add(unassigned);
 
-        var mine = new Card("Ticket changes", "Get notified when someone else changes these tickets.", Kit.CardWidth);
+        var mine = new Card("Ticket changes", "Get notified when someone else changes these tickets, for the priorities you choose. " +
+            "It's the ticket's current priority that counts; tickets without a priority count as Normal.", Kit.CardWidth);
         mine.Body.Controls.Add(_trackMine);
+        mine.Body.Controls.Add(_myPriorities.Row);
         mine.Body.Controls.Add(_trackCc);
+        mine.Body.Controls.Add(_ccPriorities.Row);
         Panel.Controls.Add(mine);
 
         // Its own card: the change types apply to both kinds of tickets above, not to one of the switches.
@@ -80,6 +85,8 @@ internal sealed class NotificationsPage : SettingsPage
 
         _trackMine.CheckedChanged += (_, _) => UpdateChangeTypes();
         _trackCc.CheckedChanged += (_, _) => UpdateChangeTypes();
+        _myPriorities.Changed += Changed;
+        _ccPriorities.Changed += Changed;
         TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText,
             _snoozeMinutes, _snoozeBehavior, _interval);
     }
@@ -96,6 +103,8 @@ internal sealed class NotificationsPage : SettingsPage
         _assignment.Checked = settings.NotifyAssignmentChanges;
         _priority.Checked = settings.NotifyPriorityChanges;
         _commentText.Checked = settings.ShowCommentText;
+        _myPriorities.Selected = settings.MyTicketPriorities;
+        _ccPriorities.Selected = settings.CcTicketPriorities;
         _help.Load(settings);
         Kit.Select(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
         Kit.Select(_snoozeBehavior, settings.SnoozeBehavior);
@@ -114,6 +123,8 @@ internal sealed class NotificationsPage : SettingsPage
         s.NotifyAssignmentChanges = _assignment.Checked;
         s.NotifyPriorityChanges = _priority.Checked;
         s.ShowCommentText = _commentText.Checked;
+        s.MyTicketPriorities = _myPriorities.Selected;
+        s.CcTicketPriorities = _ccPriorities.Selected;
         s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);
         s.SnoozeBehavior = Kit.Selected<SnoozeBehavior>(_snoozeBehavior);
         _help.Apply(s);
@@ -129,5 +140,7 @@ internal sealed class NotificationsPage : SettingsPage
     {
         foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority })
             box.Enabled = _trackMine.Checked || _trackCc.Checked;
+        _myPriorities.Enabled = _trackMine.Checked;
+        _ccPriorities.Enabled = _trackCc.Checked;
     }
 }

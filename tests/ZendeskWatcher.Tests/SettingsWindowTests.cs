@@ -29,6 +29,8 @@ public class SettingsWindowTests
         SnoozeMinutes = 30,
         SnoozeBehavior = SnoozeBehavior.Always,
         ShowCommentText = false,
+        MyTicketPriorities = ["urgent"],
+        CcTicketPriorities = ["high", "low"],
         NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip, Display = ToastDisplay.Long },
         MyTicketStyle = new NotificationStyle { Sound = ToastSound.Silent, Display = ToastDisplay.UntilDismissed },
         HelpStyle = new NotificationStyle { Sound = ToastSound.SongGroove, Display = ToastDisplay.Standard },

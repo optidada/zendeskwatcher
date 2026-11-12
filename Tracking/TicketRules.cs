@@ -20,8 +20,8 @@ public static class TicketRules
         local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
         local.Hour < startHour || local.Hour >= endHour;
 
-    /// <summary>Whether a ticket's priority is one of the chosen ones for "Help colleagues". No priority counts as normal.</summary>
-    public static bool MatchesHelpPriority(string? priority, ICollection<string> chosen) =>
+    /// <summary>Whether a ticket's priority is one of the chosen ones. No priority counts as normal.</summary>
+    public static bool MatchesPriority(string? priority, ICollection<string> chosen) =>
         chosen.Contains(string.IsNullOrEmpty(priority) ? "normal" : priority);
 
     /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>

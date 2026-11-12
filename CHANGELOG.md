@@ -6,6 +6,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.11
 
 - **Sound and display for every kind of notification** under Settings → Appearance: CC / following tickets (until now the same as My tickets, and they start with your My tickets choice), the start summary and app messages (update ready, welcome, group not found) each have their own row. New display time: Medium (~10 s).
+- **Priorities for ticket changes** under Settings → Notifications: choose which priorities notify, separately for your own tickets (all by default) and for CC / following tickets (Urgent and High by default). The ticket's current priority counts, so a ticket raised to Urgent notifies.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10

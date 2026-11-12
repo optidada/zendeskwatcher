@@ -63,11 +63,11 @@ public class TicketRulesTests
     [InlineData(null, false)] // no priority counts as normal
     [InlineData("", false)]
     public void Help_priority_filter(string? priority, bool expected)
-        => Assert.Equal(expected, TicketRules.MatchesHelpPriority(priority, ["urgent", "high"]));
+        => Assert.Equal(expected, TicketRules.MatchesPriority(priority, ["urgent", "high"]));
 
     [Fact]
     public void No_priority_matches_when_normal_is_chosen()
-        => Assert.True(TicketRules.MatchesHelpPriority(null, ["normal"]));
+        => Assert.True(TicketRules.MatchesPriority(null, ["normal"]));
 
     // ---------------------------------------------------------------- CC / follow
 

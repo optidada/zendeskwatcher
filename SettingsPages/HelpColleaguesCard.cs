@@ -39,10 +39,7 @@ internal sealed class HelpColleaguesCard
     private readonly Label _peopleHint = Theme.Label("", Theme.Small, Theme.TextMuted, PeopleWidth);
     private readonly ComboBox _workStart = Kit.HourCombo(0, 23);
     private readonly ComboBox _workEnd = Kit.HourCombo(1, 24);
-    private readonly (string Priority, CheckBox Box)[] _priorities =
-    [
-        ("urgent", Kit.Check("Urgent (P1)")), ("high", Kit.Check("High (P2)")), ("normal", Kit.Check("Normal (P3)")), ("low", Kit.Check("Low (P4)"))
-    ];
+    private readonly PriorityChecks _priorities = new(new Padding(0, 8, 0, 0));
     private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself (same hours, my local time)");
 
     /// <summary>Groups chosen under "Only these groups".</summary>
@@ -80,16 +77,7 @@ internal sealed class HelpColleaguesCard
         options.Controls.Add(_peopleList);
         _peopleHint.Margin = new Padding(20, 2, 0, 4);
         options.Controls.Add(_peopleHint);
-        var priorities = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
-        var priorityLabel = Theme.Label("Priority");
-        priorityLabel.Margin = new Padding(4, 6, 12, 0);
-        priorities.Controls.Add(priorityLabel);
-        foreach (var (_, box) in _priorities)
-        {
-            box.Margin = new Padding(0, 3, 14, 3);
-            priorities.Controls.Add(box);
-        }
-        options.Controls.Add(priorities);
+        options.Controls.Add(_priorities.Row);
         options.Controls.Add(Theme.Label("Tickets without a priority count as Normal.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
 
         var hours = Kit.Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
@@ -108,8 +96,8 @@ internal sealed class HelpColleaguesCard
         _peopleNone.Click += (_, _) => SetAllPeople(false);
         foreach (var combo in new[] { _workStart, _workEnd })
             combo.SelectedIndexChanged += (_, _) => _context.Changed();
-        foreach (var box in _priorities.Select(p => p.Box).Append(_myHours))
-            box.CheckedChanged += (_, _) => _context.Changed();
+        _myHours.CheckedChanged += (_, _) => _context.Changed();
+        _priorities.Changed += () => _context.Changed();
 
         _context.SessionUpdated += reload =>
         {
@@ -136,8 +124,7 @@ internal sealed class HelpColleaguesCard
         _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
         _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
         _myHours.Checked = settings.HelpOnlyDuringMyHours;
-        foreach (var (priority, box) in _priorities)
-            box.Checked = settings.HelpPriorities.Contains(priority);
+        _priorities.Selected = settings.HelpPriorities;
         ShowGroups();
     }
 
@@ -152,7 +139,7 @@ internal sealed class HelpColleaguesCard
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _myHours.Checked;
-        s.HelpPriorities = _priorities.Where(p => p.Box.Checked).Select(p => p.Priority).ToList();
+        s.HelpPriorities = _priorities.Selected;
     }
 
     /// <summary>For the screenshot tool: sample group members (cached, so nothing is requested), as if signed in.</summary>
@@ -395,8 +382,7 @@ internal sealed class HelpColleaguesCard
     {
         var on = _help.Checked;
         _same.Enabled = _custom.Enabled = _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = on;
-        foreach (var (_, box) in _priorities)
-            box.Enabled = on;
+        _priorities.Enabled = on;
         _groupList.Enabled = on && _custom.Checked;
         _peopleList.Enabled = _peopleAll.Enabled = _peopleNone.Enabled = on;
     }
