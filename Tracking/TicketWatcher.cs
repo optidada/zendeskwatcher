@@ -370,7 +370,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
             // Once it's assigned to me, my-ticket tracking reports it; don't notify twice.
             if (ticket.UpdatedAt > tracked.UpdatedAt && ticket.AssigneeId != me)
-                await ReportChangesAsync(ticket, since: tracked.UpdatedAt, ct, context: TicketRules.Involvement(ticket, me) ?? "CC");
+                await ReportChangesAsync(ticket, since: tracked.UpdatedAt, ct, context: TicketRules.Involvement(ticket, me) ?? "CC", kind: NotificationKind.CcTicket);
 
             if (Relevant(ticket) && TicketRules.Involvement(ticket, me) is not null)
                 _state.CcTickets[ticket.Id] = ToTracked(ticket);
@@ -380,7 +380,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         foreach (var ticket in added)
         {
-            await ReportChangesAsync(ticket, since: previousWatermark, ct, context: TicketRules.Involvement(ticket, me) ?? "CC");
+            await ReportChangesAsync(ticket, since: previousWatermark, ct, context: TicketRules.Involvement(ticket, me) ?? "CC", kind: NotificationKind.CcTicket);
             _state.CcTickets[ticket.Id] = ToTracked(ticket);
         }
     }
@@ -496,7 +496,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     /// <summary>Reads the audits since the last known update and notifies about changes made by someone else.</summary>
     /// <param name="context">Shown next to the heading, e.g. "You're CC" for tickets that aren't mine.</param>
-    private async Task ReportChangesAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct, string? context = null)
+    /// <param name="kind"><see cref="NotificationKind.CcTicket"/> for tickets I'm CC'd on or follow (their own sound).</param>
+    private async Task ReportChangesAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct, string? context = null,
+        NotificationKind kind = NotificationKind.MyTicket)
     {
         var me = Me!.Id;
         var audits = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
@@ -526,7 +528,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (lines.Count > shown.Count)
             shown.Insert(0, $"(+{lines.Count - shown.Count} earlier changes)");
 
-        notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
+        notifier.Show(new NotificationContent(kind, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             string.Join("\n", shown), ticket.Id, ticket.Priority, context));
     }
 

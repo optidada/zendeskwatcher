@@ -50,7 +50,7 @@ public sealed class PopupPalette
             "urgent" => Color.FromArgb(255, 55, 95),
             "high" => Color.FromArgb(255, 159, 10),
             "low" => Color.FromArgb(50, 215, 75),
-            _ => kind == NotificationKind.MyTicket ? Color.FromArgb(191, 90, 242) : Color.FromArgb(10, 132, 255)
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(191, 90, 242) : Color.FromArgb(10, 132, 255)
         }
     };
 
@@ -87,7 +87,7 @@ public sealed class PopupPalette
             "urgent" => Color.FromArgb(0xFF, 0x99, 0xB6), // ltpink
             "high" => Color.FromArgb(0xAB, 0xFF, 0x44),   // lfgreen
             "low" => Color.FromArgb(0xD8, 0xE4, 0xCB),    // neutral-4
-            _ => kind == NotificationKind.MyTicket ? Color.FromArgb(0x71, 0xFF, 0x84) : Color.FromArgb(0x91, 0xDB, 0xDA) // green, ltblue
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(0x71, 0xFF, 0x84) : Color.FromArgb(0x91, 0xDB, 0xDA) // green, ltblue
         }
     };
 
@@ -110,7 +110,7 @@ public sealed class PopupPalette
             "urgent" => Color.FromArgb(255, 122, 144),  // soft coral
             "high" => Color.FromArgb(255, 178, 122),    // peach
             "low" => Color.FromArgb(140, 222, 182),     // mint
-            _ => kind == NotificationKind.MyTicket ? Color.FromArgb(236, 150, 222) : Color.FromArgb(184, 148, 255) // pink-lilac, lavender
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(236, 150, 222) : Color.FromArgb(184, 148, 255) // pink-lilac, lavender
         }
     };
 
@@ -129,7 +129,7 @@ public sealed class PopupPalette
             "urgent" => Color.FromArgb(220, 38, 38),
             "high" => Color.FromArgb(234, 88, 12),
             "low" => Color.FromArgb(22, 163, 74),
-            _ => kind == NotificationKind.MyTicket ? Color.FromArgb(147, 51, 234) : Color.FromArgb(37, 99, 235)
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(147, 51, 234) : Color.FromArgb(37, 99, 235)
         }
     };
 

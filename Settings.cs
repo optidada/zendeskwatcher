@@ -78,10 +78,26 @@ public sealed class Settings
     public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail, Display = ToastDisplay.Standard };
     public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Reminder, Display = ToastDisplay.Long };
 
+    private NotificationStyle? _ccTicketStyle;
+
+    /// <summary>CC / following tickets. Until chosen, the same as My tickets (they shared that setting before 1.3.11).</summary>
+    public NotificationStyle CcTicketStyle
+    {
+        get => _ccTicketStyle ??= new NotificationStyle { Sound = MyTicketStyle.Sound, Display = MyTicketStyle.Display };
+        set => _ccTicketStyle = value;
+    }
+
+    /// <summary>The summary after the first check: silent, but on screen long enough to read.</summary>
+    public NotificationStyle SummaryStyle { get; set; } = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Medium };
+
+    /// <summary>Update ready, welcome, monitored group not found, and the sound of "Sign-in required".</summary>
+    public NotificationStyle AppMessageStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Long };
+
     public NotificationStyle StyleFor(NotificationKind kind) => kind switch
     {
         NotificationKind.NewTicket => NewTicketStyle,
         NotificationKind.HelpColleague => HelpStyle,
+        NotificationKind.CcTicket => CcTicketStyle,
         _ => MyTicketStyle
     };
     public NotificationTheme Theme { get; set; } = NotificationTheme.Optimizely;
@@ -212,7 +228,7 @@ public enum ToastDisplay
     /// <summary>Stays on screen until clicked or dismissed.</summary>
     UntilDismissed,
 
-    /// <summary>About 10 seconds. Only for app messages (the start summary), not offered in Settings. (Added last.)</summary>
+    /// <summary>About 10 seconds (added last, so saved values keep their meaning).</summary>
     Medium
 }
 

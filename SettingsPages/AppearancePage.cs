@@ -20,7 +20,8 @@ internal sealed class AppearancePage : SettingsPage
 
     private static readonly Option<ToastDisplay>[] DisplayOptions =
     [
-        new(ToastDisplay.Standard, "Standard (~5 s)"), new(ToastDisplay.Long, "Long (~25 s)"), new(ToastDisplay.UntilDismissed, "Stay until dismissed")
+        new(ToastDisplay.Standard, "Standard (~5 s)"), new(ToastDisplay.Medium, "Medium (~10 s)"), new(ToastDisplay.Long, "Long (~25 s)"),
+        new(ToastDisplay.UntilDismissed, "Stay until dismissed")
     ];
 
     private readonly ThemeTile[] _themeTiles =
@@ -36,6 +37,12 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ComboBox _myDisplay = Kit.Combo(DisplayOptions);
     private readonly ComboBox _helpSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _helpDisplay = Kit.Combo(DisplayOptions);
+    private readonly ComboBox _ccSound = Kit.Combo(SoundOptions);
+    private readonly ComboBox _ccDisplay = Kit.Combo(DisplayOptions);
+    private readonly ComboBox _summarySound = Kit.Combo(SoundOptions);
+    private readonly ComboBox _summaryDisplay = Kit.Combo(DisplayOptions);
+    private readonly ComboBox _appSound = Kit.Combo(SoundOptions);
+    private readonly ComboBox _appDisplay = Kit.Combo(DisplayOptions);
     private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
     private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
@@ -56,14 +63,18 @@ internal sealed class AppearancePage : SettingsPage
         style.Body.Controls.Add(Kit.Row(Theme.Label("Popup position"), _position));
         Panel.Controls.Add(style);
 
-        var sound = new Card("Sound and display", null, Kit.CardWidth);
+        var sound = new Card("Sound and display", "App messages: update ready, welcome and group not found; \"Sign-in required\" uses " +
+            "their sound but always stays until dismissed. Replies to your own clicks (e.g. \"No updates\") stay quiet.", Kit.CardWidth);
         var grid = new TableLayoutPanel { ColumnCount = 4, AutoSize = true, BackColor = Theme.Surface };
         grid.Controls.Add(Theme.Label(""), 0, 0);
         grid.Controls.Add(Theme.Label("Sound", Theme.Small, Theme.TextMuted), 1, 0);
         grid.Controls.Add(Theme.Label("Display", Theme.Small, Theme.TextMuted), 3, 0);
         AddStyleRow(grid, 1, "New tickets", _newSound, _newDisplay);
         AddStyleRow(grid, 2, "My tickets", _mySound, _myDisplay);
-        AddStyleRow(grid, 3, "Colleagues' tickets", _helpSound, _helpDisplay);
+        AddStyleRow(grid, 3, "CC / following", _ccSound, _ccDisplay);
+        AddStyleRow(grid, 4, "Colleagues' tickets", _helpSound, _helpDisplay);
+        AddStyleRow(grid, 5, "Start summary", _summarySound, _summaryDisplay);
+        AddStyleRow(grid, 6, "App messages", _appSound, _appDisplay);
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
 
@@ -82,7 +93,8 @@ internal sealed class AppearancePage : SettingsPage
         _testBurst.Click += (_, _) => SendTest(null);
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
-        TrackChanges(_position, _newSound, _newDisplay, _mySound, _myDisplay, _helpSound, _helpDisplay, _showLogo, _groupByType);
+        TrackChanges(_position, _newSound, _newDisplay, _mySound, _myDisplay, _ccSound, _ccDisplay, _helpSound, _helpDisplay,
+            _summarySound, _summaryDisplay, _appSound, _appDisplay, _showLogo, _groupByType);
     }
 
     public override void Load(Settings settings)
@@ -93,6 +105,12 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_myDisplay, settings.MyTicketStyle.Display);
         Kit.Select(_helpSound, settings.HelpStyle.Sound);
         Kit.Select(_helpDisplay, settings.HelpStyle.Display);
+        Kit.Select(_ccSound, settings.CcTicketStyle.Sound);
+        Kit.Select(_ccDisplay, settings.CcTicketStyle.Display);
+        Kit.Select(_summarySound, settings.SummaryStyle.Sound);
+        Kit.Select(_summaryDisplay, settings.SummaryStyle.Display);
+        Kit.Select(_appSound, settings.AppMessageStyle.Sound);
+        Kit.Select(_appDisplay, settings.AppMessageStyle.Display);
         _showLogo.Checked = settings.ShowAppLogo;
         SelectTheme(settings.Theme);
         Kit.Select(_position, settings.Position);
@@ -101,14 +119,20 @@ internal sealed class AppearancePage : SettingsPage
 
     public override void Apply(Settings s)
     {
-        s.NewTicketStyle = new NotificationStyle { Sound = Kit.Selected<ToastSound>(_newSound), Display = Kit.Selected<ToastDisplay>(_newDisplay) };
-        s.MyTicketStyle = new NotificationStyle { Sound = Kit.Selected<ToastSound>(_mySound), Display = Kit.Selected<ToastDisplay>(_myDisplay) };
-        s.HelpStyle = new NotificationStyle { Sound = Kit.Selected<ToastSound>(_helpSound), Display = Kit.Selected<ToastDisplay>(_helpDisplay) };
+        s.NewTicketStyle = Style(_newSound, _newDisplay);
+        s.MyTicketStyle = Style(_mySound, _myDisplay);
+        s.HelpStyle = Style(_helpSound, _helpDisplay);
+        s.CcTicketStyle = Style(_ccSound, _ccDisplay);
+        s.SummaryStyle = Style(_summarySound, _summaryDisplay);
+        s.AppMessageStyle = Style(_appSound, _appDisplay);
         s.ShowAppLogo = _showLogo.Checked;
         s.Theme = _themeTiles.FirstOrDefault(t => t.Selected)?.Value ?? NotificationTheme.NeonDark;
         s.Position = Kit.Selected<PopupPosition>(_position);
         s.GroupNotificationsByType = _groupByType.Checked;
     }
+
+    private static NotificationStyle Style(ComboBox sound, ComboBox display) =>
+        new() { Sound = Kit.Selected<ToastSound>(sound), Display = Kit.Selected<ToastDisplay>(display) };
 
     /// <summary>Selects a style, and previews it on the whole window right away (only kept if saved).</summary>
     public void SelectTheme(NotificationTheme theme)

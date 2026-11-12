@@ -9,11 +9,14 @@ public enum NotificationKind
     /// <summary>New unassigned tickets in a monitored group.</summary>
     NewTicket,
 
-    /// <summary>Changes on a ticket assigned to me (or that I'm CC'd on / follow).</summary>
+    /// <summary>Changes on a ticket assigned to me.</summary>
     MyTicket,
 
     /// <summary>"Help colleagues": a customer replied on a colleague's ticket while they're off work.</summary>
-    HelpColleague
+    HelpColleague,
+
+    /// <summary>Changes on a ticket where I'm CC'd or follow (looks like <see cref="MyTicket"/>, has its own sound).</summary>
+    CcTicket
 }
 
 /// <summary>
@@ -128,10 +131,14 @@ public sealed class Notifier : INotificationSink
             Show(content, Settings);
     }
 
-    // App messages have their own fixed behavior, independent of the ticket styles in Appearance.
+    // Replies to something the user just clicked ("No updates", "already taken") stay quiet and short.
     private static readonly NotificationStyle QuietInfo = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Standard };
-    private static readonly NotificationStyle ActOnIt = new() { Sound = ToastSound.Default, Display = ToastDisplay.Long };
-    private static readonly NotificationStyle Blocking = new() { Sound = ToastSound.Default, Display = ToastDisplay.UntilDismissed };
+
+    /// <summary>App messages (update ready, welcome, group not found) as chosen under Appearance.</summary>
+    private NotificationStyle ActOnIt => Settings.AppMessageStyle;
+
+    /// <summary>Sign-in required: the App messages sound, but always on screen until dismissed (nothing works until then).</summary>
+    private NotificationStyle Blocking => new() { Sound = Settings.AppMessageStyle.Sound, Display = ToastDisplay.UntilDismissed };
 
     /// <summary>Shown even when paused: the app cannot work until the user signs in.</summary>
     public void ShowSignInRequired() => Show(new NotificationContent(
@@ -161,12 +168,12 @@ public sealed class Notifier : INotificationSink
         Style = ActOnIt
     }, Settings);
 
-    /// <summary>The start summary: silent, but on screen long enough to read. Click opens Zendesk.</summary>
+    /// <summary>The start summary, as chosen under Appearance (silent, about 10 seconds by default). Click opens Zendesk.</summary>
     public void ShowSummary(NotificationContent content) => Show(content with
     {
         Action = ActionOpenZendesk,
         MaxBodyLines = 7,
-        Style = new NotificationStyle { Sound = ToastSound.Silent, Display = ToastDisplay.Medium }
+        Style = Settings.SummaryStyle
     });
 
     /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>
