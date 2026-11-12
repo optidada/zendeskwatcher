@@ -1,0 +1,354 @@
+using System.Diagnostics;
+using Microsoft.Toolkit.Uwp.Notifications;
+using ZendeskWatcher.Auth;
+using ZendeskWatcher.Tracking;
+using ZendeskWatcher.UI;
+using ZendeskWatcher.UI.Popups;
+using ZendeskWatcher.Zendesk;
+
+namespace ZendeskWatcher;
+
+/// <summary>The tray icon, its menu and the polling loop.</summary>
+public sealed class TrayAppContext : ApplicationContext
+{
+    public static TrayAppContext? Current { get; private set; }
+
+    private readonly Notifier _notifier;
+    private readonly SynchronizationContext _ui;
+    private readonly NotifyIcon _tray;
+    private readonly ToolStripMenuItem _statusItem = new() { Enabled = false };
+    private readonly ToolStripMenuItem _pauseItem = new("Pause notifications") { CheckOnClick = true };
+    private readonly SemaphoreSlim _wakeUp = new(0);
+    private readonly AppUpdater _updater = new();
+    private readonly ToolStripMenuItem _updateItem = new("Check for updates");
+    private readonly System.Windows.Forms.Timer _updateTimer = new();
+
+    private readonly Icon _iconOk = AppIcon.CreateIcon(AppIcon.NeonGreen);
+    private readonly Icon _iconAttention = AppIcon.CreateIcon(AppIcon.NeonOrange);
+    private readonly Icon _iconOff = AppIcon.CreateIcon(AppIcon.Dim);
+
+    private Settings _settings = Settings.Load();
+    private BrowserSession? _browser;
+    private CancellationTokenSource? _loopCts;
+    private SettingsForm? _settingsForm;
+    private bool _signInPromptShown;
+
+    public TrayAppContext()
+    {
+        Current = this;
+        _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        _notifier = new Notifier(HandleAction) { Settings = _settings };
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(_statusItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Open Zendesk", null, (_, _) => OpenUrl(_settings.IsConnectionConfigured ? $"{_settings.BaseUrl}/agent" : null));
+        menu.Items.Add("Check now", null, (_, _) => _wakeUp.Release());
+        menu.Items.Add(_pauseItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
+        menu.Items.Add("Open log folder", null, (_, _) => OpenUrl(AppPaths.DataDir));
+        menu.Items.Add(_updateItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Exit", null, (_, _) => ExitThread());
+
+        _pauseItem.CheckedChanged += (_, _) =>
+        {
+            _notifier.Paused = _pauseItem.Checked;
+            SetStatus(_pauseItem.Checked ? "Notifications paused" : "Notifications resumed");
+        };
+
+        _tray = new NotifyIcon { Icon = _iconOff, Text = "Zendesk Watcher", ContextMenuStrip = menu, Visible = true };
+        _tray.DoubleClick += (_, _) => ShowSettings();
+
+        _updateItem.Click += (_, _) => OnUpdateMenuClicked();
+        if (_updater.IsInstalled)
+        {
+            // Keep "Start with Windows" pointing at the installed exe (e.g. after moving from a hand-copied exe).
+            if (StartupRegistration.IsEnabled)
+                StartupRegistration.Set(true);
+
+            // First check shortly after start, then every 6 hours.
+            _updateTimer.Interval = 60_000;
+            _updateTimer.Tick += async (_, _) =>
+            {
+                _updateTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
+                await CheckForUpdatesAsync(userInitiated: false);
+            };
+            _updateTimer.Start();
+        }
+
+        // Run once the message loop is up; this may open the Settings window on first start.
+        _ui = SynchronizationContext.Current ?? _ui;
+        _ui.Post(_ => Start(openSettingsIfNeeded: true), null);
+    }
+
+    /// <summary>Called by the toast library on a background thread when a notification is clicked.</summary>
+    public void OnToastActivated(ToastArguments args) => _ui.Post(_ =>
+    {
+        args.TryGetValue("action", out var action);
+        long? ticketId = args.TryGetValue("ticketId", out var id) && long.TryParse(id, out var parsed) ? parsed : null;
+        HandleAction(action ?? "", ticketId);
+    }, null);
+
+    /// <summary>Shows sample notifications with the saved settings once the app is running.</summary>
+    public void ShowTestPopups() => _ui.Post(_ => _notifier.ShowTestBurst(_settings), null);
+
+    /// <summary>What a click on a notification (popup or Windows toast) does. Runs on the UI thread.</summary>
+    private void HandleAction(string action, long? ticketId)
+    {
+        switch (action)
+        {
+            case Notifier.ActionOpenTicket when ticketId is { } id:
+                OpenUrl(_settings.TicketUrl(id));
+                break;
+            case Notifier.ActionOpenZendesk:
+                OpenUrl($"{_settings.BaseUrl}/agent");
+                break;
+            case Notifier.ActionSignIn:
+                ShowSettings();
+                break;
+            case Notifier.ActionUpdate:
+                RestartToUpdate();
+                break;
+        }
+    }
+
+    /// <summary>(Re)starts watching with the current settings, or opens Settings if something is missing.</summary>
+    private void Start(bool openSettingsIfNeeded)
+    {
+        _loopCts?.Cancel();
+        _loopCts = null;
+
+        if (!_settings.IsConnectionConfigured)
+        {
+            SetStatus("Not configured – open Settings", _iconOff);
+            if (openSettingsIfNeeded)
+                ShowSettings();
+            return;
+        }
+
+        var session = CreateSession(_settings);
+        if (!session.MightBeSignedIn)
+        {
+            SetStatus("Sign-in required – open Settings", _iconOff);
+            if (openSettingsIfNeeded)
+                ShowSettings();
+            return;
+        }
+
+        _notifier.Settings = _settings;
+        _loopCts = new CancellationTokenSource();
+        _ = RunLoopAsync(session, _loopCts.Token);
+    }
+
+    /// <summary>One shared browser session (one embedded browser profile), pointed at the configured account.</summary>
+    private IZendeskSession CreateSession(Settings settings)
+    {
+        _browser ??= new BrowserSession();
+        _browser.Configure(settings.BaseUrl);
+        return _browser;
+    }
+
+    private async Task RunLoopAsync(IZendeskSession session, CancellationToken ct)
+    {
+        var watcher = new TicketWatcher(_settings, new ZendeskClient(_settings, session), _notifier);
+        var initialized = false;
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (!initialized)
+                {
+                    SetStatus("Connecting…");
+                    await watcher.InitializeAsync(ct);
+                    initialized = true;
+                }
+
+                await watcher.PollAsync(ct);
+                _signInPromptShown = false; // signed in again: a later failure may prompt again
+
+                var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
+                SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary, watcher.UnassignedCount > 0 ? _iconAttention : _iconOk);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (AuthRequiredException)
+            {
+                Log.Info("Sign-in required");
+                SetStatus("Sign-in required – double-click to sign in", _iconOff);
+                PromptSignIn();
+                return; // Restarted after signing in via Settings.
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Poll failed", ex);
+                SetStatus($"Error, retrying: {ex.Message}", _iconOff);
+            }
+
+            try
+            {
+                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), ct), _wakeUp.WaitAsync(ct));
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The session failed and could not be renewed silently: open the Account page so the user can sign in again.
+    /// Only once per failure (closing the window does not make it reopen), and never over a presentation.
+    /// </summary>
+    private void PromptSignIn()
+    {
+        if (_signInPromptShown)
+            return;
+        _signInPromptShown = true;
+
+        if (PopupManager.CanShowPopups())
+        {
+            _ui.Post(_ => ShowSettings(knownSignedOut: true), null);
+            return;
+        }
+
+        // Presenting or full screen: notify quietly, open the Account page when that is over.
+        _notifier.ShowSignInRequired();
+        var wait = new System.Windows.Forms.Timer { Interval = 30_000 };
+        wait.Tick += (_, _) =>
+        {
+            if (!PopupManager.CanShowPopups())
+                return;
+            wait.Dispose();
+            if (_signInPromptShown && _settingsForm is null) // still signed out, window not open
+                ShowSettings(knownSignedOut: true);
+        };
+        wait.Start();
+    }
+
+    /// <param name="knownSignedOut">The session was just found to be inactive; the window skips its own check.</param>
+    private void ShowSettings(bool knownSignedOut = false)
+    {
+        if (_settingsForm is not null)
+        {
+            _settingsForm.Activate();
+            return;
+        }
+
+        // Pause polling while the window is open; it shares the embedded browser and may switch the account.
+        _loopCts?.Cancel();
+        _loopCts = null;
+
+        using var form = new SettingsForm(_settings, CreateSession, _notifier, knownSignedOut);
+        _settingsForm = form;
+        try
+        {
+            form.ShowDialog();
+        }
+        finally
+        {
+            _settingsForm = null;
+        }
+
+        // Result holds the last saved settings (unchanged if nothing was saved). Restart either way:
+        // the user may have signed in or out in the window.
+        _settings = form.Result;
+        Start(openSettingsIfNeeded: false);
+    }
+
+    private async void OnUpdateMenuClicked()
+    {
+        if (_updater.Pending is not null)
+            RestartToUpdate();
+        else
+            await CheckForUpdatesAsync(userInitiated: true);
+    }
+
+    /// <summary>Checks GitHub and downloads a newer version. Runs on the UI thread.</summary>
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (!_updater.IsInstalled)
+        {
+            if (userInitiated)
+                MessageBox.Show("Updates only work in the installed app (Setup.exe).", "Zendesk Watcher");
+            return;
+        }
+
+        try
+        {
+            _updateItem.Enabled = false;
+            _updateItem.Text = "Checking for updates…";
+            if (await _updater.CheckAndDownloadAsync())
+            {
+                _updateItem.Text = $"Restart to update to {_updater.PendingVersion}";
+                _updateTimer.Stop();
+                _notifier.ShowUpdateReady(_updater.PendingVersion!);
+            }
+            else
+            {
+                _updateItem.Text = "Check for updates";
+                if (userInitiated)
+                    MessageBox.Show($"You have the latest version ({_updater.CurrentVersion}).", "Zendesk Watcher");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Update check failed", ex);
+            _updateItem.Text = "Check for updates";
+            if (userInitiated)
+                MessageBox.Show($"Could not check for updates:\n{ex.Message}", "Zendesk Watcher");
+        }
+        finally
+        {
+            _updateItem.Enabled = true;
+        }
+    }
+
+    private void RestartToUpdate()
+    {
+        if (_updater.Pending is null)
+            return;
+        Log.Info($"Restarting to update to {_updater.PendingVersion}");
+        _loopCts?.Cancel();
+        _tray.Visible = false; // the process exits right away; don't leave a ghost icon behind
+        _browser?.Dispose();
+        _updater.ApplyAndRestart();
+    }
+
+    private void SetStatus(string text, Icon? icon = null) => _ui.Post(_ =>
+    {
+        _statusItem.Text = text;
+        var tooltip = $"Zendesk Watcher\n{text}";
+        _tray.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
+        if (icon is not null)
+            _tray.Icon = icon;
+    }, null);
+
+    private static void OpenUrl(string? url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not open {url}", ex);
+        }
+    }
+
+    protected override void ExitThreadCore()
+    {
+        _loopCts?.Cancel();
+        _updateTimer.Dispose();
+        _tray.Visible = false;
+        _tray.Dispose();
+        _browser?.Dispose();
+        base.ExitThreadCore();
+    }
+}

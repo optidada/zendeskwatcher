@@ -1,0 +1,154 @@
+using System.Media;
+using System.Runtime.InteropServices;
+
+namespace ZendeskWatcher.UI.Popups;
+
+/// <summary>Shows custom popups stacked in a screen corner, queues the overflow and re-shows snoozed ones.</summary>
+public sealed class PopupManager
+{
+    private const int MaxVisible = 4;
+    private static readonly TimeSpan SnoozeTime = TimeSpan.FromMinutes(10);
+
+    private readonly List<PopupForm> _visible = [];
+    private readonly Queue<(NotificationContent Content, Settings Settings)> _pending = new();
+    private readonly Action<string, long?> _onAction;
+
+    public PopupManager(Action<string, long?> onAction) => _onAction = onAction;
+
+    public void Show(NotificationContent content, Settings settings)
+    {
+        if (_visible.Count >= MaxVisible)
+        {
+            _pending.Enqueue((content, settings));
+            return;
+        }
+
+        var style = content.Kind == NotificationKind.NewTicket ? settings.NewTicketStyle : settings.MyTicketStyle;
+        var palette = PopupPalette.For(settings.Theme);
+        var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
+        var scale = DpiScale();
+
+        var popup = new PopupForm(content, palette, style.Display, scale);
+        popup.Finished += p => OnFinished(p, settings);
+        _visible.Add(popup);
+
+        var restX = screen.WorkingArea.Right - popup.Width - (int)(16 * scale);
+        Layout(settings.Position, scale);
+        popup.Present(restX);
+
+        PlaySound(style.Sound);
+    }
+
+    private void OnFinished(PopupForm popup, Settings settings)
+    {
+        _visible.Remove(popup);
+
+        switch (popup.Outcome)
+        {
+            case PopupForm.Result.Open:
+                _onAction(popup.Content.ResolvedAction, popup.Content.TicketId);
+                break;
+            case PopupForm.Result.Snooze:
+                var snoozed = popup.Content;
+                var timer = new System.Windows.Forms.Timer { Interval = (int)SnoozeTime.TotalMilliseconds };
+                timer.Tick += (_, _) =>
+                {
+                    timer.Dispose();
+                    Show(snoozed with { Heading = $"Snoozed · {snoozed.Heading}" }, settings);
+                };
+                timer.Start();
+                break;
+        }
+
+        Layout(settings.Position, DpiScale());
+
+        if (_pending.Count > 0)
+        {
+            var (content, pendingSettings) = _pending.Dequeue();
+            Show(content, pendingSettings);
+        }
+    }
+
+    /// <summary>Newest popup nearest the corner; older ones are pushed away from it.</summary>
+    private void Layout(PopupPosition position, float scale)
+    {
+        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        var margin = (int)(16 * scale);
+        var gap = (int)(10 * scale);
+
+        if (position == PopupPosition.TopRight)
+        {
+            var y = area.Top + margin;
+            for (var i = _visible.Count - 1; i >= 0; i--)
+            {
+                _visible[i].TargetY = y;
+                y += _visible[i].Height + gap;
+            }
+        }
+        else
+        {
+            var y = area.Bottom - margin;
+            for (var i = _visible.Count - 1; i >= 0; i--)
+            {
+                y -= _visible[i].Height;
+                _visible[i].TargetY = y;
+                y -= gap;
+            }
+        }
+    }
+
+    /// <summary>
+    /// False while the user is presenting or something runs full screen; Windows toasts are used then,
+    /// so popups never appear over a screen share.
+    /// </summary>
+    public static bool CanShowPopups()
+    {
+        const int QUNS_BUSY = 2, QUNS_RUNNING_D3D_FULL_SCREEN = 3, QUNS_PRESENTATION_MODE = 4, QUNS_APP = 7;
+        try
+        {
+            return SHQueryUserNotificationState(out var state) != 0 ||
+                   state is not (QUNS_BUSY or QUNS_RUNNING_D3D_FULL_SCREEN or QUNS_PRESENTATION_MODE or QUNS_APP);
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    private static void PlaySound(ToastSound sound)
+    {
+        if (sound == ToastSound.Silent)
+            return;
+
+        var file = sound switch
+        {
+            ToastSound.Mail => "Windows Notify Email.wav",
+            ToastSound.InstantMessage => "Windows Notify Messaging.wav",
+            ToastSound.Reminder => "Windows Notify Calendar.wav",
+            ToastSound.Sms => "Windows Message Nudge.wav",
+            _ => "Windows Notify System Generic.wav"
+        };
+
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media", file);
+            if (File.Exists(path))
+                new SoundPlayer(path).Play();
+            else
+                SystemSounds.Asterisk.Play();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not play notification sound", ex);
+        }
+    }
+
+    private static float DpiScale()
+    {
+        using var g = Graphics.FromHwnd(IntPtr.Zero);
+        return g.DpiX / 96f;
+    }
+
+    [DllImport("shell32.dll")]
+    private static extern int SHQueryUserNotificationState(out int state);
+}
