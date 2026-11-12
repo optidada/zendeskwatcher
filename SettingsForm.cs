@@ -299,8 +299,8 @@ public sealed class SettingsForm : Form
         var result = Current();
 
         if (result.IsConnectionConfigured && result.WatchedGroups.Count == 0 && !result.TrackMyTickets && !result.TrackCcTickets &&
-            MessageBox.Show(this, "No groups are monitored and ticket tracking is off, so nothing will be watched. Save anyway?",
-                Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            !ThemedDialog.Confirm(this, "Nothing will be watched",
+                "No groups are monitored and ticket tracking is off, so Zendesk Watcher won't notify you about anything.", "Save anyway"))
         {
             return false;
         }
@@ -313,7 +313,7 @@ public sealed class SettingsForm : Form
         catch (Exception ex)
         {
             Log.Error("Could not save settings", ex);
-            MessageBox.Show(this, ex.Message, "Could not save settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ThemedDialog.Inform(this, "Could not save settings", ex.Message, ThemedDialog.Kind.Error);
             return false;
         }
 
@@ -366,8 +366,10 @@ public sealed class SettingsForm : Form
         if (!HasUnsavedChanges)
             return;
 
-        var answer = MessageBox.Show(this, "You have unsaved changes. Save them before closing?", Text,
-            MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+        var answer = ThemedDialog.Show(this, "Save your changes?", "You have changes that aren't saved yet.", ThemedDialog.Kind.Question,
+            new ThemedDialog.Choice("Save", DialogResult.Yes, Primary: true),
+            new ThemedDialog.Choice("Don't save", DialogResult.No),
+            new ThemedDialog.Choice("Cancel", DialogResult.Cancel));
 
         if (answer == DialogResult.Cancel || (answer == DialogResult.Yes && !Save()))
             e.Cancel = true;

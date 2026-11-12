@@ -39,8 +39,8 @@ internal sealed class StatisticsPage : SettingsPage
 
         _clear.Click += (_, _) =>
         {
-            if (MessageBox.Show(Context.Window, "Clear the notification statistics?", Context.Window.Text,
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            if (!ThemedDialog.Confirm(Context.Window, "Clear the statistics?",
+                    "The counts of the last 30 days are removed. This can't be undone.", "Clear"))
                 return;
             Context.Notifier.Stats.Clear();
             Refresh();

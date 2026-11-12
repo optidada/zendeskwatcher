@@ -141,8 +141,8 @@ internal sealed class AccountPage : SettingsPage
         var connection = Context.Current();
         if (!connection.IsConnectionConfigured)
         {
-            MessageBox.Show(Context.Window, "Enter your Zendesk subdomain first: the part before .zendesk.com in the address you use for Zendesk.", Context.Window.Text,
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ThemedDialog.Inform(Context.Window, "Enter your Zendesk subdomain",
+                "It's the part before .zendesk.com in the address you use for Zendesk.");
             return;
         }
 
@@ -164,7 +164,7 @@ internal sealed class AccountPage : SettingsPage
         {
             Log.Error("Sign-in failed", ex);
             SetStatus("Sign-in failed.", AccountState.SignedOut);
-            MessageBox.Show(Context.Window, ex.Message, "Sign-in failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ThemedDialog.Inform(Context.Window, "Sign-in failed", ex.Message, ThemedDialog.Kind.Error);
             return;
         }
         finally

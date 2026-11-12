@@ -51,6 +51,14 @@ internal static class Program
             return;
         }
 
+        // Developer helper: draw the themed dialog in every appearance to PNG files, then exit.
+        if (args.Length >= 2 && args[0] == "--render-dialog")
+        {
+            ApplicationConfiguration.Initialize();
+            UI.ThemedDialog.RenderSamples(args[1]);
+            return;
+        }
+
         // Developer helper: draw the Settings window in every appearance to PNG files, then exit.
         if (args.Length >= 2 && args[0] == "--render-settings")
         {

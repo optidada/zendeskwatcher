@@ -47,8 +47,9 @@ internal sealed class GeneralPage : SettingsPage
         Panel.Controls.Add(reset);
         _reset.Click += (_, _) =>
         {
-            if (MessageBox.Show(Context.Window, "Show the default settings? Your account and monitored groups stay as they are. " +
-                    "Nothing is saved until you click Save.", Context.Window.Text, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
+            if (ThemedDialog.Confirm(Context.Window, "Reset to defaults?",
+                    "All settings go back to their defaults, except your account and monitored groups. Nothing is saved until you click Save.",
+                    "Show defaults"))
                 ResetRequested?.Invoke();
         };
 

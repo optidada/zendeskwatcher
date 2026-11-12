@@ -171,7 +171,7 @@ internal sealed class AppearancePage : SettingsPage
         catch (Exception ex)
         {
             Log.Error("Test notification failed", ex);
-            MessageBox.Show(Context.Window, ex.Message, "Test notification failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ThemedDialog.Inform(Context.Window, "Test notification failed", ex.Message, ThemedDialog.Kind.Error);
         }
     }
 
