@@ -6,6 +6,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.6
 
 - **New Optimizely theme**: the optimizely.com look (dark fir green, lime accents), for popups and the Settings window. It's the default for new installs.
+- The tray icon pulses gently while the app is checking Zendesk.
 - Settings → Account: no Sign in button while the app is still checking whether you're signed in.
 - Checking keeps running while Settings is open, and **Save applies changes right away** (e.g. a newly ticked group starts being watched immediately). It only pauses while signing in or out.
 - "Check for updates" answers with a notification ("No updates · You have the latest version") instead of a dialog box.

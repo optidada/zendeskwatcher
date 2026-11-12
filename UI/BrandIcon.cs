@@ -16,7 +16,8 @@ public static class BrandIcon
     public static readonly Color Gray = Color.FromArgb(0xB4, 0xBC, 0xB8);
     private static readonly Color DarkGray = Color.FromArgb(0x3C, 0x42, 0x40);
 
-    public static Bitmap Render(int size, Color face, bool eye)
+    /// <param name="shine">0 = normal; up to 1 = the face blended towards white (for the "working" pulse).</param>
+    public static Bitmap Render(int size, Color face, bool eye, float shine = 0)
     {
         var bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
@@ -27,6 +28,9 @@ public static class BrandIcon
         var u = size / 64f;            // design grid 64 x 64
         var small = size < 24;
         var side = face == Gray ? DarkGray : DarkGreen;
+        if (shine > 0)
+            face = Color.FromArgb(
+                (int)(face.R + (255 - face.R) * shine), (int)(face.G + (255 - face.G) * shine), (int)(face.B + (255 - face.B) * shine));
 
         // The Z as a thick stroke with rounded corners, turned into a solid outline.
         var stroke = (small ? 13f : 11.5f) * u;
@@ -119,6 +123,19 @@ public static class BrandIcon
                     x += pad;
                 }
                 sheet.Save(Path.Combine(dir, $"{(eye ? "eye" : "plain")}-{(bg == Color.White ? "light" : "dark")}.png"));
+            }
+            // The tray "working" pulse, 64 px per frame.
+            using (var strip = new Bitmap(12 * 72, 72))
+            using (var sg = Graphics.FromImage(strip))
+            {
+                sg.Clear(Color.FromArgb(32, 32, 32));
+                for (var i = 0; i < 12; i++)
+                {
+                    var t = (float)(0.5 - 0.5 * Math.Cos(2 * Math.PI * i / 12));
+                    using var frame = Render(64, Lime, false, 0.55f * t);
+                    sg.DrawImage(frame, i * 72 + 4, 4, 64, 64);
+                }
+                strip.Save(Path.Combine(dir, "pulse.png"));
             }
             using var big = Render(256, Lime, eye);
             big.Save(Path.Combine(dir, $"{(eye ? "eye" : "plain")}-256.png"));

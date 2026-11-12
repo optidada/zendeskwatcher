@@ -29,6 +29,14 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly Icon _iconAttention = AppIcon.CreateIcon(AppIcon.NeonOrange);
     private readonly Icon _iconOff = AppIcon.CreateIcon(AppIcon.Dim);
 
+    // "Working" pulse: shown while a check runs (after a short delay, so quick checks don't flicker).
+    private readonly Dictionary<Icon, Icon[]> _pulseFrames = [];
+    private readonly System.Windows.Forms.Timer _pulseTimer = new() { Interval = 90 };
+    private readonly System.Windows.Forms.Timer _pulseDelay = new() { Interval = 600 };
+    private Icon? _stateIcon;   // the icon for the current state; the pulse animates this one
+    private int _pulseFrame;
+    private int _busy;
+
     private Settings _settings = Settings.Load();
     private BrowserSession? _browser;
     private CancellationTokenSource? _loopCts;
@@ -62,6 +70,9 @@ public sealed class TrayAppContext : ApplicationContext
         };
 
         _tray = new NotifyIcon { Icon = _iconOff, Text = "Zendesk Watcher", ContextMenuStrip = menu, Visible = true };
+        _stateIcon = _iconOff;
+        _pulseDelay.Tick += (_, _) => { _pulseDelay.Stop(); _pulseTimer.Start(); };
+        _pulseTimer.Tick += (_, _) => PulseTick();
         _tray.DoubleClick += (_, _) => ShowSettings();
 
         _updateItem.Click += (_, _) => OnUpdateMenuClicked();
@@ -187,14 +198,18 @@ public sealed class TrayAppContext : ApplicationContext
                 if (!initialized)
                 {
                     SetStatus("Connecting…");
-                    await watcher.InitializeAsync(ct);
+                    BeginBusy();
+                    try { await watcher.InitializeAsync(ct); }
+                    finally { EndBusy(); }
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
                     initialized = true;
                     // Signed in: show it right away; the first check (a few seconds) then sets green/orange.
                     SetStatus("Signed in · checking…", _tray.Icon == _iconOff ? _iconOk : null);
                 }
 
-                await watcher.PollAsync(ct);
+                BeginBusy();
+                try { await watcher.PollAsync(ct); }
+                finally { EndBusy(); }
                 _signInPromptShown = false; // signed in again: a later failure may prompt again
 
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
@@ -395,8 +410,41 @@ public sealed class TrayAppContext : ApplicationContext
         var tooltip = $"Zendesk Watcher\n{text}";
         _tray.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
         if (icon is not null)
-            _tray.Icon = icon;
+        {
+            _stateIcon = icon;
+            if (!_pulseTimer.Enabled)
+                _tray.Icon = icon;
+        }
     }, null);
+
+    /// <summary>Work started (a check against Zendesk): pulse the tray icon if it takes more than a moment.</summary>
+    private void BeginBusy()
+    {
+        if (_busy++ == 0)
+            _pulseDelay.Start();
+    }
+
+    private void EndBusy()
+    {
+        if (_busy == 0 || --_busy > 0)
+            return;
+        _pulseDelay.Stop();
+        _pulseTimer.Stop();
+        if (_stateIcon is not null)
+            _tray.Icon = _stateIcon;
+    }
+
+    private void PulseTick()
+    {
+        var baseIcon = _stateIcon ?? _iconOff;
+        if (!_pulseFrames.TryGetValue(baseIcon, out var frames))
+        {
+            var color = baseIcon == _iconAttention ? AppIcon.NeonOrange : baseIcon == _iconOff ? AppIcon.Dim : AppIcon.NeonGreen;
+            _pulseFrames[baseIcon] = frames = AppIcon.CreatePulseFrames(color);
+        }
+        _pulseFrame = (_pulseFrame + 1) % frames.Length;
+        _tray.Icon = frames[_pulseFrame];
+    }
 
     private static void OpenUrl(string? url)
     {
@@ -416,6 +464,8 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _loopCts?.Cancel();
         _updateTimer.Dispose();
+        _pulseTimer.Dispose();
+        _pulseDelay.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         _browser?.Dispose();

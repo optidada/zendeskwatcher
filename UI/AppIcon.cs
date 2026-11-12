@@ -23,10 +23,35 @@ public static class AppIcon
     /// Renders the icon at the given pixel size: the Optimizely-style Z (<see cref="BrandIcon"/>), the same plain Z at
     /// every size (tray, taskbar, window, exe). The state color maps to lime / orange / gray.
     /// </summary>
-    public static Bitmap Render(int size, Color neon)
+    public static Bitmap Render(int size, Color neon) => Render(size, neon, 0);
+
+    private static Bitmap Render(int size, Color neon, float shine)
     {
         var face = neon == NeonOrange ? BrandIcon.Orange : neon == Dim ? BrandIcon.Gray : BrandIcon.Lime;
-        return BrandIcon.Render(size, face, eye: false); // the plain Z everywhere, same as in the tray
+        return BrandIcon.Render(size, face, eye: false, shine); // the plain Z everywhere, same as in the tray
+    }
+
+    /// <summary>
+    /// Frames of a gentle pulse (the face brightens and fades back) for the tray while the app is working.
+    /// </summary>
+    public static Icon[] CreatePulseFrames(Color neon, int count = 12)
+    {
+        var size = SystemInformation.SmallIconSize.Width;
+        return Enumerable.Range(0, count).Select(i =>
+        {
+            var t = (float)(0.5 - 0.5 * Math.Cos(2 * Math.PI * i / count)); // 0 → 1 → 0, smooth
+            using var bitmap = Render(size, neon, 0.55f * t);
+            return ToIcon(bitmap);
+        }).ToArray();
+    }
+
+    private static Icon ToIcon(Bitmap bitmap)
+    {
+        var handle = bitmap.GetHicon();
+        using var temp = Icon.FromHandle(handle);
+        var icon = (Icon)temp.Clone();
+        DestroyIcon(handle);
+        return icon;
     }
 
     /// <summary>The previous neon icon (kept for reference).</summary>
