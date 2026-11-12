@@ -64,6 +64,8 @@ Delete `state.json` to reset what has been seen. Use **Sign out** in Settings to
 
 ## Install (colleagues)
 
+The short version for colleagues is in **[INSTALL.md](INSTALL.md)**; send them that link. The details:
+
 Download **`ZendeskWatcherApp-win-Setup.exe`** from the [latest release](https://github.com/optidada/zendeskwatcher/releases/latest) and run it. No GitHub account is needed. It installs for the current user under `%LOCALAPPDATA%\ZendeskWatcherApp`, adds Start menu and desktop shortcuts, turns on "Start with Windows" (you can change this in Settings) and starts the app. Uninstall from **Settings → Apps** in Windows. Your settings in `%LOCALAPPDATA%\ZendeskWatcher` are kept.
 
 **Requirements:** Windows 10 (1809+) or 11, x64. The app needs the **.NET 10 Desktop Runtime** and the Microsoft Edge WebView2 Runtime. Setup installs either one if it's missing. Installing the .NET runtime asks for admin rights (UAC) once; if the runtime is already there, no admin rights are needed. Bundling .NET instead would make the installer about 65 MB instead of about 17 MB.
@@ -72,14 +74,15 @@ Download **`ZendeskWatcherApp-win-Setup.exe`** from the [latest release](https:/
 
 ## Updates
 
-The installed app checks GitHub Releases a minute after starting and then every 6 hours. When a new version has downloaded, a notification offers **Restart now**. If you ignore it, the update installs the next time the app starts. You can also use **Check for updates** in the tray menu. Updates are deltas, so they're usually small.
+The installed app checks GitHub Releases two minutes after starting and then once a day. When a new version has downloaded, a notification shows the highlights from the release notes and offers **Restart now**. If you ignore it, the update installs the next time the app starts. You can also use **Check for updates** in the tray menu. Updates are deltas, so they're usually small.
 
 Update checks only run in the installed app, not when started from `bin\`.
 
 ## Releasing a new version
 
-1. Commit your changes.
-2. Tag and push: `git tag v1.2.0 && git push origin main v1.2.0`
+1. Add a section for the new version at the top of [CHANGELOG.md](CHANGELOG.md), most interesting changes first. It becomes the release notes, and the bold titles of the first three bullets show in the "Update ready" notification.
+2. Commit your changes.
+3. Tag and push: `git tag v1.2.0 && git push origin main v1.2.0`
 
 The [Release workflow](.github/workflows/release.yml) builds the app with that version, packs it with [Velopack](https://velopack.io) and publishes the GitHub Release with `Setup.exe`, a portable zip and the update feed. Installed apps pick it up automatically. The tag is the version; the `<Version>` in the csproj is only used for local builds.
 

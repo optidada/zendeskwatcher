@@ -41,13 +41,33 @@ jobs:
         continue-on-error: true # nothing to download for the first release; then there's just no delta
         run: vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} -o Releases
 
+      # This version's section of CHANGELOG.md ("## 1.2.0 ..." up to the next "## "), plus a link to the
+      # install guide. Shown on the GitHub release and (first bullets) in the app's "Update ready" notification.
+      - name: Release notes
+        shell: bash
+        run: |
+          awk -v v="$VERSION" '$0 ~ "^## " v "( |$)" { found = 1; next } /^## / { found = 0 } found' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::warning::CHANGELOG.md has no section for $VERSION"
+            echo "Maintenance release." > notes.md
+          fi
+          printf '\n---\nNew to Zendesk Watcher? See the [install guide](%s/%s/blob/main/INSTALL.md).\n' \
+            "${{ github.server_url }}" "${{ github.repository }}" >> notes.md
+          cat notes.md
+
       - name: Pack
         run: >
           vpk pack -u ${{ env.PACK_ID }} -v ${{ env.VERSION }} -r win-x64 -p publish -e ZendeskWatcher.exe
-          --framework net10-x64-desktop,webview2
+          --framework net10-x64-desktop,webview2 --releaseNotes notes.md
           --packTitle "Zendesk Watcher" --packAuthors "Optimizely" -i Assets/app.ico -o Releases
 
       - name: Upload release
         run: >
           vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
           -o Releases --publish --tag ${{ github.ref_name }} --releaseName "Zendesk Watcher ${{ env.VERSION }}"
+
+      # Make sure the release page shows the notes, whatever vpk put there.
+      - name: Release page notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --notes-file notes.md

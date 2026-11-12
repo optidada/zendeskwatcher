@@ -63,8 +63,9 @@ public sealed class Notifier(Action<string, long?> onAction)
         NotificationKind.MyTicket, "Zendesk Watcher", title, body, ticketId), Settings);
 
     /// <summary>A new version has been downloaded; clicking restarts into it.</summary>
-    public void ShowUpdateReady(string version) => Show(new NotificationContent(
-        NotificationKind.MyTicket, "Update ready", $"Zendesk Watcher {version} is ready", "Click to restart and update now, or it installs on the next start.")
+    public void ShowUpdateReady(string version, string? highlights = null) => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Update ready", $"Zendesk Watcher {version} is ready",
+        (highlights is null ? "" : highlights + "\n") + "Click to restart and update now, or it installs on the next start.")
     {
         Action = ActionUpdate
     });

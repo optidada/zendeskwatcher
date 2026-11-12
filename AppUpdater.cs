@@ -24,6 +24,33 @@ public sealed class AppUpdater
 
     public string? PendingVersion => Pending?.TargetFullRelease.Version.ToString();
 
+    /// <summary>The first few bullet points of the pending release's notes (from CHANGELOG.md), one per line.</summary>
+    public string? PendingHighlights
+    {
+        get
+        {
+            var notes = Pending?.TargetFullRelease.NotesMarkdown;
+            if (string.IsNullOrWhiteSpace(notes))
+                return null;
+            var bullets = notes.Split('\n')
+                .Select(l => l.Trim())
+                .Where(l => l.StartsWith("- ") || l.StartsWith("* "))
+                .Select(l => "• " + Headline(l[2..]))
+                .Take(3)
+                .ToList();
+            return bullets.Count > 0 ? string.Join("\n", bullets) : null;
+        }
+    }
+
+    /// <summary>"**Take it**: long explanation" → "Take it"; other bullets are shortened to fit a notification.</summary>
+    private static string Headline(string bullet)
+    {
+        if (bullet.StartsWith("**") && bullet.IndexOf("**", 2, StringComparison.Ordinal) is var end and > 2)
+            return bullet[2..end];
+        var text = bullet.Replace("**", "");
+        return text.Length <= 60 ? text : text[..57].TrimEnd() + "…";
+    }
+
     /// <summary>Checks GitHub and downloads a newer version. Returns true when an update is ready to install.</summary>
     public async Task<bool> CheckAndDownloadAsync(CancellationToken ct = default)
     {

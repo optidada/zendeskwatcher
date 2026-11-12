@@ -69,11 +69,11 @@ public sealed class TrayAppContext : ApplicationContext
             if (StartupRegistration.IsEnabled)
                 StartupRegistration.Set(true);
 
-            // First check shortly after start, then every 6 hours.
-            _updateTimer.Interval = 60_000;
+            // Once a couple of minutes after start, then once a day ("Check for updates" works any time).
+            _updateTimer.Interval = 120_000;
             _updateTimer.Tick += async (_, _) =>
             {
-                _updateTimer.Interval = (int)TimeSpan.FromHours(6).TotalMilliseconds;
+                _updateTimer.Interval = (int)TimeSpan.FromHours(24).TotalMilliseconds;
                 await CheckForUpdatesAsync(userInitiated: false);
             };
             _updateTimer.Start();
@@ -323,7 +323,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 _updateItem.Text = $"Restart to update to {_updater.PendingVersion}";
                 _updateTimer.Stop();
-                _notifier.ShowUpdateReady(_updater.PendingVersion!);
+                _notifier.ShowUpdateReady(_updater.PendingVersion!, _updater.PendingHighlights);
             }
             else
             {
