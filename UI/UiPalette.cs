@@ -25,6 +25,7 @@ public sealed record UiPalette(
         NotificationTheme.NeonDark => NeonDark,
         NotificationTheme.Terminal => Terminal,
         NotificationTheme.WindowsNative => WindowsNative(),
+        NotificationTheme.CozyPurple => CozyPurple,
         _ => CleanLight
     }).Distinct();
 
@@ -47,6 +48,13 @@ public sealed record UiPalette(
         Accent: Rgb(57, 255, 110), AccentHover: Rgb(130, 255, 170), AccentSoft: Rgb(14, 44, 24), OnAccent: Rgb(5, 10, 6),
         Success: Rgb(57, 255, 110), Warning: Rgb(255, 200, 60), Danger: Rgb(255, 95, 86), Neutral: Rgb(30, 120, 60),
         Sidebar: Rgb(2, 5, 3), SidebarHover: Rgb(12, 30, 16), SidebarText: Rgb(40, 190, 90), SidebarTitle: Rgb(57, 255, 110),
+        Dark: true);
+
+    private static readonly UiPalette CozyPurple = new(
+        Window: Rgb(32, 24, 46), Surface: Rgb(46, 34, 64), Border: Rgb(78, 61, 104), Text: Rgb(252, 243, 235), TextMuted: Rgb(190, 172, 210),
+        Accent: Rgb(184, 148, 255), AccentHover: Rgb(202, 174, 255), AccentSoft: Rgb(70, 52, 100), OnAccent: Rgb(34, 22, 52),
+        Success: Rgb(140, 222, 182), Warning: Rgb(255, 178, 122), Danger: Rgb(255, 122, 144), Neutral: Rgb(124, 108, 146),
+        Sidebar: Rgb(25, 18, 36), SidebarHover: Rgb(54, 40, 76), SidebarText: Rgb(206, 190, 224), SidebarTitle: Rgb(255, 236, 222),
         Dark: true);
 
     /// <summary>Follows the Windows light/dark app mode and accent color.</summary>

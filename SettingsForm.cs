@@ -72,7 +72,8 @@ public sealed class SettingsForm : Form
     private readonly ThemeTile[] _themeTiles =
     [
         new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
-        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.WindowsNative, "Windows")
+        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"),
+        new(NotificationTheme.WindowsNative, "Windows")
     ];
     private readonly ComboBox _position = Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right")]);
 

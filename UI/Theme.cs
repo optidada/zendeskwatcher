@@ -107,7 +107,12 @@ public static class Theme
         void Walk(Control c)
         {
             if (c.IsHandleCreated && (c is ScrollableControl { AutoScroll: true } or ListView or ComboBox))
-                _ = SetWindowTheme(c.Handle, c is ComboBox ? (dark ? "DarkMode_CFD" : "CFD") : (dark ? "DarkMode_Explorer" : "Explorer"), null);
+                _ = SetWindowTheme(c.Handle, c switch
+                {
+                    ComboBox => dark ? "DarkMode_CFD" : "CFD",
+                    ListView => dark ? "DarkMode_ItemsView" : "ItemsView", // light group headings on dark
+                    _ => dark ? "DarkMode_Explorer" : "Explorer"
+                }, null);
             foreach (Control child in c.Controls)
                 Walk(child);
         }
@@ -528,8 +533,8 @@ public sealed class ThemeTile : Control
         Value = value;
         Text = label;
         Font = Theme.Small;
-        Size = new Size(124, 104);
-        Margin = new Padding(0, 0, 10, 0);
+        Size = new Size(96, 100); // five fit in a card
+        Margin = new Padding(0, 0, 8, 0);
         Cursor = Cursors.Hand;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
     }

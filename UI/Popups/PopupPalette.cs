@@ -20,12 +20,16 @@ public sealed class PopupPalette
 
     public bool Dark { get; init; }
 
+    /// <summary>Text on the accent-colored button (dark on pastel accents).</summary>
+    public Color OnAccent { get; init; } = Color.White;
+
     public required Func<string?, NotificationKind, Color> Accent { get; init; }
 
     public static PopupPalette For(NotificationTheme theme) => theme switch
     {
         NotificationTheme.Terminal => TerminalGreen,
         NotificationTheme.CleanLight => CleanLight,
+        NotificationTheme.CozyPurple => CozyPurple,
         _ => NeonDark
     };
 
@@ -62,6 +66,29 @@ public sealed class PopupPalette
         Terminal = true,
         Dark = true,
         Accent = (priority, _) => priority is "urgent" or "high" ? Color.FromArgb(255, 95, 86) : Color.FromArgb(57, 255, 110)
+    };
+
+    /// <summary>Dusky purple, like a lamp-lit evening: warm cream text, soft pastel accents, no hard neon.</summary>
+    public static readonly PopupPalette CozyPurple = new()
+    {
+        Name = "Cozy",
+        OnAccent = Color.FromArgb(40, 26, 58),
+        Background = Color.FromArgb(52, 38, 72),
+        BackgroundEnd = Color.FromArgb(36, 26, 52),
+        Border = Color.FromArgb(92, 72, 124),
+        Text = Color.FromArgb(252, 243, 235),
+        Muted = Color.FromArgb(196, 178, 214),
+        FontFamily = "Segoe UI",
+        FontSize = 9.75f,
+        Stripe = true,
+        Dark = true,
+        Accent = (priority, kind) => priority switch
+        {
+            "urgent" => Color.FromArgb(255, 122, 144),  // soft coral
+            "high" => Color.FromArgb(255, 178, 122),    // peach
+            "low" => Color.FromArgb(140, 222, 182),     // mint
+            _ => kind == NotificationKind.MyTicket ? Color.FromArgb(236, 150, 222) : Color.FromArgb(184, 148, 255) // pink-lilac, lavender
+        }
     };
 
     public static readonly PopupPalette CleanLight = new()

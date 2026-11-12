@@ -119,7 +119,10 @@ public enum NotificationTheme
     CleanLight,
 
     /// <summary>The built-in Windows toasts (work with Focus / Do Not Disturb and the notification center).</summary>
-    WindowsNative
+    WindowsNative,
+
+    /// <summary>Dusky purple with warm cream text and soft pastel accents. (Added last: settings store the number.)</summary>
+    CozyPurple
 }
 
 public enum PopupPosition { BottomRight, TopRight }

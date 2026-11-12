@@ -452,7 +452,7 @@ public sealed class PopupForm : Form
         {
             using var fill = new SolidBrush(hover ? Blend(_accent, _palette.Dark ? Color.White : Color.Black, 0.15f) : _accent);
             g.FillPath(fill, path);
-            DrawText(g, label, _smallFont, rect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            DrawText(g, label, _smallFont, rect, _palette.OnAccent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
         else
         {
@@ -560,7 +560,7 @@ public sealed class PopupForm : Form
     public static void RenderSamples(string dir)
     {
         Directory.CreateDirectory(dir);
-        foreach (var theme in new[] { NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight })
+        foreach (var theme in new[] { NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple })
         {
             var i = 0;
             foreach (var content in Notifier.AllSamples())
