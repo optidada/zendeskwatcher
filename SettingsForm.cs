@@ -581,8 +581,7 @@ public sealed class SettingsForm : Form
         }
 
         SetAccount("Checking your Zendesk session…", AccountState.Checking);
-        SetGroupsLoading(true);
-        UseWaitCursor = true;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var client = new ZendeskClient(connection, _sessionFactory(connection));
@@ -591,24 +590,33 @@ public sealed class SettingsForm : Form
                 return; // the subdomain changed meanwhile
 
             SetAccount($"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}", AccountState.SignedIn);
+            var sessionMs = clock.ElapsedMilliseconds;
 
-            var groups = await client.GetGroupsAsync(CancellationToken.None);
-            var loaded = groups.Select(g => new GroupItem(g.Id, g.Name)).ToList();
+            // Groups rarely change: reuse what was loaded in the last half hour (Reload always fetches).
+            if (!force && _groupCache is { } cache && cache.Subdomain == key && DateTime.UtcNow - cache.At < GroupCacheLifetime)
+            {
+                _suggestions = cache.Suggestions;
+                SetGroups(WithMissing(cache.Groups));
+                _reloadGroups.Enabled = true;
+                return;
+            }
 
-            // Keep monitored groups that Zendesk didn't return, flagged, so they can be unticked.
-            // Not removed automatically: an agent who may only list assignable groups won't see every group.
-            var loadedIds = loaded.Select(g => g.Id).ToHashSet();
-            var missing = _allGroups
-                .Where(g => g.Id != WatchedGroup.NoGroupId && _selectedGroups.Contains(g.Id) && !loadedIds.Contains(g.Id))
-                .Select(g => g with { Missing = true })
-                .ToList();
-            if (missing.Count > 0)
-                Log.Info($"Settings: monitored group(s) not found in Zendesk: {string.Join(", ", missing.Select(g => $"{g.Name} ({g.Id})"))}");
+            SetGroupsLoading(true);
+            var groups = (await client.GetGroupsAsync(CancellationToken.None)).Select(g => new GroupItem(g.Id, g.Name)).ToList();
+            if (key != _loadedFor)
+                return;
+            SetGroups(WithMissing(groups));
+            SetGroupsLoading(false);
+            _reloadGroups.Enabled = true;
+            var groupsMs = clock.ElapsedMilliseconds;
+
+            // Suggestions (needs a ticket search, the slowest part) fill in afterwards.
             await LoadSuggestionsAsync(client, me.Id);
             if (key != _loadedFor)
                 return;
-            SetGroups(loaded.Concat(missing));
-            _reloadGroups.Enabled = true;
+            ShowGroupList();
+            _groupCache = (key, DateTime.UtcNow, groups, _suggestions);
+            Log.Info($"Settings: session {sessionMs} ms, groups {groupsMs - sessionMs} ms, suggestions {clock.ElapsedMilliseconds - groupsMs} ms");
         }
         catch (AuthRequiredException)
         {
@@ -623,8 +631,27 @@ public sealed class SettingsForm : Form
         finally
         {
             SetGroupsLoading(false);
-            UseWaitCursor = false;
         }
+    }
+
+    /// <summary>Groups loaded from Zendesk, remembered for this app session so reopening Settings is instant.</summary>
+    private static (string Subdomain, DateTime At, List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions)? _groupCache;
+    private static readonly TimeSpan GroupCacheLifetime = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Adds monitored groups that Zendesk didn't return, flagged, so they can be unticked. Not removed automatically:
+    /// an agent who may only list assignable groups won't see every group.
+    /// </summary>
+    private List<GroupItem> WithMissing(List<GroupItem> loaded)
+    {
+        var loadedIds = loaded.Select(g => g.Id).ToHashSet();
+        var missing = _allGroups
+            .Where(g => g.Id != WatchedGroup.NoGroupId && _selectedGroups.Contains(g.Id) && !loadedIds.Contains(g.Id))
+            .Select(g => g with { Missing = true })
+            .ToList();
+        if (missing.Count > 0)
+            Log.Info($"Settings: monitored group(s) not found in Zendesk: {string.Join(", ", missing.Select(g => $"{g.Name} ({g.Id})"))}");
+        return loaded.Concat(missing).ToList();
     }
 
     private async Task SignInAsync()
