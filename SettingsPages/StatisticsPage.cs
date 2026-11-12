@@ -21,6 +21,7 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly Label _summary = Theme.Label("", Theme.Body, Theme.Text, Kit.CardWidth - 44);
     private readonly TableLayoutPanel _table = new() { AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 8) };
     private readonly Button _clear = Theme.SecondaryButton("Clear statistics");
+    private readonly TableLayoutPanel _insights = new() { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
 
     public StatisticsPage(SettingsContext context)
         : base(context, "Statistics", "Ticket notifications in the last 30 days, and what you did with them. Counted on this PC only; nothing is sent anywhere.")
@@ -36,6 +37,10 @@ internal sealed class StatisticsPage : SettingsPage
         _clear.Margin = new Padding(0, 10, 0, 0);
         card.Body.Controls.Add(_clear);
         Panel.Controls.Add(card);
+
+        var suggestions = new Card("Suggestions", "Based on the last 30 days: is a kind of notification ignored, closed right away, or just too frequent?", Kit.CardWidth);
+        suggestions.Body.Controls.Add(_insights);
+        Panel.Controls.Add(suggestions);
 
         _clear.Click += (_, _) =>
         {
@@ -95,10 +100,41 @@ internal sealed class StatisticsPage : SettingsPage
             row++;
         }
 
+        ShowInsights(StatsInsights.Analyze(totals, Context.Notifier.Stats.ActiveDays(DateOnly.FromDateTime(DateTime.Now)), Context.Current()));
+
         _table.Controls.Add(Cell("Total", Theme.BodyBold, Theme.Text, left: true), 0, row);
         for (var c = 0; c < Columns.Length; c++)
             _table.Controls.Add(Cell(Total(Columns[c].Outcome).ToString(), Theme.BodyBold, Theme.Text), c + 1, row);
         _table.ResumeLayout();
+    }
+
+    private void ShowInsights(List<StatsInsights.Insight> insights)
+    {
+        _insights.SuspendLayout();
+        foreach (var old in _insights.Controls.Cast<Control>().ToList())
+            old.Dispose();
+        _insights.Controls.Clear();
+        _insights.ColumnStyles.Clear();
+        _insights.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // the marks, so the texts line up
+        _insights.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var r = 0;
+        foreach (var insight in insights)
+        {
+            var (mark, color) = insight.Tone switch
+            {
+                StatsInsights.Tone.Good => ("✓", Theme.Success),
+                StatsInsights.Tone.Warning => ("!", Theme.Warning),
+                _ => ("•", Theme.TextMuted)
+            };
+            var markLabel = Theme.Label(mark, Theme.BodyBold, color);
+            markLabel.Margin = new Padding(0, 2, 8, 6);
+            var text = Theme.Label(insight.Text, Theme.Body, Theme.Text, Kit.CardWidth - 70);
+            text.Margin = new Padding(0, 2, 0, 6);
+            _insights.Controls.Add(markLabel, 0, r);
+            _insights.Controls.Add(text, 1, r);
+            r++;
+        }
+        _insights.ResumeLayout();
     }
 
     private static string Percent(int part, int whole) => whole == 0 ? "0%" : $"{Math.Round(100.0 * part / whole)}%";
@@ -115,10 +151,11 @@ internal sealed class StatisticsPage : SettingsPage
     internal static NotificationStats SampleStats()
     {
         var stats = new NotificationStats();
+        var today = DateOnly.FromDateTime(DateTime.Now);
         void Add(NotificationKind kind, StatOutcome outcome, int count)
         {
             for (var i = 0; i < count; i++)
-                stats.Record(kind, outcome);
+                stats.Record(kind, outcome, today.AddDays(-(i % 20))); // spread over 20 days
         }
         Add(NotificationKind.NewTicket, StatOutcome.Shown, 48);
         Add(NotificationKind.NewTicket, StatOutcome.OpenedTicket, 14);

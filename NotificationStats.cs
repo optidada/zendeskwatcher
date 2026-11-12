@@ -99,6 +99,17 @@ public sealed class NotificationStats
         return totals;
     }
 
+    /// <summary>Days with at least one ticket notification shown, in the <paramref name="days"/> days up to <paramref name="today"/>.</summary>
+    public int ActiveDays(DateOnly today, int days = KeepDays)
+    {
+        var oldest = today.AddDays(-(days - 1));
+        lock (_gate)
+        {
+            return _days.Count(d => DateOnly.TryParse(d.Key, out var date) && date >= oldest && date <= today &&
+                                    d.Value.Any(c => c.Key.EndsWith($".{StatOutcome.Shown}") && c.Value > 0));
+        }
+    }
+
     public void Clear()
     {
         lock (_gate)
