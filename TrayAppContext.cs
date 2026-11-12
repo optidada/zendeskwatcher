@@ -253,6 +253,7 @@ public sealed class TrayAppContext : ApplicationContext
         // Pause polling while the window is open; it shares the embedded browser and may switch the account.
         _loopCts?.Cancel();
         _loopCts = null;
+        SetStatus("Paused while Settings is open");
 
         using var form = new SettingsForm(_settings, CreateSession, _notifier, knownSignedOut);
         _settingsForm = form;

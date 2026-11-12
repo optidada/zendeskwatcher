@@ -26,7 +26,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     private DateTime _lastNavigation;
 
     private readonly Form _window;
-    private readonly WebView2 _web;
+    private WebView2 _web;
+
+    /// <summary>A request the hidden browser doesn't answer within this time restarts the browser.</summary>
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Task? _initialization;
     private string _baseUrl = "";
@@ -42,12 +45,27 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             MinimizeBox = false,
             Icon = ZendeskWatcher.UI.AppIcon.CreateIcon(ZendeskWatcher.UI.AppIcon.NeonGreen, 32)
         };
-        _web = new WebView2 { Dock = DockStyle.Fill };
-        _window.Controls.Add(_web);
-
         // Create the window handles without showing the window, so WebView2 can run hidden.
         _ = _window.Handle;
-        _ = _web.Handle;
+        _web = CreateBrowserControl();
+    }
+
+    private WebView2 CreateBrowserControl()
+    {
+        var web = new WebView2 { Dock = DockStyle.Fill };
+        _window.Controls.Add(web);
+        _ = web.Handle;
+        return web;
+    }
+
+    /// <summary>Throws the hidden browser away and starts a fresh one on the next request (the login is kept).</summary>
+    private void ResetBrowser()
+    {
+        _suspendTimer?.Stop();
+        _window.Controls.Remove(_web);
+        _web.Dispose();
+        _web = CreateBrowserControl();
+        _initialization = null;
     }
 
     /// <summary>
@@ -80,7 +98,14 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             await EnsureInitializedAsync();
             Wake();
             await EnsureOnZendeskAsync(ct);
-            return await FetchAsync(url, ct, method, jsonBody);
+            return await FetchAsync(url, ct, method, jsonBody).WaitAsync(RequestTimeout, ct);
+        }
+        catch (TimeoutException)
+        {
+            // The hidden browser stopped answering (e.g. stuck while waking up): start over with a fresh one.
+            Log.Error("Browser session: the hidden browser did not respond; restarting it");
+            ResetBrowser();
+            throw new HttpRequestException("The embedded browser did not respond and was restarted.");
         }
         finally
         {
@@ -262,15 +287,21 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             _suspendTimer.Tick += async (_, _) =>
             {
                 _suspendTimer.Stop();
-                if (_window.Visible || _web.CoreWebView2 is not { IsSuspended: false } core || _gate.CurrentCount == 0)
+                // Hold the gate while suspending, so a request can't start while the browser is going to sleep.
+                if (_window.Visible || !_gate.Wait(0))
                     return;
                 try
                 {
-                    await core.TrySuspendAsync();
+                    if (_web.CoreWebView2 is { IsSuspended: false } core)
+                        await core.TrySuspendAsync().WaitAsync(TimeSpan.FromSeconds(10));
                 }
                 catch (Exception ex)
                 {
                     Log.Error("Browser session: could not suspend the hidden browser", ex);
+                }
+                finally
+                {
+                    _gate.Release();
                 }
             };
         }

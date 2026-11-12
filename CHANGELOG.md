@@ -9,6 +9,8 @@ app's "Update ready" notification, so put the most interesting changes first.
 - The tray icon turns lime as soon as you're signed in, instead of staying gray until the first check finishes.
 - Notifications use English day and month names whatever the PC's language ("Fri 01:06", "12 Nov").
 - Fixed: re-ticking a group right after unticking it didn't show the "Now watching" summary.
+- Fixed: checking could hang ("Connecting…" in the tray tooltip) if a check started while the hidden browser was going to sleep. Requests now have a time limit, and an unresponsive browser is restarted.
+- The tray tooltip says "Paused while Settings is open" while Settings is open.
 
 ## 1.3.1
 
