@@ -694,15 +694,28 @@ public sealed class PopupForm : Form
         base.Dispose(disposing);
     }
 
+    private static volatile bool _sessionLocked;
+
+    /// <summary>Follows Windows+L / automatic locking (Windows tells running apps). Started once by the popup manager.</summary>
+    internal static void WatchSessionLock() => Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
+    {
+        if (e.Reason is Microsoft.Win32.SessionSwitchReason.SessionLock or Microsoft.Win32.SessionSwitchReason.ConsoleDisconnect or Microsoft.Win32.SessionSwitchReason.RemoteDisconnect)
+            _sessionLocked = true;
+        else if (e.Reason is Microsoft.Win32.SessionSwitchReason.SessionUnlock or Microsoft.Win32.SessionSwitchReason.ConsoleConnect or Microsoft.Win32.SessionSwitchReason.RemoteConnect)
+            _sessionLocked = false;
+    };
+
     /// <summary>No mouse or keyboard input for this long: the user is away, and popups don't count down.</summary>
     internal static readonly TimeSpan AwayAfter = TimeSpan.FromMinutes(1);
 
     /// <summary>
-    /// True when there's been no input for <see cref="AwayAfter"/>: countdowns pause, so notifications are still
+    /// True when the screen is locked, or there's been no input for <see cref="AwayAfter"/>: countdowns pause, so notifications are still
     /// there when the user comes back. Cheap (one Windows call), checked on each animation tick.
     /// </summary>
     internal static bool UserAway()
     {
+        if (_sessionLocked)
+            return true; // locked: away right away, not only after a minute
         var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
         if (!GetLastInputInfo(ref info))
             return false;

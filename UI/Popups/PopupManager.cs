@@ -14,6 +14,7 @@ public sealed class PopupManager
     private readonly Action<NotificationContent> _onSnooze;
     private readonly Action<NotificationContent, PopupForm.Result> _onClosed;
     private readonly Action<NotificationContent> _onCopy;
+    private static int _watchingLock;
 
     /// <param name="onSnooze">The user snoozed a popup; the caller decides when (and whether) it shows again.</param>
     /// <param name="onClosed">A popup closed, and how (for the statistics).</param>
@@ -21,6 +22,8 @@ public sealed class PopupManager
     public PopupManager(Action<string, long?> onAction, Action<NotificationContent> onSnooze,
         Action<NotificationContent, PopupForm.Result> onClosed, Action<NotificationContent> onCopy)
     {
+        if (Interlocked.Exchange(ref _watchingLock, 1) == 0)
+            PopupForm.WatchSessionLock();
         _onAction = onAction;
         _onSnooze = onSnooze;
         _onClosed = onClosed;
