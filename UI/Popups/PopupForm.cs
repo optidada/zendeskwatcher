@@ -279,7 +279,14 @@ public sealed class PopupForm : Form
         var chipText = _chipLabel.Length > 0 ? TextRenderer.MeasureText(_chipLabel, _smallFont) : Size.Empty;
         var chipSize = chipText.IsEmpty ? Size.Empty : new Size(chipText.Width + Px(_palette.Terminal ? 0 : 12), chipText.Height + Px(6));
 
-        _openLabel = _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open";
+        // The main button says what a click does.
+        _openLabel = _content.ResolvedAction switch
+        {
+            Notifier.ActionUpdate => _palette.Terminal ? "[ update ]" : "Update now",
+            Notifier.ActionSignIn => _palette.Terminal ? "[ sign in ]" : "Sign in",
+            Notifier.ActionSettings => _palette.Terminal ? "[ settings ]" : "Open Settings",
+            _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
+        };
         _snoozeLabel = _palette.Terminal ? "[ snooze ]" : "Snooze";
         var buttonHeight = Px(30);
         _footerRect = new Rectangle(left, y, width, buttonHeight);

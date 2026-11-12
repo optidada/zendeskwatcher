@@ -155,7 +155,13 @@ public sealed class Notifier(Action<string, long?> onAction)
         }
 
         var button = new ToastButton()
-            .SetContent(action == ActionSignIn ? "Sign in" : action == ActionUpdate ? "Restart now" : content.TicketId is null ? "Open Zendesk" : "Open ticket")
+            .SetContent(action switch
+            {
+                ActionSignIn => "Sign in",
+                ActionUpdate => "Update now",
+                ActionSettings => "Open Settings",
+                _ => content.TicketId is null ? "Open Zendesk" : "Open ticket"
+            })
             .AddArgument("action", action);
         if (content.TicketId is { } buttonTicket)
             button.AddArgument("ticketId", buttonTicket);
