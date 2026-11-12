@@ -10,7 +10,7 @@ namespace ZendeskWatcher.UI.Popups;
 /// </summary>
 public sealed class PopupForm : Form
 {
-    public enum Result { None, Open, Snooze, Dismiss, Timeout }
+    public enum Result { None, Open, Take, Snooze, Dismiss, Timeout }
 
     private const int BaseWidth = 380;
     private const double EnterMs = 260;
@@ -30,8 +30,8 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _openRect, _snoozeRect;
-    private string _openLabel = "", _snoozeLabel = "", _closeLabel = "";
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _openRect, _snoozeRect, _takeRect, _chipRect;
+    private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _chipLabel = "";
 
     // State
     private enum Phase { Entering, Showing, Leaving }
@@ -236,6 +236,13 @@ public sealed class PopupForm : Form
             y += lineHeight + Px(6);
         }
 
+        // Priority chip: left of the buttons, or on its own line above them when it doesn't fit.
+        _chipLabel = _content.PriorityLabel is { } priority
+            ? (_palette.Terminal ? $"prio:{priority.ToUpperInvariant().Replace(" ", "")}" : $"● {priority.ToUpperInvariant()}")
+            : "";
+        var chipText = _chipLabel.Length > 0 ? TextRenderer.MeasureText(_chipLabel, _smallFont) : Size.Empty;
+        var chipSize = chipText.IsEmpty ? Size.Empty : new Size(chipText.Width + Px(_palette.Terminal ? 0 : 12), chipText.Height + Px(6));
+
         _openLabel = _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open";
         _snoozeLabel = _palette.Terminal ? "[ snooze ]" : "Snooze";
         var buttonHeight = Px(30);
@@ -243,7 +250,26 @@ public sealed class PopupForm : Form
         var openWidth = TextRenderer.MeasureText(_openLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
         var snoozeWidth = TextRenderer.MeasureText(_snoozeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
         _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
-        _snoozeRect = new Rectangle(_openRect.Left - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
+        _takeLabel = _palette.Terminal ? "[ take ]" : "Take it";
+        var takeWidth = _content.CanTake ? TextRenderer.MeasureText(_takeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28) : 0;
+        _takeRect = _content.CanTake ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
+        var snoozeRight = _content.CanTake ? _takeRect.Left : _openRect.Left;
+        _snoozeRect = new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
+
+        if (!chipSize.IsEmpty && left + chipSize.Width + Px(8) > _snoozeRect.Left)
+        {
+            _chipRect = new Rectangle(new Point(left, y), chipSize);
+            var shift = chipSize.Height + Px(8);
+            y += shift;
+            _footerRect.Offset(0, shift);
+            _openRect.Offset(0, shift);
+            _takeRect.Offset(0, _content.CanTake ? shift : 0);
+            _snoozeRect.Offset(0, shift);
+        }
+        else if (!chipSize.IsEmpty)
+        {
+            _chipRect = new Rectangle(new Point(left, y + (buttonHeight - chipSize.Height) / 2), chipSize);
+        }
         y += buttonHeight + pad;
 
         if (!_palette.Terminal)
@@ -350,11 +376,10 @@ public sealed class PopupForm : Form
     private void PaintFooter(Graphics g)
     {
         // Priority chip on the left.
-        if (!string.IsNullOrEmpty(_content.Priority))
+        if (_chipLabel.Length > 0)
         {
-            var label = _palette.Terminal ? $"prio:{_content.Priority.ToUpperInvariant()}" : $"● {_content.Priority.ToUpperInvariant()}";
-            var size = TextRenderer.MeasureText(label, _smallFont);
-            var chip = new Rectangle(_footerRect.Left, _footerRect.Top + (_footerRect.Height - size.Height - Px(6)) / 2, size.Width + Px(_palette.Terminal ? 0 : 12), size.Height + Px(6));
+            var chip = _chipRect;
+            var label = _chipLabel;
             if (!_palette.Terminal)
             {
                 using var path = Theme.RoundedRect(chip, chip.Height / 2f);
@@ -365,6 +390,8 @@ public sealed class PopupForm : Form
         }
 
         PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
+        if (_content.CanTake)
+            PaintButton(g, _takeRect, _takeLabel, primary: false);
         PaintButton(g, _openRect, _openLabel, primary: true);
     }
 
@@ -463,7 +490,7 @@ public sealed class PopupForm : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         _hover = true;
-        _hoverButton = new[] { _closeRect, _openRect, _snoozeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location));
+        _hoverButton = new[] { _closeRect, _openRect, _snoozeRect, _takeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location));
         base.OnMouseMove(e);
     }
 
@@ -474,11 +501,30 @@ public sealed class PopupForm : Form
             Dismiss(Result.Dismiss);
         else if (_snoozeRect.Contains(e.Location))
             Dismiss(Result.Snooze);
+        else if (_content.CanTake && _takeRect.Contains(e.Location))
+            Dismiss(Result.Take);
         else
             Dismiss(Result.Open); // the Open button or anywhere on the card
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /// <summary>Developer helper: saves each sample notification in each popup theme as a PNG.</summary>
+    public static void RenderSamples(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        foreach (var theme in new[] { NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight })
+        {
+            var i = 0;
+            foreach (var content in Notifier.AllSamples())
+            {
+                using var form = new PopupForm(content, PopupPalette.For(theme), ToastDisplay.UntilDismissed, 1f) { _phase = Phase.Showing };
+                using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+                form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                bitmap.Save(Path.Combine(dir, $"{theme}-{i++}.png"));
+            }
+        }
+    }
 
     private int Px(int value) => (int)Math.Round(value * _s);
 

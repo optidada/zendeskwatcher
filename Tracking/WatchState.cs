@@ -22,6 +22,14 @@ public sealed class WatchState
     /// <summary>The newest updated_at seen in the assigned-tickets list. Newer open tickets are new assignments.</summary>
     public DateTimeOffset MyTicketsWatermark { get; set; }
 
+    /// <summary>Open tickets where the user is CC'd or follows (and isn't the assignee), keyed by ticket id.</summary>
+    public Dictionary<long, TrackedTicket> CcTickets { get; set; } = [];
+
+    public bool CcTicketsBaselined { get; set; }
+
+    /// <summary>The newest updated_at seen in the CC'd/followed lists.</summary>
+    public DateTimeOffset CcTicketsWatermark { get; set; }
+
     public static WatchState Load()
     {
         try

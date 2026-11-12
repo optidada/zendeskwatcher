@@ -9,7 +9,8 @@ namespace ZendeskWatcher.Tracking;
 /// Polls Zendesk and decides what is new:
 /// <list type="bullet">
 /// <item>new unassigned tickets in the watched groups (via search),</item>
-/// <item>changes made by others on tickets assigned to the user (via ticket lists and audits, no search lag).</item>
+/// <item>changes made by others on tickets assigned to the user (via ticket lists and audits, no search lag),</item>
+/// <item>optionally the same for tickets where the user is CC'd or a follower.</item>
 /// </list>
 /// The first poll of each list only records the current tickets, so starting the app does not flood notifications.
 /// </summary>
@@ -68,6 +69,16 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.MyTicketsBaselined = false;
         }
 
+        if (settings.TrackCcTickets)
+        {
+            await CheckCcTicketsAsync(ct);
+        }
+        else if (_state.CcTicketsBaselined)
+        {
+            _state.CcTickets.Clear();
+            _state.CcTicketsBaselined = false;
+        }
+
         _state.Save();
     }
 
@@ -121,7 +132,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             foreach (var ticket in fresh)
             {
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {ticket.Subject}",
-                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)));
+                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true });
             }
         }
 
@@ -191,8 +202,68 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
     }
 
+    /// <summary>
+    /// Tickets where I'm CC'd or follow, but am not the assignee (those are covered by my tickets).
+    /// Same approach as my tickets: a silent baseline, then the CC'd/followed lists for new ones and audits for changes.
+    /// </summary>
+    private async Task CheckCcTicketsAsync(CancellationToken ct)
+    {
+        var me = Me!.Id;
+        bool Relevant(Ticket t) => t.IsOpen && t.AssigneeId != me;
+
+        if (!_state.CcTicketsBaselined)
+        {
+            var atBaseline = await zendesk.GetRecentlyUpdatedInvolvedAsync(me, ct);
+            _state.CcTickets = atBaseline.Where(Relevant).ToDictionary(t => t.Id, ToTracked);
+            _state.CcTicketsWatermark = atBaseline.Count > 0 ? atBaseline.Max(t => t.UpdatedAt) : DateTimeOffset.UtcNow;
+            _state.CcTicketsBaselined = true;
+            Log.Info($"Baseline: tracking {_state.CcTickets.Count} open ticket(s) where I'm CC or follower");
+            return;
+        }
+
+        // 1. Newly CC'd/followed: updated since the last poll and not tracked yet.
+        var previousWatermark = _state.CcTicketsWatermark;
+        var recent = await zendesk.GetRecentlyUpdatedInvolvedAsync(me, ct);
+        var added = recent
+            .Where(t => Relevant(t) && !_state.CcTickets.ContainsKey(t.Id) && t.UpdatedAt > previousWatermark)
+            .ToList();
+        if (recent.Count > 0 && recent.Max(t => t.UpdatedAt) > previousWatermark)
+            _state.CcTicketsWatermark = recent.Max(t => t.UpdatedAt);
+
+        // 2. Changes on tracked tickets.
+        var current = _state.CcTickets.Count > 0 ? await zendesk.GetTicketsAsync(_state.CcTickets.Keys.ToList(), ct) : [];
+        foreach (var missing in _state.CcTickets.Keys.Except(current.Select(t => t.Id)).ToList())
+            _state.CcTickets.Remove(missing);
+
+        foreach (var ticket in current)
+        {
+            var tracked = _state.CcTickets[ticket.Id];
+
+            // Once it's assigned to me, my-ticket tracking reports it; don't notify twice.
+            if (ticket.UpdatedAt > tracked.UpdatedAt && ticket.AssigneeId != me)
+                await ReportChangesAsync(ticket, since: tracked.UpdatedAt, ct, context: Involvement(ticket, me) ?? "CC");
+
+            if (Relevant(ticket) && Involvement(ticket, me) is not null)
+                _state.CcTickets[ticket.Id] = ToTracked(ticket);
+            else
+                _state.CcTickets.Remove(ticket.Id);
+        }
+
+        foreach (var ticket in added)
+        {
+            await ReportChangesAsync(ticket, since: previousWatermark, ct, context: Involvement(ticket, me) ?? "CC");
+            _state.CcTickets[ticket.Id] = ToTracked(ticket);
+        }
+    }
+
+    /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>
+    private static string? Involvement(Ticket t, long me) =>
+        t.EmailCcIds.Contains(me) || t.CollaboratorIds.Contains(me) ? "You're CC" :
+        t.FollowerIds.Contains(me) ? "You follow" : null;
+
     /// <summary>Reads the audits since the last known update and notifies about changes made by someone else.</summary>
-    private async Task ReportChangesAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct)
+    /// <param name="context">Shown next to the heading, e.g. "You're CC" for tickets that aren't mine.</param>
+    private async Task ReportChangesAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct, string? context = null)
     {
         var me = Me!.Id;
         var audits = (await zendesk.GetAuditsAsync(ticket.Id, ct))
@@ -220,7 +291,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             shown.Insert(0, $"(+{lines.Count - shown.Count} earlier changes)");
 
         notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Ticket updated", $"#{ticket.Id} {ticket.Subject}",
-            string.Join("\n", shown), ticket.Id, ticket.Priority));
+            string.Join("\n", shown), ticket.Id, ticket.Priority, context));
     }
 
     private static string CreatedLabel(Ticket t)

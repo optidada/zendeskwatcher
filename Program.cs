@@ -21,6 +21,14 @@ internal static class Program
             return;
         }
 
+        // Developer helper: draw the sample popups in every theme to PNG files, then exit.
+        if (args.Length >= 2 && args[0] == "--render-popups")
+        {
+            ApplicationConfiguration.Initialize();
+            UI.Popups.PopupForm.RenderSamples(args[1]);
+            return;
+        }
+
         using var mutex = new Mutex(initiallyOwned: true, @"Local\ZendeskWatcher", out var isFirstInstance);
         if (!isFirstInstance)
         {

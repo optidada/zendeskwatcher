@@ -20,5 +20,19 @@ public sealed record NotificationContent(
     /// <summary>What a click does; defaults to opening the ticket, or Zendesk when there is no ticket.</summary>
     public string? Action { get; init; }
 
+    /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
+    public bool CanTake { get; init; }
+
+    /// <summary>The priority for display, e.g. "High (P2)".</summary>
+    public string? PriorityLabel => Priority?.ToLowerInvariant() switch
+    {
+        null or "" => null,
+        "urgent" => "Urgent (P1)",
+        "high" => "High (P2)",
+        "normal" => "Normal (P3)",
+        "low" => "Low (P4)",
+        var other => char.ToUpperInvariant(other[0]) + other[1..]
+    };
+
     public string ResolvedAction => Action ?? (TicketId is null ? Notifier.ActionOpenZendesk : Notifier.ActionOpenTicket);
 }

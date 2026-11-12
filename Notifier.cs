@@ -24,6 +24,7 @@ public sealed class Notifier(Action<string, long?> onAction)
     public const string ActionSignIn = "signin";
     public const string ActionNone = "none";
     public const string ActionUpdate = "update";
+    public const string ActionTake = "take";
 
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups = new(onAction);
@@ -47,6 +48,10 @@ public sealed class Notifier(Action<string, long?> onAction)
         Action = ActionSignIn
     }, Settings);
 
+    /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>
+    public void ShowInfo(string title, string body, long? ticketId = null) => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Zendesk Watcher", title, body, ticketId), Settings);
+
     /// <summary>A new version has been downloaded; clicking restarts into it.</summary>
     public void ShowUpdateReady(string version) => Show(new NotificationContent(
         NotificationKind.MyTicket, "Update ready", $"Zendesk Watcher {version} is ready", "Click to restart and update now, or it installs on the next start.")
@@ -66,15 +71,21 @@ public sealed class Notifier(Action<string, long?> onAction)
     {
         foreach (var sample in Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(
                      [new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                         "", Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone }]))
+                         "", Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone, CanTake = true }]))
         {
             Show(sample, settings);
         }
     }
 
+    /// <summary>All samples (for the developer --render-popups helper).</summary>
+    public static IEnumerable<NotificationContent> AllSamples() =>
+        Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
+            new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
+                Priority: "urgent", Context: "Support Tier 1") { CanTake = true });
+
     private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind == NotificationKind.NewTicket
         ? [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              "Requester: Alex Example · Created just now", Priority: "high", Context: "Support Tier 2") { Action = ActionNone }]
+              "Requester: Alex Example · Created just now", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true }]
         : [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
               "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus pending → open (Jane Doe)",
               Priority: "normal") { Action = ActionNone }];
@@ -109,7 +120,7 @@ public sealed class Notifier(Action<string, long?> onAction)
 
         if (!string.IsNullOrWhiteSpace(content.Body))
             builder.AddText(content.Body);
-        builder.AddAttributionText(string.IsNullOrEmpty(content.Priority) ? "Zendesk Watcher" : $"Zendesk Watcher · {content.Priority} priority");
+        builder.AddAttributionText(content.PriorityLabel is { } priority ? $"Zendesk Watcher · {priority}" : "Zendesk Watcher");
 
         if (content.TicketId is { } id)
             builder.AddArgument("ticketId", id);
@@ -121,6 +132,14 @@ public sealed class Notifier(Action<string, long?> onAction)
         {
             var (headerId, headerTitle) = content.Kind == NotificationKind.NewTicket ? ("new-tickets", "New tickets") : ("my-tickets", "My tickets");
             builder.AddHeader(headerId, headerTitle, new ToastArguments().Add("action", ActionOpenZendesk));
+        }
+
+        if (content.CanTake && content.TicketId is { } takeTicket)
+        {
+            builder.AddButton(new ToastButton()
+                .SetContent("Take it")
+                .AddArgument("action", ActionTake)
+                .AddArgument("ticketId", takeTicket));
         }
 
         var button = new ToastButton()

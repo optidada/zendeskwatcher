@@ -48,6 +48,9 @@ public sealed class PopupManager
             case PopupForm.Result.Open:
                 _onAction(popup.Content.ResolvedAction, popup.Content.TicketId);
                 break;
+            case PopupForm.Result.Take:
+                _onAction(Notifier.ActionTake, popup.Content.TicketId);
+                break;
             case PopupForm.Result.Snooze:
                 var snoozed = popup.Content;
                 var timer = new System.Windows.Forms.Timer { Interval = (int)SnoozeTime.TotalMilliseconds };

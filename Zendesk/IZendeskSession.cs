@@ -1,6 +1,6 @@
 namespace ZendeskWatcher.Zendesk;
 
-/// <summary>The raw result of an API GET.</summary>
+/// <summary>The raw result of an API request.</summary>
 public sealed record ApiResponse(int Status, string Body, TimeSpan? RetryAfter)
 {
     public bool IsSuccess => Status is >= 200 and < 300;
@@ -14,6 +14,9 @@ public interface IZendeskSession
 
     /// <summary>GETs an absolute API URL. A missing or expired login is reported as status 401.</summary>
     Task<ApiResponse> GetAsync(string url, CancellationToken ct);
+
+    /// <summary>Sends a JSON request that changes something (PUT/POST), e.g. assigning a ticket.</summary>
+    Task<ApiResponse> SendAsync(string method, string url, string jsonBody, CancellationToken ct);
 
     /// <summary>Tries to get a working login again without user interaction.</summary>
     Task<bool> TryRecoverAsync(CancellationToken ct);

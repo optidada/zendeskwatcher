@@ -50,13 +50,18 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     private string MeUrl => $"{_baseUrl}/api/v2/users/me.json";
     private string LoginUrl => $"{_baseUrl}/access/login?return_to={Uri.EscapeDataString(MeUrl)}";
 
-    public async Task<ApiResponse> GetAsync(string url, CancellationToken ct)
+    public Task<ApiResponse> GetAsync(string url, CancellationToken ct) => RequestAsync(url, null, null, ct);
+
+    public Task<ApiResponse> SendAsync(string method, string url, string jsonBody, CancellationToken ct) =>
+        RequestAsync(url, method, jsonBody, ct);
+
+    private async Task<ApiResponse> RequestAsync(string url, string? method, string? jsonBody, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
         try
         {
             await EnsureOnZendeskAsync(ct);
-            return await FetchAsync(url, ct);
+            return await FetchAsync(url, ct, method, jsonBody);
         }
         finally
         {
@@ -213,14 +218,22 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         }
     }
 
-    /// <summary>Runs fetch() in the page via the DevTools protocol, which can await the returned promise.</summary>
-    private async Task<ApiResponse> FetchAsync(string url, CancellationToken ct)
+    /// <summary>
+    /// Runs fetch() in the page via the DevTools protocol, which can await the returned promise.
+    /// Requests that change something need Zendesk's CSRF token, which users/me returns for a cookie session.
+    /// </summary>
+    private async Task<ApiResponse> FetchAsync(string url, CancellationToken ct, string? method = null, string? jsonBody = null)
     {
         ct.ThrowIfCancellationRequested();
 
-        var script =
-            $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', headers: {{ 'Accept': 'application/json' }} }})" +
-            ".then(async r => JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: await r.text() }))";
+        const string ToResult = ".then(async r => JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: await r.text() }))";
+        var script = method is null
+            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', headers: {{ 'Accept': 'application/json' }} }})" + ToResult
+            : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', headers: {{ 'Accept': 'application/json' }} }})" +
+              ".then(r => r.json()).then(me => " +
+              $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', " +
+              "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': (me.user && me.user.authenticity_token) || '' }, " +
+              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + ToResult;
 
         var parameters = JsonSerializer.Serialize(new { expression = script, awaitPromise = true, returnByValue = true });
         var resultJson = await _web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters);

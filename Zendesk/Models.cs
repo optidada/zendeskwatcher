@@ -25,6 +25,9 @@ public sealed class Ticket
     public long? AssigneeId { get; set; }
     public long? GroupId { get; set; }
     public long? RequesterId { get; set; }
+    public List<long> FollowerIds { get; set; } = [];
+    public List<long> EmailCcIds { get; set; } = [];
+    public List<long> CollaboratorIds { get; set; } = [];
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
@@ -55,6 +58,7 @@ public sealed class AuditEvent
 internal sealed class UserResponse { public User? User { get; set; } }
 internal sealed class UsersResponse : PagedResponse { public List<User> Users { get; set; } = []; }
 internal sealed class GroupsResponse : PagedResponse { public List<Group> Groups { get; set; } = []; }
+internal sealed class TicketResponse { public Ticket? Ticket { get; set; } }
 internal sealed class TicketsResponse : PagedResponse { public List<Ticket> Tickets { get; set; } = []; }
 internal sealed class SearchResponse : PagedResponse { public List<Ticket> Results { get; set; } = []; }
 internal sealed class AuditsResponse : PagedResponse { public List<Audit> Audits { get; set; } = []; }

@@ -6,7 +6,13 @@ namespace ZendeskWatcher.Zendesk;
 /// <summary>Thrown when there is no valid token and the user has to sign in again.</summary>
 public sealed class AuthRequiredException() : Exception("Sign-in required");
 
-/// <summary>Read-only Zendesk API calls, made with the signed-in agent's own permissions.</summary>
+/// <summary>The outcome of <see cref="ZendeskClient.TakeTicketAsync"/>.</summary>
+public sealed record TakeResult(bool Taken, string? TakenBy = null);
+
+/// <summary>
+/// Zendesk API calls, made with the signed-in agent's own permissions. Everything is read-only except
+/// <see cref="TakeTicketAsync"/>, which the user triggers explicitly.
+/// </summary>
 public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 {
     private const int MaxPages = 10;
@@ -19,6 +25,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     };
 
     private readonly Dictionary<long, string> _userNames = [];
+    private readonly HashSet<string> _unsupportedLists = [];
 
     public async Task<User> GetMeAsync(CancellationToken ct) =>
         (await GetAsync<UserResponse>("/api/v2/users/me.json", ct)).User
@@ -54,6 +61,64 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// <summary>The most recently updated tickets assigned to a user. Exact, no search lag.</summary>
     public async Task<List<Ticket>> GetRecentlyUpdatedAssignedAsync(long userId, CancellationToken ct) =>
         (await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/assigned.json?sort_by=updated_at&sort_order=desc&per_page=100", ct)).Tickets;
+
+    /// <summary>
+    /// The most recently updated tickets where the user is CC'd, or follows. Exact, no search lag.
+    /// Returns an empty list if the account doesn't support the list (logged once).
+    /// </summary>
+    public async Task<List<Ticket>> GetRecentlyUpdatedInvolvedAsync(long userId, CancellationToken ct)
+    {
+        var result = new List<Ticket>();
+        foreach (var list in new[] { "ccd", "followed" })
+        {
+            if (_unsupportedLists.Contains(list))
+                continue;
+            try
+            {
+                result.AddRange((await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/{list}.json?sort_by=updated_at&sort_order=desc&per_page=100", ct)).Tickets);
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+            {
+                Log.Error($"Ticket list '{list}' is not available; skipping it", ex);
+                _unsupportedLists.Add(list);
+            }
+        }
+        return result.DistinctBy(t => t.Id).ToList();
+    }
+
+    /// <summary>
+    /// Assigns an unassigned ticket to the user. If someone else got it first (or it changed in between),
+    /// nothing is changed and the current assignee is returned.
+    /// </summary>
+    public async Task<TakeResult> TakeTicketAsync(long ticketId, long userId, CancellationToken ct)
+    {
+        var ticket = (await GetAsync<TicketResponse>($"/api/v2/tickets/{ticketId}.json", ct)).Ticket
+            ?? throw new InvalidOperationException($"Ticket #{ticketId} not found.");
+        if (ticket.AssigneeId == userId)
+            return new TakeResult(true);
+        if (ticket.AssigneeId is { } other)
+            return new TakeResult(false, await GetUserNameAsync(other, ct));
+
+        // safe_update: Zendesk rejects the change (409) if the ticket was updated after we read it.
+        var body = JsonSerializer.Serialize(new
+        {
+            ticket = new { assignee_id = userId, safe_update = true, updated_stamp = ticket.UpdatedAt.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }
+        });
+        try
+        {
+            await RequestAsync<TicketResponse>($"/api/v2/tickets/{ticketId}.json", "PUT", body, ct);
+            return new TakeResult(true);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            var now = (await GetAsync<TicketResponse>($"/api/v2/tickets/{ticketId}.json", ct)).Ticket;
+            if (now?.AssigneeId == userId)
+                return new TakeResult(true);
+            if (now?.AssigneeId is { } taker)
+                return new TakeResult(false, await GetUserNameAsync(taker, ct));
+            throw new InvalidOperationException("The ticket changed while taking it. Try again.");
+        }
+    }
 
     /// <summary>Current state of specific tickets. Tickets the agent can no longer see are simply missing.</summary>
     public async Task<List<Ticket>> GetTicketsAsync(IEnumerable<long> ids, CancellationToken ct)
@@ -108,14 +173,18 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         return result;
     }
 
-    private async Task<T> GetAsync<T>(string pathOrUrl, CancellationToken ct)
+    private Task<T> GetAsync<T>(string pathOrUrl, CancellationToken ct) => RequestAsync<T>(pathOrUrl, null, null, ct);
+
+    private async Task<T> RequestAsync<T>(string pathOrUrl, string? method, string? jsonBody, CancellationToken ct)
     {
         var url = pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? pathOrUrl : settings.BaseUrl + pathOrUrl;
         var recovered = false;
 
         for (var attempt = 0; ; attempt++)
         {
-            var response = await session.GetAsync(url, ct);
+            var response = method is null
+                ? await session.GetAsync(url, ct)
+                : await session.SendAsync(method, url, jsonBody ?? "", ct);
 
             if (response.Status == (int)HttpStatusCode.Unauthorized)
             {
@@ -137,7 +206,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
             if (!response.IsSuccess)
             {
-                throw new HttpRequestException($"GET {url} failed: {response.Status} {Truncate(response.Body, 300)}", null, (HttpStatusCode)response.Status);
+                throw new HttpRequestException($"{method ?? "GET"} {url} failed: {response.Status} {Truncate(response.Body, 300)}", null, (HttpStatusCode)response.Status);
             }
 
             return JsonSerializer.Deserialize<T>(response.Body, JsonOptions)

@@ -13,6 +13,9 @@ public sealed class Settings
     public int PollIntervalSeconds { get; set; } = 60;
     public bool TrackMyTickets { get; set; } = true;
 
+    /// <summary>Also notify about changes on tickets where I'm CC'd or a follower (same change types as my tickets).</summary>
+    public bool TrackCcTickets { get; set; }
+
     /// <summary>Notify about new unassigned tickets in the monitored groups (they are counted either way).</summary>
     public bool NotifyUnassigned { get; set; } = true;
 

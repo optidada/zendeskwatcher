@@ -31,6 +31,7 @@ public sealed class TrayAppContext : ApplicationContext
     private BrowserSession? _browser;
     private CancellationTokenSource? _loopCts;
     private SettingsForm? _settingsForm;
+    private (ZendeskClient Client, long MeId)? _taker; // set once the watcher knows who is signed in
     private bool _signInPromptShown;
 
     public TrayAppContext()
@@ -108,6 +109,9 @@ public sealed class TrayAppContext : ApplicationContext
             case Notifier.ActionSignIn:
                 ShowSettings();
                 break;
+            case Notifier.ActionTake when ticketId is { } takeId:
+                _ = TakeTicketAsync(takeId);
+                break;
             case Notifier.ActionUpdate:
                 RestartToUpdate();
                 break;
@@ -163,6 +167,7 @@ public sealed class TrayAppContext : ApplicationContext
                 {
                     SetStatus("Connecting…");
                     await watcher.InitializeAsync(ct);
+                    _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
                     initialized = true;
                 }
 
@@ -258,6 +263,37 @@ public sealed class TrayAppContext : ApplicationContext
         // the user may have signed in or out in the window.
         _settings = form.Result;
         Start(openSettingsIfNeeded: false);
+    }
+
+    /// <summary>"Take it": assigns the ticket to me (unless someone was faster), then opens it. Runs on the UI thread.</summary>
+    private async Task TakeTicketAsync(long ticketId)
+    {
+        if (_taker is not { } taker)
+        {
+            OpenUrl(_settings.TicketUrl(ticketId)); // not connected yet: just open it
+            return;
+        }
+
+        try
+        {
+            var result = await taker.Client.TakeTicketAsync(ticketId, taker.MeId, CancellationToken.None);
+            Log.Info(result.Taken ? $"Took ticket #{ticketId}" : $"Ticket #{ticketId} was already taken by {result.TakenBy}");
+            if (!result.Taken)
+                _notifier.ShowInfo($"#{ticketId} was already taken", $"{result.TakenBy} got it first. Opening the ticket.", ticketId);
+            _wakeUp.Release(); // refresh the unassigned count
+        }
+        catch (AuthRequiredException)
+        {
+            _notifier.ShowSignInRequired();
+            return;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not take ticket #{ticketId}", ex);
+            _notifier.ShowInfo($"Could not take #{ticketId}", $"{ex.Message}\nOpening the ticket instead.", ticketId);
+        }
+
+        OpenUrl(_settings.TicketUrl(ticketId));
     }
 
     private async void OnUpdateMenuClicked()

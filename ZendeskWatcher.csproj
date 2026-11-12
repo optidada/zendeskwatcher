@@ -10,13 +10,15 @@
     <RootNamespace>ZendeskWatcher</RootNamespace>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <AssemblyName>ZendeskWatcher</AssemblyName>
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
     <Authors>Claude + Daniel Dahlin @ Optimizely</Authors>
     <Company>Optimizely</Company>
     <Product>Zendesk Watcher</Product>
     <Description>Windows tray app that notifies about new unassigned Zendesk tickets and changes on your own tickets.</Description>
     <!-- The WebView2 package also ships a WPF control we don't use; its WindowsBase reference conflict is harmless. -->
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
+    <!-- Only English framework resources: keeps the installer smaller. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>

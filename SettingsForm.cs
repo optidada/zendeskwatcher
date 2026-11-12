@@ -48,6 +48,7 @@ public sealed class SettingsForm : Form
     private readonly ToggleSwitch _notifyUnassigned = new("New unassigned tickets in my monitored groups");
     private readonly NumericUpDown _interval = new() { Minimum = 30, Maximum = 3600, Increment = 15, Width = 80, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle };
     private readonly ToggleSwitch _trackMine = new("Changes on tickets assigned to me");
+    private readonly ToggleSwitch _trackCc = new("Changes on tickets where I'm CC or a follower");
     private readonly CheckBox _replies = Check("Public replies");
     private readonly CheckBox _notes = Check("Internal notes");
     private readonly CheckBox _status = Check("Status changes");
@@ -278,8 +279,9 @@ public sealed class SettingsForm : Form
         unassigned.Body.Controls.Add(_notifyUnassigned);
         page.Controls.Add(unassigned);
 
-        var mine = new Card("My tickets", "Changes you make yourself never trigger a notification.", CardWidth);
+        var mine = new Card("My tickets", "The change types below apply to both. Changes you make yourself never trigger a notification.", CardWidth);
         mine.Body.Controls.Add(_trackMine);
+        mine.Body.Controls.Add(_trackCc);
         var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(50, 4, 0, 0) };
         options.Controls.AddRange([_replies, _notes, _status, _assignment, _priority]);
         mine.Body.Controls.Add(options);
@@ -390,6 +392,7 @@ public sealed class SettingsForm : Form
         _notifyUnassigned.Checked = settings.NotifyUnassigned;
         _interval.Value = Math.Clamp(settings.PollIntervalSeconds, 30, 3600);
         _trackMine.Checked = settings.TrackMyTickets;
+        _trackCc.Checked = settings.TrackCcTickets;
         _replies.Checked = settings.NotifyPublicReplies;
         _notes.Checked = settings.NotifyInternalNotes;
         _status.Checked = settings.NotifyStatusChanges;
@@ -414,6 +417,7 @@ public sealed class SettingsForm : Form
     {
         _subdomain.Leave += async (_, _) => await RefreshAccountAsync();
         _trackMine.CheckedChanged += (_, _) => UpdateMyTicketOptions();
+        _trackCc.CheckedChanged += (_, _) => UpdateMyTicketOptions();
         _signIn.Click += async (_, _) => await SignInAsync();
         _signOut.Click += (_, _) => SignOut();
         _reloadGroups.Click += async (_, _) => await RefreshAccountAsync(force: true);
@@ -447,7 +451,7 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _replies, _notes, _status, _assignment, _priority, _startup, _showLogo, _groupByType })
+        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _startup, _showLogo, _groupByType })
             box.CheckedChanged += (_, _) => UpdateSaveState();
 
         Shown += async (_, _) =>
@@ -481,6 +485,7 @@ public sealed class SettingsForm : Form
         s.NotifyUnassigned = _notifyUnassigned.Checked;
         s.PollIntervalSeconds = (int)_interval.Value;
         s.TrackMyTickets = _trackMine.Checked;
+        s.TrackCcTickets = _trackCc.Checked;
         s.NotifyPublicReplies = _replies.Checked;
         s.NotifyInternalNotes = _notes.Checked;
         s.NotifyStatusChanges = _status.Checked;
@@ -680,7 +685,7 @@ public sealed class SettingsForm : Form
     private void UpdateMyTicketOptions()
     {
         foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority })
-            box.Enabled = _trackMine.Checked;
+            box.Enabled = _trackMine.Checked || _trackCc.Checked;
     }
 
     private string Snapshot() => $"{Current().ToJson()}|startup={_startup.Checked}";
@@ -710,8 +715,8 @@ public sealed class SettingsForm : Form
     {
         var result = Current();
 
-        if (result.IsConnectionConfigured && result.WatchedGroups.Count == 0 && !result.TrackMyTickets &&
-            MessageBox.Show(this, "No groups are monitored and tracking of your own tickets is off, so nothing will be watched. Save anyway?",
+        if (result.IsConnectionConfigured && result.WatchedGroups.Count == 0 && !result.TrackMyTickets && !result.TrackCcTickets &&
+            MessageBox.Show(this, "No groups are monitored and ticket tracking is off, so nothing will be watched. Save anyway?",
                 Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
         {
             return false;
