@@ -30,7 +30,7 @@ release workflow runs them first; a failing test stops the release.
 
 On first start the **Settings** window opens:
 
-1. **Account:** enter the subdomain (`episerver` for episerver.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
+1. **Account:** enter the subdomain (`yourcompany` for yourcompany.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
 2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon.
 3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, and how often to check.
 

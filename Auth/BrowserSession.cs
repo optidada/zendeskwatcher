@@ -73,7 +73,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     /// </summary>
     public bool MightBeSignedIn => !File.Exists(SignedOutMarker);
 
-    /// <summary>Points the session at a Zendesk account, e.g. https://episerver.zendesk.com.</summary>
+    /// <summary>Points the session at a Zendesk account, e.g. https://yourcompany.zendesk.com.</summary>
     public void Configure(string baseUrl) => _baseUrl = baseUrl.TrimEnd('/');
 
     private string MeUrl => $"{_baseUrl}/api/v2/users/me.json";

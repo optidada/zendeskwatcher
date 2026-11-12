@@ -161,7 +161,7 @@ public sealed class Notifier : INotificationSink
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
-        "Enter your Zendesk subdomain (e.g. episerver) and sign in. Then pick the groups to watch, and make the " +
+        "Enter your Zendesk subdomain (the part before .zendesk.com) and sign in. Then pick the groups to watch, and make the " +
         "notifications yours under Notifications and Appearance.")
     {
         Action = ActionSettings,

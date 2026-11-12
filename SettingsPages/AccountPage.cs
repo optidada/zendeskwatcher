@@ -8,7 +8,7 @@ internal sealed class AccountPage : SettingsPage
 {
     private enum AccountState { SignedOut, Checking, SignedIn, Error }
 
-    private readonly InputBox _subdomain = new(220, "e.g. episerver");
+    private readonly InputBox _subdomain = new(220, "e.g. yourcompany");
     private readonly StatusDot _dot = new();
     private readonly Label _status = Theme.Label("Not signed in", maxWidth: Kit.CardWidth - 70);
     private readonly Button _signIn = Theme.PrimaryButton("Sign in");
@@ -141,7 +141,7 @@ internal sealed class AccountPage : SettingsPage
         var connection = Context.Current();
         if (!connection.IsConnectionConfigured)
         {
-            MessageBox.Show(Context.Window, "Enter your Zendesk subdomain first (for example: episerver).", Context.Window.Text,
+            MessageBox.Show(Context.Window, "Enter your Zendesk subdomain first: the part before .zendesk.com in the address you use for Zendesk.", Context.Window.Text,
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
