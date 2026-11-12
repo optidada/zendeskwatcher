@@ -7,6 +7,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 - **Privacy**: Zendesk responses are no longer kept in the browser cache, the log never contains comment text (older logs are removed once), and saved state holds only ticket IDs and status, no subjects.
 - **New setting**: *Show the comment text in notifications* (Settings → Notifications). Turn it off to only see who replied or added a note.
+- Settings opens without waiting: groups show as soon as they're loaded, suggestions fill in afterwards, and reopening Settings within half an hour is instant.
 
 ## 1.2.1
 
