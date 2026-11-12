@@ -106,6 +106,8 @@ public sealed class SettingsForm : Form
         new(ToastSound.ChipBlip, "Chiptune: Blip"), new(ToastSound.ChipArpeggio, "Chiptune: Arpeggio"),
         new(ToastSound.ChipBounce, "Chiptune: Bounce"), new(ToastSound.ChipAlert, "Chiptune: Alert"),
         new(ToastSound.ChipFanfare, "Chiptune: Fanfare"),
+        new(ToastSound.SongBouncy, "Chiptune song: Bouncy"), new(ToastSound.SongGroove, "Chiptune song: Groove"),
+        new(ToastSound.SongCelebration, "Chiptune song: Celebration"),
         new(ToastSound.Silent, "Silent")
     ];
 
@@ -418,10 +420,10 @@ public sealed class SettingsForm : Form
         page.Controls.Add(style);
 
         var sound = new Card("Sound and display", null, CardWidth);
-        var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface };
+        var grid = new TableLayoutPanel { ColumnCount = 4, AutoSize = true, BackColor = Theme.Surface };
         grid.Controls.Add(Theme.Label(""), 0, 0);
         grid.Controls.Add(Theme.Label("Sound", Theme.Small, Theme.TextMuted), 1, 0);
-        grid.Controls.Add(Theme.Label("Display", Theme.Small, Theme.TextMuted), 2, 0);
+        grid.Controls.Add(Theme.Label("Display", Theme.Small, Theme.TextMuted), 3, 0);
         AddStyleRow(grid, 1, "New tickets", _newSound, _newDisplay);
         AddStyleRow(grid, 2, "My tickets", _mySound, _myDisplay);
         AddStyleRow(grid, 3, "Colleagues' tickets", _helpSound, _helpDisplay);
@@ -1182,15 +1184,33 @@ public sealed class SettingsForm : Form
         }
     }
 
-    private static void AddStyleRow(TableLayoutPanel grid, int row, string label, ComboBox sound, ComboBox display)
+    private void AddStyleRow(TableLayoutPanel grid, int row, string label, ComboBox sound, ComboBox display)
     {
         var text = Theme.Label(label);
         text.Anchor = AnchorStyles.Left;
         text.Margin = new Padding(0, 4, 20, 4);
+        sound.Width = display.Width = 160;
+        sound.Margin = new Padding(0, 3, 4, 3);
+
+        // ▶ plays the selected sound, without showing a notification.
+        var play = Theme.SecondaryButton("▶");
+        play.AutoSize = false;
+        play.MinimumSize = Size.Empty;
+        play.Padding = Padding.Empty;
+        play.Font = new Font("Segoe UI Symbol", 9f);
+        play.Size = new Size(32, sound.Height);
+        play.Margin = new Padding(0, 3, 10, 3);
+        play.Anchor = AnchorStyles.Left;
+        _tips.SetToolTip(play, "Play this sound");
+        play.Click += (_, _) => UI.Popups.PopupManager.PlaySound(Selected<ToastSound>(sound));
+
         grid.Controls.Add(text, 0, row);
         grid.Controls.Add(sound, 1, row);
-        grid.Controls.Add(display, 2, row);
+        grid.Controls.Add(play, 2, row);
+        grid.Controls.Add(display, 3, row);
     }
+
+    private readonly ToolTip _tips = new();
 
     private static ComboBox Combo<T>(Option<T>[] options)
     {

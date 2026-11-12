@@ -118,7 +118,8 @@ public sealed class PopupManager
         }
     }
 
-    private static void PlaySound(ToastSound sound)
+    /// <summary>Plays a notification sound (also used by the ▶ preview buttons in Settings).</summary>
+    public static void PlaySound(ToastSound sound)
     {
         if (sound == ToastSound.Silent)
             return;

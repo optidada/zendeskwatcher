@@ -29,6 +29,13 @@ internal static class Program
             return;
         }
 
+        // Developer helper: write the chiptune jingles and songs as .wav files, then exit.
+        if (args.Length >= 2 && args[0] == "--export-sounds")
+        {
+            UI.ChipSounds.Export(args[1]);
+            return;
+        }
+
         // Developer helper: previews of the Optimizely-style icon, then exit.
         if (args.Length >= 2 && args[0] == "--export-brand-icons")
         {

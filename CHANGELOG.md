@@ -5,7 +5,8 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.3.7
 
-- **Chiptune sounds**: five little Amiga-style jingles (Blip, Arpeggio, Bounce, Alert, Fanfare) to choose from under Sound and display.
+- **Chiptune sounds**: five little Amiga-style jingles (Blip, Arpeggio, Bounce, Alert, Fanfare) and three short songs with melody, bass and drums (Bouncy, Groove, Celebration, about 4–5 s) to choose from under Sound and display.
+- A ▶ button next to each sound plays it, without showing a notification.
 - App messages have their own sensible behavior instead of the "My tickets" settings: "No updates" and similar are silent and short, "Update ready", the welcome and "group not found" stay about 25 s, and "Sign-in required" stays until dismissed.
 
 ## 1.3.6
