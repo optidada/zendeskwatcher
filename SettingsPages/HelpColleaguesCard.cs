@@ -53,6 +53,12 @@ internal sealed class HelpColleaguesCard
     private int _peopleVersion;
     private TimeRegion _myRegion = TimeRegion.Other;
 
+    /// <summary>
+    /// Help colleagues was never set up: when it's switched on and the members load, colleagues in your own region
+    /// start unticked (they usually work when you do). Only once.
+    /// </summary>
+    private bool _applyRegionDefault;
+
     /// <summary>Group members loaded from Zendesk (group id -> members), remembered like the group list.</summary>
     private static (string Subdomain, DateTime At, Dictionary<long, List<Member>> Groups)? _memberCache;
 
@@ -114,6 +120,7 @@ internal sealed class HelpColleaguesCard
         _help.Checked = settings.HelpColleagues;
         _same.Checked = settings.HelpSameAsMonitored;
         _custom.Checked = !settings.HelpSameAsMonitored;
+        _applyRegionDefault = !settings.HelpColleagues && settings.HelpExcludedAssignees.Count == 0;
         _chosen.Clear();
         _excluded.Clear();
         foreach (var group in settings.HelpGroups)
@@ -291,6 +298,14 @@ internal sealed class HelpColleaguesCard
                 .ToList();
             foreach (var m in shown.Where(m => _excluded.ContainsKey(m.Id)))
                 _excluded[m.Id] = m.Name; // keep the stored name current
+
+            if (_applyRegionDefault && shown.Count > 0)
+            {
+                _applyRegionDefault = false;
+                foreach (var m in RegionDefaultExclusions(shown, _myRegion))
+                    _excluded[m.Id] = m.Name;
+                _context.Changed();
+            }
         }
         _peopleShown = shown.OrderBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
@@ -306,7 +321,7 @@ internal sealed class HelpColleaguesCard
         // Signed in: by region (from each colleague's time zone), so e.g. only other regions can be covered.
         // Otherwise just the unticked colleagues, whose time zones aren't known.
         var sections = isLoaded
-            ? _peopleShown.GroupBy(m => m.Region).OrderBy(g => g.Key).Select(g => (Region: (TimeRegion?)g.Key, Members: g.ToList())).ToList()
+            ? Arrange(_peopleShown, _excluded.Keys.ToHashSet(), _myRegion).Select(s => (Region: (TimeRegion?)s.Region, s.Members)).ToList()
             : [(Region: (TimeRegion?)null, Members: _peopleShown)];
         var boxesBefore = false;
         foreach (var (region, members) in sections)
@@ -353,6 +368,23 @@ internal sealed class HelpColleaguesCard
         UpdatePeopleHint(isLoaded, failed);
         UpdateOptions();
     }
+
+    /// <summary>
+    /// The assignees by region: other regions first, your own region last, "no time zone" (always skipped) at the very
+    /// end. Within a region the covered (ticked) ones first, then by name. Sorted when the list is built, so ticking
+    /// a box doesn't make it jump.
+    /// </summary>
+    internal static List<(TimeRegion Region, List<Member> Members)> Arrange(IEnumerable<Member> members, IReadOnlySet<long> excluded, TimeRegion myRegion) =>
+        members.GroupBy(m => m.Region)
+            .OrderBy(g => g.Key == TimeRegion.NoTimeZone ? 2 : g.Key == myRegion ? 1 : 0)
+            .ThenBy(g => g.Key)
+            .Select(g => (g.Key, g.OrderBy(m => excluded.Contains(m.Id) ? 1 : 0)
+                .ThenBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase).ToList()))
+            .ToList();
+
+    /// <summary>The first time: colleagues in your own region aren't covered (they're usually at work when you are).</summary>
+    internal static IEnumerable<Member> RegionDefaultExclusions(IEnumerable<Member> members, TimeRegion myRegion) =>
+        members.Where(m => m.Region == myRegion);
 
     private void UpdatePeopleHint(bool loaded, int failed)
     {

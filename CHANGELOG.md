@@ -17,6 +17,9 @@ app's "Update ready" notification, so put the most interesting changes first.
 - App messages (welcome, update ready, sign-in) have a Close button instead of Snooze.
 - Starting Zendesk Watcher while it's already running shows a notification instead of a dialog box; click it to open Settings.
 - The Zendesk subdomain is filled in on first start.
+- Help colleagues: the first time you switch it on, colleagues in your own region start unticked. Your region is listed last, and in each region the covered colleagues come first.
+- Questions and messages in Settings look like the rest of the app, with buttons that say what they do (Save / Don't save / Cancel).
+- Smoother scrolling on long Settings pages.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10
