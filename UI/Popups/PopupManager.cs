@@ -15,6 +15,7 @@ public sealed class PopupManager
     private readonly Action<NotificationContent, PopupForm.Result> _onClosed;
     private readonly Action<NotificationContent> _onCopy;
     private static int _watchingLock;
+    private bool _takeTurns = true;
 
     /// <param name="onSnooze">The user snoozed a popup; the caller decides when (and whether) it shows again.</param>
     /// <param name="onClosed">A popup closed, and how (for the statistics).</param>
@@ -46,6 +47,8 @@ public sealed class PopupManager
         var popup = new PopupForm(content, palette, style.Display, scale);
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
+        popup.PauseWhenAway = settings.PausePopupsWhenAway;
+        _takeTurns = settings.PopupsTakeTurns;
         _visible.Add(popup);
         UpdateTurns();
 
@@ -92,7 +95,7 @@ public sealed class PopupManager
     {
         var current = _visible.FirstOrDefault(p => p.TimesOut);
         foreach (var popup in _visible)
-            popup.MyTurn = popup == current || !popup.TimesOut;
+            popup.MyTurn = !_takeTurns || popup == current || !popup.TimesOut;
     }
 
     /// <summary>Newest popup nearest the corner; older ones are pushed away from it.</summary>

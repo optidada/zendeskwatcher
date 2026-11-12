@@ -130,6 +130,12 @@ public sealed class Settings
     [System.Text.Json.Serialization.JsonIgnore]
     public NotificationTheme ActiveNotificationTheme => NotificationsLikeApp ? AppTheme : Theme;
     public PopupPosition Position { get; set; } = PopupPosition.BottomRight;
+
+    /// <summary>Several popups take turns: one counts down at a time, the others wait.</summary>
+    public bool PopupsTakeTurns { get; set; } = true;
+
+    /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
+    public bool PausePopupsWhenAway { get; set; } = true;
     public bool ShowAppLogo { get; set; } = true;
     public bool GroupNotificationsByType { get; set; } = true;
 

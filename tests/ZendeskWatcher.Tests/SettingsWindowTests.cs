@@ -39,6 +39,8 @@ public class SettingsWindowTests
         AppMessageStyle = new NotificationStyle { Sound = ToastSound.Sms, Display = ToastDisplay.Medium },
         Theme = NotificationTheme.CleanLight,
         AppTheme = NotificationTheme.Terminal,
+        PopupsTakeTurns = false,
+        PausePopupsWhenAway = false,
         NotificationsLikeApp = false,
         Position = PopupPosition.TopRight,
         ShowAppLogo = false,

@@ -55,6 +55,12 @@ public sealed class PopupForm : Form
     /// </summary>
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool MyTurn { get; set; } = true;
+
+    /// <summary>Don't count down while the user is away (see <see cref="UserAway"/>). Set from the settings.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool PauseWhenAway { get; set; } = true;
+
+    private bool Away => PauseWhenAway && UserAway();
     public NotificationContent Content => _content;
 
     /// <summary>The Y position the stack wants this popup at; it glides there.</summary>
@@ -225,7 +231,7 @@ public sealed class PopupForm : Form
 
             default:
                 x = _restX;
-                if (_durationMs > 0 && !_hover && MyTurn && !UserAway())
+                if (_durationMs > 0 && !_hover && MyTurn && !Away)
                 {
                     _elapsed += dt;
                     if (_elapsed >= _durationMs)
@@ -239,7 +245,7 @@ public sealed class PopupForm : Form
         if (moved)
             Location = location;
 
-        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn && !UserAway();
+        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn && !Away;
         var typing = Typed().Typing;
         var gliding = Math.Abs(TargetY - _y) > 0.5f;
         var busy = _phase != Phase.Showing || gliding || countingDown || typing;
@@ -566,7 +572,7 @@ public sealed class PopupForm : Form
             var seconds = _durationMs <= 0 ? "--" : $"{Math.Ceiling((_durationMs - _elapsed) / 1000)}s";
             var bar = _durationMs <= 0
                 ? "[ pinned until dismissed ]"
-                : $"[{new string('█', filled)}{new string('░', cells - filled)}] {seconds}{(_hover ? " (paused)" : !MyTurn ? " (waiting)" : UserAway() ? " (you're away)" : "")}";
+                : $"[{new string('█', filled)}{new string('░', cells - filled)}] {seconds}{(_hover ? " (paused)" : !MyTurn ? " (waiting)" : Away ? " (you're away)" : "")}";
             DrawText(g, bar, _bodyFont, _barRect, _palette.Muted, TextFormatFlags.SingleLine);
             return;
         }
