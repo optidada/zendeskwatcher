@@ -6,6 +6,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.6
 
 - Settings → Account: no Sign in button while the app is still checking whether you're signed in.
+- "Check for updates" answers with a notification ("No updates · You have the latest version") instead of a dialog box.
 
 ## 1.3.5
 

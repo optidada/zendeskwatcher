@@ -26,6 +26,7 @@ public sealed class Notifier(Action<string, long?> onAction)
     public const string ActionOpenZendesk = "zendesk";
     public const string ActionSignIn = "signin";
     public const string ActionNone = "none";
+    public const string ActionInfo = "info"; // information only: the button says OK, a click just dismisses it
     public const string ActionUpdate = "update";
     public const string ActionTake = "take";
     public const string ActionSettings = "settings";
@@ -63,7 +64,10 @@ public sealed class Notifier(Action<string, long?> onAction)
 
     /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>
     public void ShowInfo(string title, string body, long? ticketId = null) => Show(new NotificationContent(
-        NotificationKind.MyTicket, "Zendesk Watcher", title, body, ticketId), Settings);
+        NotificationKind.MyTicket, "Zendesk Watcher", title, body, ticketId)
+    {
+        Action = ticketId is null ? ActionInfo : null
+    }, Settings);
 
     /// <summary>A new version has been downloaded; clicking restarts into it.</summary>
     public void ShowUpdateReady(string version, string? highlights = null) => Show(new NotificationContent(
@@ -118,7 +122,7 @@ public sealed class Notifier(Action<string, long?> onAction)
     /// <summary>True if the same notification was already shown within the last minute (then it's skipped).</summary>
     private bool IsDuplicate(NotificationContent content)
     {
-        if (content.ResolvedAction == ActionNone)
+        if (content.ResolvedAction is ActionNone or ActionInfo)
             return false; // test samples: you may want to see the same one again right away (e.g. in another theme)
 
         var now = DateTime.UtcNow;
@@ -202,6 +206,7 @@ public sealed class Notifier(Action<string, long?> onAction)
                 ActionSignIn => "Sign in",
                 ActionUpdate => "Update now",
                 ActionSettings => "Open Settings",
+                ActionInfo => "OK",
                 _ => content.TicketId is null ? "Open Zendesk" : "Open ticket"
             })
             .AddArgument("action", action);

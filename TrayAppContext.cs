@@ -315,7 +315,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (!_updater.IsInstalled)
         {
             if (userInitiated)
-                MessageBox.Show("Updates only work in the installed app (Setup.exe).", "Zendesk Watcher");
+                _notifier.ShowInfo("Updates only work in the installed app", "This copy wasn't installed with Setup.exe, so it can't update itself.");
             return;
         }
 
@@ -340,7 +340,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 _updateItem.Text = "Check for updates";
                 if (userInitiated)
-                    MessageBox.Show($"You have the latest version ({_updater.CurrentVersion}).", "Zendesk Watcher");
+                    _notifier.ShowInfo("No updates", $"You have the latest version ({_updater.CurrentVersion}).");
             }
         }
         catch (Exception ex)
@@ -348,7 +348,7 @@ public sealed class TrayAppContext : ApplicationContext
             Log.Error("Update check failed", ex);
             _updateItem.Text = "Check for updates";
             if (userInitiated)
-                MessageBox.Show($"Could not check for updates:\n{ex.Message}", "Zendesk Watcher");
+                _notifier.ShowInfo("Couldn't check for updates", ex.Message);
         }
         finally
         {

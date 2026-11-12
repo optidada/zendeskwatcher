@@ -285,6 +285,7 @@ public sealed class PopupForm : Form
             Notifier.ActionUpdate => _palette.Terminal ? "[ update ]" : "Update now",
             Notifier.ActionSignIn => _palette.Terminal ? "[ sign in ]" : "Sign in",
             Notifier.ActionSettings => _palette.Terminal ? "[ settings ]" : "Open Settings",
+            Notifier.ActionInfo => _palette.Terminal ? "[ ok ]" : "OK",
             _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
         };
         _snoozeLabel = _palette.Terminal ? "[ snooze ]" : "Snooze";
