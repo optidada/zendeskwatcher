@@ -147,8 +147,28 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         return result;
     }
 
-    public Task<List<Audit>> GetAuditsAsync(long ticketId, CancellationToken ct) =>
-        GetAllPagesAsync<AuditsResponse, Audit>($"/api/v2/tickets/{ticketId}/audits.json", r => r.Audits, ct);
+    /// <summary>
+    /// The audits (changes) of a ticket made after <paramref name="since"/>. Asks for newest first and stops at the
+    /// first page that reaches already-seen changes, instead of downloading the whole history (with every comment)
+    /// for each change. If Zendesk returns oldest first anyway, it reads all pages like before.
+    /// </summary>
+    public async Task<List<Audit>> GetAuditsSinceAsync(long ticketId, DateTimeOffset since, CancellationToken ct)
+    {
+        var result = new List<Audit>();
+        string? next = $"/api/v2/tickets/{ticketId}/audits.json?sort_order=desc";
+        for (var page = 0; next is not null && page < MaxPages; page++)
+        {
+            var response = await GetAsync<AuditsResponse>(next, ct);
+            var audits = response.Audits;
+            result.AddRange(audits.Where(a => a.CreatedAt > since));
+
+            var newestFirst = audits.Count < 2 || audits[0].CreatedAt >= audits[^1].CreatedAt;
+            if (newestFirst && audits.Count > 0 && audits[^1].CreatedAt <= since)
+                break;
+            next = response.Next;
+        }
+        return result;
+    }
 
     public async Task<string> GetUserNameAsync(long userId, CancellationToken ct)
     {

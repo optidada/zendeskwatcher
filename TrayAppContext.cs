@@ -258,6 +258,7 @@ public sealed class TrayAppContext : ApplicationContext
         finally
         {
             _settingsForm = null;
+            MemoryTrim.Soon(); // the window and its controls are gone; give the memory back
         }
 
         // Result holds the last saved settings (unchanged if nothing was saved). Restart either way:

@@ -60,12 +60,15 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         await _gate.WaitAsync(ct);
         try
         {
+            await EnsureInitializedAsync();
+            Wake();
             await EnsureOnZendeskAsync(ct);
             return await FetchAsync(url, ct, method, jsonBody);
         }
         finally
         {
             _gate.Release();
+            SuspendSoon();
         }
     }
 
@@ -79,6 +82,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         try
         {
             await EnsureInitializedAsync();
+            Wake();
             Log.Info("Browser session: trying silent sign-in");
             _web.CoreWebView2.Navigate(LoginUrl);
 
@@ -101,6 +105,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         finally
         {
             _gate.Release();
+            SuspendSoon();
         }
     }
 
@@ -135,10 +140,13 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
             using var registration = ct.Register(() => _window.DialogResult = DialogResult.Cancel);
 
+            Wake();
+            UseLowMemory(false); // visible: render the sign-in pages normally
             _web.CoreWebView2.Navigate(LoginUrl);
             timer.Start();
             var result = _window.ShowDialog(owner); // closing a modal form only hides it; the WebView2 stays alive
             timer.Stop();
+            UseLowMemory(true);
 
             if (result != DialogResult.OK)
                 throw new OperationCanceledException("The sign-in window was closed.");
@@ -149,6 +157,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         finally
         {
             _gate.Release();
+            SuspendSoon();
         }
     }
 
@@ -166,10 +175,60 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
     private async Task InitializeAsync()
     {
-        var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"));
+        // No GPU process: the hidden page only runs fetch(), and the sign-in page renders fine in software.
+        var options = new CoreWebView2EnvironmentOptions("--disable-gpu");
+        var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
         await _web.EnsureCoreWebView2Async(environment);
         _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        UseLowMemory(true);
+    }
+
+    // ------------------------------------------------------------------ keeping the hidden browser small
+
+    private System.Windows.Forms.Timer? _suspendTimer;
+
+    /// <summary>While hidden, ask the browser to use as little memory as possible.</summary>
+    private void UseLowMemory(bool low)
+    {
+        if (_web.CoreWebView2 is { } core)
+            core.MemoryUsageTargetLevel = low ? CoreWebView2MemoryUsageTargetLevel.Low : CoreWebView2MemoryUsageTargetLevel.Normal;
+    }
+
+    /// <summary>Wakes a suspended browser before it's used.</summary>
+    private void Wake()
+    {
+        _suspendTimer?.Stop();
+        if (_web.CoreWebView2 is { IsSuspended: true } core)
+            core.Resume();
+    }
+
+    /// <summary>
+    /// Suspends the hidden browser a few seconds after the last request, so it uses (almost) no CPU and less memory
+    /// until the next check. Not while the sign-in window is open.
+    /// </summary>
+    private void SuspendSoon()
+    {
+        if (_suspendTimer is null)
+        {
+            _suspendTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+            _suspendTimer.Tick += async (_, _) =>
+            {
+                _suspendTimer.Stop();
+                if (_window.Visible || _web.CoreWebView2 is not { IsSuspended: false } core || _gate.CurrentCount == 0)
+                    return;
+                try
+                {
+                    await core.TrySuspendAsync();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Browser session: could not suspend the hidden browser", ex);
+                }
+            };
+        }
+        _suspendTimer.Stop();
+        _suspendTimer.Start();
     }
 
     /// <summary>Fetch only works same-origin, so the hidden page must be on the Zendesk domain.</summary>

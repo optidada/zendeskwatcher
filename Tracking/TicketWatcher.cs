@@ -279,8 +279,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private async Task ReportChangesAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct, string? context = null)
     {
         var me = Me!.Id;
-        var audits = (await zendesk.GetAuditsAsync(ticket.Id, ct))
-            .Where(a => a.CreatedAt > since && a.AuthorId != me)
+        var audits = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
+            .Where(a => a.AuthorId != me)
             .OrderBy(a => a.CreatedAt);
 
         var lines = new List<string>();

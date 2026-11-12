@@ -49,7 +49,26 @@ public sealed class PopupForm : Form
 
     /// <summary>The Y position the stack wants this popup at; it glides there.</summary>
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public int TargetY { get; set; }
+    public int TargetY
+    {
+        get => _targetY;
+        set
+        {
+            if (value == _targetY)
+                return;
+            _targetY = value;
+            _timer.Interval = BusyInterval; // glide there smoothly
+        }
+    }
+
+    private int _targetY;
+
+    // Repaint only when something visible changes: at 66 fps while animating, otherwise a few times a second
+    // (enough for the terminal cursor blink and the "· 7 min ago" text). Mouse events repaint on their own.
+    private const int BusyInterval = 15;
+    private const int IdleInterval = 250;
+    private string? _paintedBody;
+    private long _paintedBlink = -1;
 
     public event Action<PopupForm>? Finished;
 
@@ -191,10 +210,27 @@ public sealed class PopupForm : Form
         }
 
         var location = new Point(x, (int)Math.Round(_y));
-        if (location != Location)
+        var moved = location != Location;
+        if (moved)
             Location = location;
 
-        Invalidate();
+        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover;
+        var typing = Typed().Typing;
+        var gliding = Math.Abs(TargetY - _y) > 0.5f;
+        var busy = _phase != Phase.Showing || gliding || countingDown || typing;
+
+        var body = Body;
+        var blink = _palette.Terminal ? _clock.ElapsedMilliseconds / 500 : 0;
+        if (busy || moved || body != _paintedBody || blink != _paintedBlink)
+        {
+            _paintedBody = body;
+            _paintedBlink = blink;
+            Invalidate();
+        }
+
+        var interval = busy ? BusyInterval : IdleInterval;
+        if (_timer.Interval != interval)
+            _timer.Interval = interval;
     }
 
     private static double EaseOutBack(double p)
@@ -481,20 +517,28 @@ public sealed class PopupForm : Form
 
     // ------------------------------------------------------------------ mouse
 
-    protected override void OnMouseEnter(EventArgs e) { _hover = true; base.OnMouseEnter(e); }
+    protected override void OnMouseEnter(EventArgs e) { SetHover(true, _hoverButton); base.OnMouseEnter(e); }
 
     protected override void OnMouseLeave(EventArgs e)
     {
-        _hover = false;
-        _hoverButton = null;
+        SetHover(false, null);
         base.OnMouseLeave(e);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        _hover = true;
-        _hoverButton = new[] { _closeRect, _openRect, _snoozeRect, _takeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location));
+        SetHover(true, new[] { _closeRect, _openRect, _snoozeRect, _takeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
+    }
+
+    /// <summary>Hover pauses the countdown and highlights buttons; repaint only when that changes.</summary>
+    private void SetHover(bool hover, Rectangle? button)
+    {
+        if (hover == _hover && button == _hoverButton)
+            return;
+        _hover = hover;
+        _hoverButton = button;
+        Invalidate();
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
