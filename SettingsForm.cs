@@ -43,6 +43,7 @@ public sealed class SettingsForm : Form
     private List<GroupItem> _allGroups = [];
     private readonly HashSet<long> _selectedGroups = [];
     private bool _suppressGroupEvents;
+    private readonly Panel _groupsHost = new() { BackColor = Theme.Surface };
 
     // Notifications
     private readonly ToggleSwitch _notifyUnassigned = new("New unassigned tickets in my monitored groups");
@@ -263,7 +264,9 @@ public sealed class SettingsForm : Form
             "Whether you get notifications is set under Notifications.", CardWidth);
         _groups.Columns.Add("Group");
         _groups.Groups.AddRange([_monitoredSection, _otherSection]);
-        var listHost = new Panel { Size = _groups.Size, Margin = _groups.Margin, BackColor = Theme.Surface };
+        var listHost = _groupsHost;
+        listHost.Size = _groups.Size;
+        listHost.Margin = _groups.Margin;
         _groups.Dock = DockStyle.Fill;
         listHost.Controls.Add(_groupsLoading); // overlay, shown while loading
         listHost.Controls.Add(_groups);
@@ -298,13 +301,21 @@ public sealed class SettingsForm : Form
         unassigned.Body.Controls.Add(_notifyUnassigned);
         page.Controls.Add(unassigned);
 
-        var mine = new Card("My tickets", "The change types below apply to both. Changes you make yourself never trigger a notification.", CardWidth);
+        var mine = new Card("Ticket changes", "Get notified when someone else changes these tickets.", CardWidth);
         mine.Body.Controls.Add(_trackMine);
         mine.Body.Controls.Add(_trackCc);
-        var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(50, 4, 0, 0) };
-        options.Controls.AddRange([_replies, _notes, _status, _assignment, _priority]);
-        mine.Body.Controls.Add(options);
         page.Controls.Add(mine);
+
+        // Its own card: the change types apply to both kinds of tickets above, not to one of the switches.
+        var which = new Card("Which changes", "Applies to your tickets and to tickets you're CC'd on or follow. Changes you make yourself never trigger a notification.", CardWidth);
+        var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
+        options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (CardWidth - 44) / 2));
+        options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment];
+        for (var i = 0; i < changeTypes.Length; i++)
+            options.Controls.Add(changeTypes[i], i % 2, i / 2);
+        which.Body.Controls.Add(options);
+        page.Controls.Add(which);
 
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", CardWidth);
         checking.Body.Controls.Add(Row(Theme.Label("Check Zendesk every"), _interval, Theme.Label("seconds")));
@@ -380,6 +391,8 @@ public sealed class SettingsForm : Form
             _pages[i].Nav.Selected = i == index;
             _pages[i].Page.Visible = i == index;
         }
+        if (_pages[index].Page == _pages[1].Page)
+            FitGroupsList();
 
         if (redraw)
         {
@@ -844,6 +857,23 @@ public sealed class SettingsForm : Form
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /// <summary>
+    /// Sizes the group list so the Groups page fits the window: only the list scrolls, not the page.
+    /// </summary>
+    private void FitGroupsList()
+    {
+        var page = _pages[1].Page;
+        page.PerformLayout();
+        var available = _content.ClientSize.Height - _content.Padding.Vertical;
+        var minimum = (int)(120 * DeviceDpi / 96f);
+        var height = Math.Max(minimum, _groupsHost.Height + available - page.PreferredSize.Height);
+        if (height != _groupsHost.Height)
+        {
+            _groupsHost.Height = height;
+            page.PerformLayout();
+        }
+    }
 
     private static FlowLayoutPanel Page(string title, string subtitle)
     {
