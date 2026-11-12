@@ -148,6 +148,13 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             foreach (var ticket in tickets)
                 _state.SeenUnassigned[ticket.Id] = now;
 
+            // A newly monitored group: one summary of what's already waiting instead of a notification per ticket.
+            if (isBaseline && settings.NotifyUnassigned && tickets.Count > 0)
+            {
+                ShowAlreadyWaiting(group, tickets);
+                continue;
+            }
+
             // New tickets are always recorded, so switching notifications on later does not report old ones.
             if (isBaseline || fresh.Count == 0 || !settings.NotifyUnassigned)
                 continue;
@@ -440,6 +447,27 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             string.Join("\n", shown), ticket.Id, ticket.Priority, context));
+    }
+
+    /// <summary>"Now watching Tier 2 · 3 unassigned tickets" when a group is added; a ticket notification if there's just one.</summary>
+    private void ShowAlreadyWaiting(WatchedGroup group, List<Ticket> tickets)
+    {
+        var oldestFirst = tickets.OrderBy(t => t.CreatedAt).ToList();
+        Log.Info($"Now watching {GroupLabel(group)}: {tickets.Count} unassigned ticket(s) already waiting: {string.Join(",", oldestFirst.Select(t => t.Id))}");
+
+        if (oldestFirst.Count == 1)
+        {
+            var ticket = oldestFirst[0];
+            notifier.Show(new NotificationContent(NotificationKind.NewTicket, "Already waiting", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
+                $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt });
+            return;
+        }
+
+        var lines = oldestFirst.Take(3).Select(t => $"#{t.Id} {TextCleanup.Plain(t.Subject)}").ToList();
+        if (oldestFirst.Count > 3)
+            lines.Add($"… and {oldestFirst.Count - 3} more");
+        notifier.Show(new NotificationContent(NotificationKind.NewTicket, "Now watching",
+            $"{tickets.Count} unassigned tickets already waiting", string.Join("\n", lines), Context: GroupLabel(group)));
     }
 
     private static string CreatedLabel(Ticket t)
