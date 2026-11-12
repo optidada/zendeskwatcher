@@ -193,6 +193,9 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
             Wake();
             UseLowMemory(false); // visible: render the sign-in pages normally
+            // Show a short "opening" page first; otherwise the window briefly shows whatever the hidden browser was
+            // resting on (robots.txt) until the Okta page has loaded.
+            await NavigateToStringAsync(LoadingPage());
             _web.CoreWebView2.Navigate(LoginUrl);
             timer.Start();
             var result = _window.ShowDialog(owner); // closing a modal form only hides it; the WebView2 stays alive
@@ -337,6 +340,42 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         {
             _web.CoreWebView2.NavigationCompleted -= Handler;
         }
+    }
+
+    private async Task NavigateToStringAsync(string html)
+    {
+        var core = _web.CoreWebView2;
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Handler(object? sender, CoreWebView2NavigationCompletedEventArgs e) => completed.TrySetResult();
+        core.NavigationCompleted += Handler;
+        try
+        {
+            core.NavigateToString(html);
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+            // Not important enough to wait for.
+        }
+        finally
+        {
+            core.NavigationCompleted -= Handler;
+        }
+    }
+
+    /// <summary>A minimal page in the app's colors, shown while the sign-in page loads.</summary>
+    private static string LoadingPage()
+    {
+        static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+        var back = Hex(ZendeskWatcher.UI.Theme.Window);
+        var text = Hex(ZendeskWatcher.UI.Theme.TextMuted);
+        var accent = Hex(ZendeskWatcher.UI.Theme.Accent);
+        return "<!doctype html><html><head><meta charset=\"utf-8\"><style>" +
+               $"html,body{{height:100%;margin:0;background:{back};color:{text};font:15px 'Segoe UI',sans-serif}}" +
+               "body{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}" +
+               $".dot{{width:10px;height:10px;border-radius:50%;background:{accent};animation:p 1s ease-in-out infinite}}" +
+               "@keyframes p{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}" +
+               "</style></head><body><div class=\"dot\"></div><div>Opening the Zendesk sign-in…</div></body></html>";
     }
 
     private async Task<bool> IsSignedInSafeAsync(CancellationToken ct)
