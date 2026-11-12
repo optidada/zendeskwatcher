@@ -17,6 +17,14 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     private static readonly TimeSpan NavigationTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SilentSignInTimeout = TimeSpan.FromSeconds(25);
 
+    /// <summary>If the page sits on the (Okta) login page this long without moving on, it wants a password.</summary>
+    private static readonly TimeSpan SettledOnLoginPage = TimeSpan.FromSeconds(6);
+
+    /// <summary>Exists after the user signed out, until they sign in again: no silent sign-in in between.</summary>
+    private static string SignedOutMarker => Path.Combine(AppPaths.DataDir, "signed-out");
+
+    private DateTime _lastNavigation;
+
     private readonly Form _window;
     private readonly WebView2 _web;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -42,7 +50,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         _ = _web.Handle;
     }
 
-    public bool MightBeSignedIn => true; // Cookies or the Okta session may still be valid; try silently first.
+    /// <summary>
+    /// Cookies or the Okta session may still be valid, so try silently first; unless the user signed out on purpose.
+    /// </summary>
+    public bool MightBeSignedIn => !File.Exists(SignedOutMarker);
 
     /// <summary>Points the session at a Zendesk account, e.g. https://episerver.zendesk.com.</summary>
     public void Configure(string baseUrl) => _baseUrl = baseUrl.TrimEnd('/');
@@ -78,12 +89,16 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     /// </summary>
     public async Task<bool> TryRecoverAsync(CancellationToken ct)
     {
+        if (!MightBeSignedIn)
+            return false; // signed out on purpose: wait for an explicit sign-in
+
         await _gate.WaitAsync(ct);
         try
         {
             await EnsureInitializedAsync();
             Wake();
             Log.Info("Browser session: trying silent sign-in");
+            _lastNavigation = DateTime.UtcNow;
             _web.CoreWebView2.Navigate(LoginUrl);
 
             var deadline = DateTime.UtcNow + SilentSignInTimeout;
@@ -96,6 +111,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                     await NavigateAsync(MeUrl, ct);
                     return true;
                 }
+
+                // Okta's login form has loaded and nothing redirects onwards: it wants a password, stop waiting.
+                if (!IsOnZendesk() && DateTime.UtcNow - _lastNavigation > SettledOnLoginPage)
+                    break;
             }
 
             Log.Info("Browser session: silent sign-in needs user interaction");
@@ -152,6 +171,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                 throw new OperationCanceledException("The sign-in window was closed.");
 
             Log.Info("Browser session: signed in");
+            File.Delete(SignedOutMarker);
             await NavigateAsync(MeUrl, CancellationToken.None);
         }
         finally
@@ -163,6 +183,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
     public void SignOut()
     {
+        File.WriteAllText(SignedOutMarker, DateTime.Now.ToString("O")); // no silent sign-in until the user signs in again
         if (_web.CoreWebView2 is null)
             return;
 
@@ -179,6 +200,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         var options = new CoreWebView2EnvironmentOptions("--disable-gpu");
         var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
         await _web.EnsureCoreWebView2Async(environment);
+        _web.CoreWebView2.NavigationCompleted += (_, _) => _lastNavigation = DateTime.UtcNow;
         _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
         UseLowMemory(true);
