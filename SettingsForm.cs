@@ -502,6 +502,14 @@ public sealed class SettingsForm : Form
                 _signIn.Focus();
                 return;
             }
+
+            // Windows focuses the first field and selects its text. Only put the cursor there when it's empty
+            // (first start); otherwise focus nothing, so the saved subdomain isn't highlighted.
+            if (_subdomain.Text.Length == 0)
+                _subdomain.Box.Focus();
+            else
+                ActiveControl = null;
+
             await RefreshAccountAsync();
         };
         FormClosing += OnFormClosing;
