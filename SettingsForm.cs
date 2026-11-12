@@ -95,6 +95,7 @@ public sealed class SettingsForm : Form
     ];
     private readonly CheckBox _helpMyHours = Check("Only notify me while I'm working myself (same hours, my local time)");
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
+    private readonly ToggleSwitch _startSummary = new("Show a summary when Zendesk Watcher starts");
 
     // Appearance
     private readonly ComboBox _newSound = Combo(SoundOptions);
@@ -424,6 +425,7 @@ public sealed class SettingsForm : Form
 
         var general = new Card("General", null, CardWidth);
         general.Body.Controls.Add(_startup);
+        general.Body.Controls.Add(_startSummary);
         page.Controls.Add(general);
 
         _pages[2] = (_pages[2].Nav, page);
@@ -558,6 +560,7 @@ public sealed class SettingsForm : Form
             box.Checked = settings.HelpPriorities.Contains(priority);
         ShowHelpGroups();
         _startup.Checked = StartupRegistration.IsEnabled;
+        _startSummary.Checked = settings.ShowStartSummary;
         Select(_newSound, settings.NewTicketStyle.Sound);
         Select(_newDisplay, settings.NewTicketStyle.Display);
         Select(_mySound, settings.MyTicketStyle.Sound);
@@ -621,7 +624,7 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _helpMyHours, _startup, _showLogo, _groupByType }.Concat(_helpPriorities.Select(p => p.Box)))
+        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _helpMyHours, _startup, _startSummary, _showLogo, _groupByType }.Concat(_helpPriorities.Select(p => p.Box)))
             box.CheckedChanged += (_, _) => UpdateSaveState();
 
         Shown += async (_, _) =>
@@ -679,6 +682,7 @@ public sealed class SettingsForm : Form
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _helpMyHours.Checked;
+        s.ShowStartSummary = _startSummary.Checked;
         s.HelpPriorities = _helpPriorities.Where(p => p.Box.Checked).Select(p => p.Priority).ToList();
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };

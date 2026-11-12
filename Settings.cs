@@ -61,6 +61,9 @@ public sealed class Settings
     /// <summary>"Help colleagues" only notifies while it's within the same working hours on this PC (your own time).</summary>
     public bool HelpOnlyDuringMyHours { get; set; } = true;
 
+    /// <summary>After the first check of each start: a short summary of what's being watched and what's waiting.</summary>
+    public bool ShowStartSummary { get; set; } = true;
+
     /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 
@@ -192,7 +195,10 @@ public enum ToastDisplay
     Long,
 
     /// <summary>Stays on screen until clicked or dismissed.</summary>
-    UntilDismissed
+    UntilDismissed,
+
+    /// <summary>About 10 seconds. Only for app messages (the start summary), not offered in Settings. (Added last.)</summary>
+    Medium
 }
 
 public enum NotificationTheme

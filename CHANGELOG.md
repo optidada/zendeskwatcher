@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.9
+
+- **Start summary**: after the first check, a short greeting ("Good morning, Daniel") with what's waiting: unassigned tickets per group and the oldest one, your tickets (open, pending, on hold), CC tickets and Help colleagues. Silent, about 10 seconds; can be switched off under Settings → General.
+
 ## 1.3.8
 
 - **Help colleagues: choose the assignees.** Settings lists the members of the covered groups (your monitored groups, or the ones you chose), all ticked. Untick anyone you don't want to cover. New group members are included automatically.

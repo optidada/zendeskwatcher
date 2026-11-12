@@ -45,6 +45,9 @@ public sealed record NotificationContent(
     /// <summary>Fixed sound and display time for app messages (updates, welcome, …), instead of the user's ticket styles.</summary>
     public NotificationStyle? Style { get; init; }
 
+    /// <summary>How many body lines a popup shows before it cuts off (more for app summaries).</summary>
+    public int MaxBodyLines { get; init; } = 5;
+
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 

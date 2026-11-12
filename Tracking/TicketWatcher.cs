@@ -29,6 +29,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     public User? Me { get; private set; }
     public int UnassignedCount { get; private set; }
+
+    /// <summary>Unassigned tickets per monitored group, as of the last check.</summary>
+    private List<(WatchedGroup Group, List<Ticket> Tickets)> _unassigned = [];
+
+    /// <summary>The last check showed "already waiting" for a newly monitored group (so no start summary is needed).</summary>
+    public bool ShowedAlreadyWaiting { get; private set; }
     public int MyOpenCount => _state.MyTickets.Count;
 
     public async Task InitializeAsync(CancellationToken ct)
@@ -142,6 +148,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     {
         var now = DateTimeOffset.UtcNow;
         var total = 0;
+        var byGroup = new List<(WatchedGroup Group, List<Ticket> Tickets)>();
+        ShowedAlreadyWaiting = false;
 
         // Search finds the candidates, but its index can be stale for hours: a ticket assigned long ago may still
         // match "assignee:none". Re-read every candidate (exact, no index) and keep only the really unassigned ones.
@@ -163,6 +171,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 Log.Info($"Search returned {candidates.Count - tickets.Count} ticket(s) {group.Describe()} that are no longer unassigned: " +
                          string.Join(",", candidates.Select(t => t.Id).Except(tickets.Select(t => t.Id))));
             total += tickets.Count;
+            byGroup.Add((group, tickets));
 
             var isBaseline = _state.BaselinedGroups.Add(group.Id);
             var fresh = tickets.Where(t => !_state.SeenUnassigned.ContainsKey(t.Id)).OrderBy(t => t.CreatedAt).ToList();
@@ -174,6 +183,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             if (isBaseline && settings.NotifyUnassigned && tickets.Count > 0)
             {
                 ShowAlreadyWaiting(group, tickets);
+                ShowedAlreadyWaiting = true;
                 continue;
             }
 
@@ -204,6 +214,75 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.SeenUnassigned.Remove(id);
 
         UnassignedCount = total;
+        _unassigned = byGroup;
+    }
+
+    /// <summary>
+    /// What's waiting and what's being watched, from the last check. The headline is the title ("5 unassigned tickets
+    /// waiting"); each line below is one fact: "Support Tier 2: 3 · Premium: 2", "Oldest: 2 h ago",
+    /// "Your tickets: 3 open, 4 pending", "CC / following: 2 tickets", "Help colleagues: Urgent, High".
+    /// </summary>
+    public NotificationContent StartSummary()
+    {
+        var groups = settings.WatchedGroups;
+        var waiting = _unassigned.SelectMany(g => g.Tickets).DistinctBy(t => t.Id).ToList();
+        var headline = (groups.Count, waiting.Count) switch
+        {
+            (0, _) => "Not watching any groups",
+            (_, 0) => "No unassigned tickets",
+            (_, 1) => "1 unassigned ticket waiting",
+            (_, var n) => $"{n} unassigned tickets waiting"
+        };
+
+        var lines = new List<string> { headline };
+        if (groups.Count > 0)
+        {
+            // Where: the count per group when it's spread over several, otherwise just the groups watched.
+            var withTickets = _unassigned.Where(g => g.Tickets.Count > 0).ToList();
+            if (groups.Count > 1 && withTickets.Count > 0)
+                lines.Add(string.Join(" · ", withTickets.Select(g => $"{GroupLabel(g.Group)}: {g.Tickets.Count}")));
+            else
+                lines.Add(groups.Count <= 3 ? "In " + string.Join(", ", groups.Select(GroupLabel)) : $"In {groups.Count} groups");
+            if (waiting.Count > 0)
+                lines.Add("Oldest: " + NotificationContent.Ago(DateTimeOffset.UtcNow - waiting.Min(t => t.CreatedAt)));
+        }
+
+        if (settings.TrackMyTickets)
+        {
+            var mine = _state.MyTickets.Values;
+            var parts = new[]
+            {
+                (Count: mine.Count(t => t.Status is "new" or "open"), Label: "open"),
+                (Count: mine.Count(t => t.Status == "pending"), Label: "pending"),
+                (Count: mine.Count(t => t.Status == "hold"), Label: "on hold")
+            }.Where(p => p.Count > 0).Select(p => $"{p.Count} {p.Label}").ToList();
+            lines.Add("Your tickets: " + (parts.Count == 0 ? "none open" : string.Join(", ", parts)));
+        }
+
+        if (settings.TrackCcTickets)
+            lines.Add("CC / following: " + _state.CcTickets.Count switch { 0 => "none open", 1 => "1 ticket", var n => $"{n} tickets" });
+
+        if (settings.EffectiveHelpGroups.Count > 0)
+        {
+            var priorities = new[] { ("urgent", "Urgent"), ("high", "High"), ("normal", "Normal"), ("low", "Low") }
+                .Where(p => settings.HelpPriorities.Contains(p.Item1)).Select(p => p.Item2).ToList();
+            lines.Add("Help colleagues: " + (priorities.Count is 0 or 4 ? "all priorities" : string.Join(", ", priorities)));
+        }
+
+        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", Greeting(DateTime.Now, Me?.Name), string.Join("\n", lines));
+    }
+
+    /// <summary>"Good morning, Daniel" (05-10), "Good day, Daniel" (10-18), "Good evening, Daniel" (otherwise).</summary>
+    internal static string Greeting(DateTime localTime, string? fullName)
+    {
+        var greeting = localTime.Hour switch
+        {
+            >= 5 and < 10 => "Good morning",
+            >= 10 and < 18 => "Good day",
+            _ => "Good evening"
+        };
+        var firstName = fullName?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return firstName is null ? greeting : $"{greeting}, {firstName}";
     }
 
     private async Task CheckMyTicketsAsync(CancellationToken ct)

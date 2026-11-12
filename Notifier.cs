@@ -79,6 +79,14 @@ public sealed class Notifier(Action<string, long?> onAction)
         Style = ActOnIt
     }, Settings);
 
+    /// <summary>The start summary: silent, but on screen long enough to read. Click opens Zendesk.</summary>
+    public void ShowSummary(NotificationContent content) => Show(content with
+    {
+        Action = ActionOpenZendesk,
+        MaxBodyLines = 7,
+        Style = new NotificationStyle { Sound = ToastSound.Silent, Display = ToastDisplay.Medium }
+    });
+
     /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>
     public void ShowInfo(string title, string body, long? ticketId = null) => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", title, body, ticketId)
@@ -118,7 +126,10 @@ public sealed class Notifier(Action<string, long?> onAction)
     public static IEnumerable<NotificationContent> AllSamples() =>
         Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
-                Priority: "urgent", Context: "Support Tier 1") { CanTake = true });
+                Priority: "urgent", Context: "Support Tier 1") { CanTake = true }).Append(
+            new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
+                "5 unassigned tickets waiting\nSupport Tier 2: 3 · Premium Support: 2\nOldest: 2 h 10 min ago\nYour tickets: 3 open, 4 pending\n" +
+                "CC / following: 2 tickets\nHelp colleagues: Urgent, High") { MaxBodyLines = 7 });
 
     private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind switch
     {

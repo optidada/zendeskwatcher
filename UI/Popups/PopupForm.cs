@@ -80,6 +80,7 @@ public sealed class PopupForm : Form
         _durationMs = display switch
         {
             ToastDisplay.Long => 25_000,
+            ToastDisplay.Medium => 10_000,
             ToastDisplay.UntilDismissed => 0,
             _ => 7_000
         };
@@ -260,7 +261,7 @@ public sealed class PopupForm : Form
         _titleRect = new Rectangle(left, y, width, titleHeight);
         y += titleHeight + Px(4);
 
-        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : Measure(Body, _bodyFont, width, maxLines: 5);
+        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : Measure(Body, _bodyFont, width, maxLines: _content.MaxBodyLines);
         _bodyRect = new Rectangle(left, y, width, bodyHeight);
         y += bodyHeight + (bodyHeight > 0 ? Px(12) : Px(8));
 

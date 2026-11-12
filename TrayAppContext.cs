@@ -43,6 +43,8 @@ public sealed class TrayAppContext : ApplicationContext
     private SettingsForm? _settingsForm;
     private (ZendeskClient Client, long MeId)? _taker; // set once the watcher knows who is signed in
     private bool _signInPromptShown;
+    /// <summary>The start summary is shown once per app run (not again when Settings restarts checking).</summary>
+    private bool _summaryShown;
 
     public TrayAppContext()
     {
@@ -213,6 +215,13 @@ public sealed class TrayAppContext : ApplicationContext
                 try { await watcher.PollAsync(ct); }
                 finally { EndBusy(); }
                 _signInPromptShown = false; // signed in again: a later failure may prompt again
+
+                if (!_summaryShown)
+                {
+                    _summaryShown = true;
+                    if (_settings.ShowStartSummary && !watcher.ShowedAlreadyWaiting)
+                        _notifier.ShowSummary(watcher.StartSummary());
+                }
 
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
                 SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary, watcher.UnassignedCount > 0 ? _iconAttention : _iconOk);
