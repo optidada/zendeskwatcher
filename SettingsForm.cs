@@ -29,7 +29,7 @@ public sealed class SettingsForm : Form
     {
         Width = CardWidth - 44, Height = 280, View = View.Details, CheckBoxes = true, HeaderStyle = ColumnHeaderStyle.None,
         FullRowSelect = true, MultiSelect = false, ShowGroups = true, BorderStyle = BorderStyle.None,
-        BackColor = Theme.Surface, Font = Theme.Body, Margin = new Padding(0, 10, 0, 10)
+        BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body, Margin = new Padding(0, 10, 0, 10)
     };
     private readonly Label _groupsLoading = new()
     {
@@ -99,6 +99,21 @@ public sealed class SettingsForm : Form
     public Settings Result { get; private set; }
 
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false)
+        : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0)
+    {
+    }
+
+    /// <summary>
+    /// Applies the saved appearance before any control exists: field initializers create many controls, and they
+    /// run before the constructor body, so this has to happen in the arguments of the chained constructor.
+    /// </summary>
+    private static Settings UseThemeOf(Settings settings)
+    {
+        Theme.Use(settings.Theme);
+        return settings;
+    }
+
+    private SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut, int _)
     {
         _sessionFactory = sessionFactory;
         _notifier = notifier;
@@ -124,7 +139,11 @@ public sealed class SettingsForm : Form
 
         ResumeLayout(false);
         PerformLayout();
-        Load += (_, _) => { foreach (var (_, page) in _pages) CreateHandles(page); };
+        Load += (_, _) =>
+        {
+            foreach (var (_, page) in _pages) CreateHandles(page);
+            Theme.ApplyWindowChrome(this, Theme.Current.Dark);
+        };
 
         _savedSnapshot = Snapshot();
         _loading = false;
@@ -156,7 +175,7 @@ public sealed class SettingsForm : Form
         var sidebar = new Panel { Dock = DockStyle.Left, Width = 200, BackColor = Theme.Sidebar };
         var stack = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Sidebar };
 
-        var title = Theme.Label("Zendesk Watcher", Theme.AppTitle, Color.White);
+        var title = Theme.Label("Zendesk Watcher", Theme.AppTitle, Theme.SidebarTitle);
         title.Margin = new Padding(24, 26, 0, 2);
         var subtitle = Theme.Label("Settings", Theme.Small, Theme.Neutral);
         subtitle.Margin = new Padding(24, 0, 0, 28);
@@ -339,6 +358,11 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Selected = tile.Value == theme;
         _position.Enabled = theme != NotificationTheme.WindowsNative;
+
+        // Preview the appearance on this window right away (only kept if saved; the next open uses the saved one).
+        var from = Theme.Use(theme);
+        if (from != Theme.Current)
+            Theme.Recolor(this, from, Theme.Current);
         UpdateSaveState();
     }
 
@@ -658,7 +682,7 @@ public sealed class SettingsForm : Form
         foreach (var group in monitored)
             _groups.Items.Add(new ListViewItem(group.DisplayName) { Tag = group, Checked = true, Group = _monitoredSection, BackColor = Theme.AccentSoft, Font = Theme.BodyBold, ForeColor = group.Missing ? Theme.TextMuted : Theme.Text });
         foreach (var group in others)
-            _groups.Items.Add(new ListViewItem(group.Name) { Tag = group, Checked = false, Group = _otherSection, BackColor = Theme.Surface, Font = Theme.Body });
+            _groups.Items.Add(new ListViewItem(group.Name) { Tag = group, Checked = false, Group = _otherSection, BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body });
         UpdateSectionHeaders(monitored.Count, others.Count);
         _groups.EndUpdate();
         _groups.FitColumn();
@@ -700,6 +724,7 @@ public sealed class SettingsForm : Form
         item.Group = section;
         item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
         item.Font = monitored ? Theme.BodyBold : Theme.Body;
+        item.ForeColor = group.Missing ? Theme.TextMuted : Theme.Text;
 
         // Rows show in collection order within their section.
         var order = Order(item);
@@ -905,6 +930,51 @@ public sealed class SettingsForm : Form
         Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
         Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
     };
+
+    /// <summary>
+    /// Developer helper: opens the window in Clean light, switches to each appearance the way a tile click does
+    /// (so the live recoloring is exercised), and saves each page as a PNG.
+    /// </summary>
+    internal static void RenderSamples(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        foreach (var theme in Enum.GetValues<NotificationTheme>())
+        {
+            var settings = new Settings
+            {
+                Subdomain = "example", Theme = NotificationTheme.CleanLight,
+                WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }]
+            };
+            using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }));
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-5000, -5000); // off-screen; controls only paint once the window is shown
+            form.ShowInTaskbar = false;
+            form.Show();
+            Application.DoEvents();
+            form.SetGroups([new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding")]);
+            form.SelectTheme(theme);
+            for (var page = 0; page < form._pages.Count; page++)
+            {
+                form.SelectPage(page);
+                Application.DoEvents();
+                using var bitmap = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                bitmap.Save(Path.Combine(dir, $"{theme}-{page}.png"));
+            }
+            form.Hide();
+        }
+    }
+
+    /// <summary>For <see cref="RenderSamples"/>: always signed out, so nothing is requested or logged.</summary>
+    private sealed class SignedOutSession : IZendeskSession
+    {
+        public bool MightBeSignedIn => false;
+        public Task<ApiResponse> GetAsync(string url, CancellationToken ct) => Task.FromResult(new ApiResponse(401, "", null));
+        public Task<ApiResponse> SendAsync(string method, string url, string jsonBody, CancellationToken ct) => GetAsync(url, ct);
+        public Task<bool> TryRecoverAsync(CancellationToken ct) => Task.FromResult(false);
+        public Task SignInAsync(IWin32Window? owner, CancellationToken ct) => Task.FromCanceled(new CancellationToken(true));
+        public void SignOut() { }
+    }
 
     /// <param name="Missing">Monitored, but not in the list loaded from Zendesk (deleted, or no longer visible to you).</param>
     private sealed record GroupItem(long Id, string Name, bool Missing = false)

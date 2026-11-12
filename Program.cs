@@ -29,6 +29,14 @@ internal static class Program
             return;
         }
 
+        // Developer helper: draw the Settings window in every appearance to PNG files, then exit.
+        if (args.Length >= 2 && args[0] == "--render-settings")
+        {
+            ApplicationConfiguration.Initialize();
+            SettingsForm.RenderSamples(args[1]);
+            return;
+        }
+
         using var mutex = new Mutex(initiallyOwned: true, @"Local\ZendeskWatcher", out var isFirstInstance);
         if (!isFirstInstance)
         {

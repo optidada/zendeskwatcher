@@ -4,8 +4,10 @@ using System.Drawing.Imaging;
 namespace ZendeskWatcher.UI;
 
 /// <summary>
-/// The app icon, drawn in code so it is sharp at every size: a glowing neon Z on a dark rounded square,
-/// with two alert hare ears on top ("on the lookout"). The neon color shows the state in the tray.
+/// The app icon, drawn in code so it is sharp at every size: a glowing neon Z on a dark rounded square, with a
+/// fiery slit-pupil eye where the diagonal crosses the middle ("always watching"). At larger sizes the eye burns
+/// with flame tongues, the Z gets a cyan/magenta glitch fringe and the background faint scanlines.
+/// The neon color shows the state in the tray (green watching, orange attention, gray off).
 /// </summary>
 public static class AppIcon
 {
@@ -13,8 +15,9 @@ public static class AppIcon
     public static readonly Color NeonOrange = Color.FromArgb(255, 159, 10);
     public static readonly Color Dim = Color.FromArgb(120, 130, 125);
 
-    private static readonly Color Background = Color.FromArgb(10, 16, 12);
-    private static readonly Color BackgroundEdge = Color.FromArgb(26, 46, 32);
+    private static readonly Color Background = Color.FromArgb(8, 12, 10);
+    private static readonly Color BackgroundTop = Color.FromArgb(16, 28, 20);
+    private static readonly Color BackgroundEdge = Color.FromArgb(28, 52, 36);
 
     /// <summary>Renders the icon at the given pixel size.</summary>
     public static Bitmap Render(int size, Color neon)
@@ -26,70 +29,158 @@ public static class AppIcon
         g.Clear(Color.Transparent);
 
         var u = size / 64f;          // design grid: 64 x 64
-        var small = size < 24;       // no ears and less glow when tiny
+        var small = size < 24;
+        var large = size >= 48;
+        var center = new PointF(32 * u, 32 * u);
 
-        // Dark rounded square with a faint inner rim.
+        // ---- Dark rounded square, faint scanlines, a glow of the neon behind the eye.
         var square = new RectangleF(1 * u, 1 * u, 62 * u, 62 * u);
-        using (var path = Theme.RoundedRect(square, (small ? 10 : 14) * u))
-        {
-            using (var fill = new LinearGradientBrush(square, Color.FromArgb(18, 30, 22), Background, LinearGradientMode.Vertical))
-                g.FillPath(fill, path);
-            using var rim = new Pen(Color.FromArgb(small ? 255 : 200, BackgroundEdge), Math.Max(1f, 1.2f * u));
-            g.DrawPath(rim, path);
-        }
+        using var squarePath = Theme.RoundedRect(square, (small ? 10 : 14) * u);
+        using (var fill = new LinearGradientBrush(square, BackgroundTop, Background, LinearGradientMode.Vertical))
+            g.FillPath(fill, squarePath);
 
-        using var shape = new GraphicsPath();
-        if (small)
+        var clip = g.Clip;
+        g.SetClip(squarePath);
+        if (!small)
         {
-            // Bigger Z filling the square, so it reads at 16 px.
-            shape.AddLines([new PointF(16 * u, 16 * u), new PointF(48 * u, 16 * u), new PointF(16 * u, 48 * u), new PointF(48 * u, 48 * u)]);
+            using var halo = new GraphicsPath();
+            halo.AddEllipse(center.X - 26 * u, center.Y - 20 * u, 52 * u, 40 * u);
+            using var haloBrush = new PathGradientBrush(halo) { CenterColor = Color.FromArgb(70, neon), SurroundColors = [Color.Transparent] };
+            g.FillPath(haloBrush, halo);
         }
-        else
+        if (large)
         {
-            // Hare ears: two tall, slightly tilted loops rising from the Z's top bar.
-            shape.StartFigure();
-            shape.AddBezier(new PointF(24 * u, 22 * u), new PointF(17 * u, 12 * u), new PointF(17 * u, 3 * u), new PointF(22 * u, 4 * u));
-            shape.AddBezier(new PointF(22 * u, 4 * u), new PointF(27 * u, 5 * u), new PointF(29 * u, 14 * u), new PointF(29 * u, 22 * u));
-            shape.StartFigure();
-            shape.AddBezier(new PointF(35 * u, 22 * u), new PointF(35 * u, 13 * u), new PointF(39 * u, 4 * u), new PointF(44 * u, 5 * u));
-            shape.AddBezier(new PointF(44 * u, 5 * u), new PointF(48 * u, 7 * u), new PointF(45 * u, 15 * u), new PointF(40 * u, 22 * u));
-
-            // The Z.
-            shape.StartFigure();
-            shape.AddLines([new PointF(17 * u, 23 * u), new PointF(47 * u, 23 * u), new PointF(18 * u, 51 * u), new PointF(48 * u, 51 * u)]);
+            using var scan = new Pen(Color.FromArgb(18, neon), Math.Max(1f, 0.5f * u));
+            for (var y = 3f; y < 64; y += 2.5f)
+                g.DrawLine(scan, 0, y * u, size, y * u);
         }
+        g.Clip = clip;
 
-        // Neon: many faint glow layers (smooth falloff), then the bright tube with a white-hot core.
-        // Less glow at medium sizes so the shape stays crisp.
-        var stroke = (small ? 7.5f : size < 48 ? 5.8f : 5.2f) * u;
-        var (layers, spread, alpha) = size switch
-        {
-            < 24 => (2, 3.0f, 45),
-            < 48 => (4, 1.6f, 34),
-            _ => (16, 0.75f, 14)
-        };
+        using (var rim = new Pen(Color.FromArgb(small ? 255 : 210, BackgroundEdge), Math.Max(1f, 1.2f * u)))
+            g.DrawPath(rim, squarePath);
+
+        // ---- The Z.
+        using var z = new GraphicsPath();
+        var (top, bottom, left, right) = small ? (11f, 53f, 12f, 52f) : (14f, 50f, 15f, 49f);
+        z.AddLines([new PointF(left * u, top * u), new PointF(right * u, top * u), new PointF(left * u, bottom * u), new PointF(right * u, bottom * u)]);
+
+        var stroke = (small ? 7.5f : size < 48 ? 6.2f : 5.6f) * u;
+
+        var (layers, spread, alpha) = size switch { < 24 => (2, 3.0f, 45), < 48 => (4, 1.6f, 34), _ => (16, 0.75f, 14) };
         for (var i = layers; i >= 1; i--)
         {
-            using var glow = new Pen(Color.FromArgb(alpha, neon), stroke + i * spread * u)
-            {
-                LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round
-            };
-            g.DrawPath(glow, shape);
+            using var glow = Tube(Color.FromArgb(alpha, neon), stroke + i * spread * u);
+            g.DrawPath(glow, z);
         }
 
-        using (var tube = new Pen(neon, stroke) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
-            g.DrawPath(tube, shape);
+        if (large)
+        {
+            // Glitch fringe: offset cyan and magenta ghosts behind the tube.
+            var state = g.Save();
+            g.TranslateTransform(-1.4f * u, 0.3f * u);
+            using (var cyan = Tube(Color.FromArgb(110, 0, 240, 255), stroke)) g.DrawPath(cyan, z);
+            g.Restore(state);
+            state = g.Save();
+            g.TranslateTransform(1.4f * u, -0.3f * u);
+            using (var magenta = Tube(Color.FromArgb(110, 255, 40, 200), stroke)) g.DrawPath(magenta, z);
+            g.Restore(state);
+        }
+
+        using (var tube = Tube(neon, stroke)) g.DrawPath(tube, z);
+        if (!small)
+        {
+            using var core = Tube(Color.FromArgb(200, Blend(neon, Color.White, 0.65f)), stroke * 0.38f);
+            g.DrawPath(core, z);
+        }
+
+        // ---- The eye, set into the diagonal.
+        // Tiny sizes: a bigger, bolder eye (the diagonal is hidden behind it anyway) so the slit still reads.
+        var eyeW = (small ? 44f : 30f) * u;
+        var eyeH = (small ? 25f : 15.5f) * u;
+        using var eye = EyeShape(center, eyeW, eyeH);
+        using var socket = EyeShape(center, eyeW + (small ? 6f : 6f) * u, eyeH + (small ? 6f : 6f) * u);
 
         if (!small)
         {
-            using var core = new Pen(Color.FromArgb(200, Blend(neon, Color.White, 0.65f)), stroke * 0.38f)
+            // Flame tongues licking outwards around the eye.
+            using var flames = FlameShape(center, eyeW / 2 + 2 * u, eyeH / 2 + 2 * u, (large ? 11f : 7f) * u, large ? 14 : 10);
+            using var flameBrush = new PathGradientBrush(flames)
             {
-                LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round
+                CenterPoint = center,
+                CenterColor = Color.FromArgb(230, Blend(neon, Color.FromArgb(255, 240, 160), 0.5f)),
+                SurroundColors = [Color.FromArgb(0, neon)],
+                FocusScales = new PointF(0.55f, 0.45f)
             };
-            g.DrawPath(core, shape);
+            g.FillPath(flameBrush, flames);
+        }
+
+        // A dark socket separates the eye from the Z's tube so it reads at small sizes.
+        using (var socketBrush = new SolidBrush(Background)) g.FillPath(socketBrush, socket);
+
+        // Iris: white-hot center burning out to the neon and a dark rim.
+        using (var iris = new PathGradientBrush(eye)
+        {
+            CenterPoint = center,
+            CenterColor = Blend(neon, Color.FromArgb(255, 250, 210), small ? 0.15f : 0.7f),
+            SurroundColors = [Blend(neon, Color.Black, small ? 0f : 0.35f)],
+            FocusScales = new PointF(0.25f, 0.35f)
+        })
+        {
+            g.FillPath(iris, eye);
+        }
+        using (var lid = new Pen(neon, Math.Max(1f, (small ? 1.6f : 1.4f) * u))) g.DrawPath(lid, eye);
+
+        // Slit pupil.
+        using var pupil = new GraphicsPath();
+        var pw = (small ? 4.8f : 3.4f) * u;
+        var ph = eyeH * (small ? 0.95f : 0.92f);
+        pupil.AddBezier(center.X, center.Y - ph / 2, center.X + pw, center.Y - ph / 4, center.X + pw, center.Y + ph / 4, center.X, center.Y + ph / 2);
+        pupil.AddBezier(center.X, center.Y + ph / 2, center.X - pw, center.Y + ph / 4, center.X - pw, center.Y - ph / 4, center.X, center.Y - ph / 2);
+        using (var black = new SolidBrush(Color.FromArgb(5, 5, 5))) g.FillPath(black, pupil);
+
+        if (!small)
+        {
+            // A tiny glint makes it look alive.
+            using var glint = new SolidBrush(Color.FromArgb(220, 255, 255, 255));
+            g.FillEllipse(glint, center.X + 3.5f * u, center.Y - 4.5f * u, 2.4f * u, 2.4f * u);
         }
 
         return bitmap;
+    }
+
+    private static Pen Tube(Color color, float width) =>
+        new(color, width) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round };
+
+    /// <summary>An almond / lens shape: two arcs meeting in sharp corners left and right.</summary>
+    private static GraphicsPath EyeShape(PointF c, float width, float height)
+    {
+        var path = new GraphicsPath();
+        var l = new PointF(c.X - width / 2, c.Y);
+        var r = new PointF(c.X + width / 2, c.Y);
+        path.AddBezier(l, new PointF(c.X - width / 4, c.Y - height * 0.68f), new PointF(c.X + width / 4, c.Y - height * 0.68f), r);
+        path.AddBezier(r, new PointF(c.X + width / 4, c.Y + height * 0.68f), new PointF(c.X - width / 4, c.Y + height * 0.68f), l);
+        path.CloseFigure();
+        return path;
+    }
+
+    /// <summary>A ring of flame tongues around an ellipse; deterministic, so the icon is the same every time.</summary>
+    private static GraphicsPath FlameShape(PointF c, float rx, float ry, float reach, int tongues)
+    {
+        var points = new List<PointF>();
+        var rng = new Random(1337);
+        for (var i = 0; i < tongues; i++)
+        {
+            var a0 = i * 2 * Math.PI / tongues;
+            var a1 = (i + 0.5) * 2 * Math.PI / tongues;
+            // Taller tongues at the top and bottom of the eye, like fire rising off it.
+            var vertical = (float)Math.Abs(Math.Sin(a1));
+            var length = reach * (0.45f + 0.75f * vertical) * (0.7f + 0.6f * (float)rng.NextDouble());
+            points.Add(new PointF(c.X + rx * (float)Math.Cos(a0), c.Y + ry * (float)Math.Sin(a0)));
+            points.Add(new PointF(c.X + (rx + length) * (float)Math.Cos(a1), c.Y + (ry + length) * (float)Math.Sin(a1)));
+        }
+        var path = new GraphicsPath();
+        path.AddClosedCurve(points.ToArray(), 0.6f);
+        return path;
     }
 
     /// <summary>A Windows icon for the tray or a window, at the system's small-icon size for the current DPI.</summary>

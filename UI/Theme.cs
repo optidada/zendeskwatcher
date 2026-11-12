@@ -7,21 +7,118 @@ namespace ZendeskWatcher.UI;
 /// <summary>Colors, fonts and small owner-drawn controls for a clean, modern look.</summary>
 public static class Theme
 {
-    public static readonly Color Window = Color.FromArgb(243, 244, 246);      // page background
-    public static readonly Color Surface = Color.White;                        // cards
-    public static readonly Color Border = Color.FromArgb(229, 231, 235);
-    public static readonly Color Text = Color.FromArgb(17, 24, 39);
-    public static readonly Color TextMuted = Color.FromArgb(107, 114, 128);
-    public static readonly Color Accent = Color.FromArgb(37, 99, 235);
-    public static readonly Color AccentHover = Color.FromArgb(29, 78, 216);
-    public static readonly Color AccentSoft = Color.FromArgb(239, 246, 255);
-    public static readonly Color Success = Color.FromArgb(22, 163, 74);
-    public static readonly Color Warning = Color.FromArgb(217, 119, 6);
-    public static readonly Color Danger = Color.FromArgb(220, 38, 38);
-    public static readonly Color Neutral = Color.FromArgb(156, 163, 175);
-    public static readonly Color Sidebar = Color.FromArgb(17, 24, 39);
-    public static readonly Color SidebarHover = Color.FromArgb(31, 41, 55);
-    public static readonly Color SidebarText = Color.FromArgb(209, 213, 219);
+    /// <summary>The colors in use; set by <see cref="Use"/> from the chosen appearance.</summary>
+    public static UiPalette Current { get; private set; } = UiPalette.For(NotificationTheme.CleanLight);
+
+    public static Color Window => Current.Window;          // page background
+    public static Color Surface => Current.Surface;        // cards
+    public static Color Border => Current.Border;
+    public static Color Text => Current.Text;
+    public static Color TextMuted => Current.TextMuted;
+    public static Color Accent => Current.Accent;
+    public static Color AccentHover => Current.AccentHover;
+    public static Color AccentSoft => Current.AccentSoft;
+    public static Color OnAccent => Current.OnAccent;      // text on Accent
+    public static Color SidebarTitle => Current.SidebarTitle; // app title and the selected navigation entry
+    public static Color Success => Current.Success;
+    public static Color Warning => Current.Warning;
+    public static Color Danger => Current.Danger;
+    public static Color Neutral => Current.Neutral;
+    public static Color Sidebar => Current.Sidebar;
+    public static Color SidebarHover => Current.SidebarHover;
+    public static Color SidebarText => Current.SidebarText;
+
+    /// <summary>Switches the palette. Returns the previous one (for <see cref="Recolor"/>).</summary>
+    public static UiPalette Use(NotificationTheme theme)
+    {
+        var previous = Current;
+        Current = UiPalette.For(theme);
+        return previous;
+    }
+
+    /// <summary>
+    /// Recolors already created controls from one palette to another: every color that is a palette role in
+    /// <paramref name="from"/> becomes the same role in <paramref name="to"/>. Owner-drawn controls read the palette
+    /// when painting, so they just repaint.
+    /// </summary>
+    public static void Recolor(Control root, UiPalette from, UiPalette to)
+    {
+        var map = new Dictionary<int, Color>();
+        var fromRoles = from.Roles;
+        var toRoles = to.Roles;
+        for (var i = 0; i < fromRoles.Length; i++)
+            map.TryAdd(fromRoles[i].ToArgb(), toRoles[i]);
+        Color Map(Color c) => c.A == 0 ? c : map.GetValueOrDefault(c.ToArgb(), c);
+
+        void Walk(Control c)
+        {
+            switch (c)
+            {
+                case TextBoxBase or NumericUpDown or ComboBox or ListView:
+                    c.BackColor = to.Surface;
+                    c.ForeColor = to.Text;
+                    break;
+                default:
+                    c.BackColor = Map(c.BackColor);
+                    c.ForeColor = Map(c.ForeColor);
+                    break;
+            }
+
+            if (c is Button button)
+            {
+                button.FlatAppearance.BorderColor = Map(button.FlatAppearance.BorderColor);
+                button.FlatAppearance.MouseOverBackColor = Map(button.FlatAppearance.MouseOverBackColor);
+                button.FlatAppearance.MouseDownBackColor = Map(button.FlatAppearance.MouseDownBackColor);
+            }
+            else if (c is ListView list)
+            {
+                foreach (ListViewItem item in list.Items)
+                {
+                    item.BackColor = Map(item.BackColor);
+                    item.ForeColor = Map(item.ForeColor);
+                }
+            }
+            else if (c is StatusDot dot)
+            {
+                dot.DotColor = Map(dot.DotColor);
+            }
+
+            foreach (Control child in c.Controls)
+                Walk(child);
+        }
+
+        root.SuspendLayout();
+        Walk(root);
+        root.ResumeLayout();
+        if (root is Form form)
+            ApplyWindowChrome(form, to.Dark);
+        root.Invalidate(invalidateChildren: true);
+    }
+
+    /// <summary>Dark title bar and dark scrollbars for dark palettes (Windows 10 2004+ / 11).</summary>
+    public static void ApplyWindowChrome(Control root, bool dark)
+    {
+        if (root is Form form && form.IsHandleCreated)
+        {
+            var value = dark ? 1 : 0;
+            _ = DwmSetWindowAttribute(form.Handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref value, sizeof(int));
+        }
+
+        void Walk(Control c)
+        {
+            if (c.IsHandleCreated && (c is ScrollableControl { AutoScroll: true } or ListView or ComboBox))
+                _ = SetWindowTheme(c.Handle, c is ComboBox ? (dark ? "DarkMode_CFD" : "CFD") : (dark ? "DarkMode_Explorer" : "Explorer"), null);
+            foreach (Control child in c.Controls)
+                Walk(child);
+        }
+        Walk(root);
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr hwnd, string? appName, string? idList);
 
     public const string FontFamily = "Segoe UI";
     public static readonly Font Body = new(FontFamily, 9.75f);
@@ -42,7 +139,7 @@ public static class Theme
         Margin = new Padding(0, 0, 0, 4)
     };
 
-    public static Button PrimaryButton(string text) => StyledButton(text, Accent, Color.White, Accent, AccentHover);
+    public static Button PrimaryButton(string text) => StyledButton(text, Accent, OnAccent, Accent, AccentHover);
 
     public static Button SecondaryButton(string text) => StyledButton(text, Surface, Text, Border, Window);
 
@@ -250,7 +347,7 @@ public sealed class NavItem : Control
         }
 
         TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Font, new Rectangle(24, 0, Width - 24, Height),
-            _selected ? Color.White : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+            _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
     }
 }
 
