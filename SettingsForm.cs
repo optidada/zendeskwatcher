@@ -19,6 +19,7 @@ public sealed class SettingsForm : Form
     private readonly GroupsPage _groups;
     private readonly NotificationsPage _notifications;
     private readonly AppearancePage _appearance;
+    private readonly StatisticsPage _statistics;
     private readonly GeneralPage _general;
     private readonly SettingsPage[] _pages;
     private readonly List<NavItem> _nav = [];
@@ -87,8 +88,9 @@ public sealed class SettingsForm : Form
         _account = new AccountPage(_context, _groups);
         _notifications = new NotificationsPage(_context, _groups);
         _appearance = new AppearancePage(_context);
+        _statistics = new StatisticsPage(_context);
         _general = new GeneralPage(_context, AppVersion);
-        _pages = [_account, _groups, _notifications, _appearance, _general];
+        _pages = [_account, _groups, _notifications, _appearance, _statistics, _general];
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();
@@ -373,7 +375,7 @@ public sealed class SettingsForm : Form
                 HelpExcludedAssignees = [new Colleague { Id = 9, Name = "Alex Example" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }]
             };
-            using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }));
+            using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
             form.Location = new Point(-5000, -5000); // off-screen; controls only paint once the window is shown
             form.ShowInTaskbar = false;

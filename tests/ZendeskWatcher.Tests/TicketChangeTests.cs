@@ -63,6 +63,7 @@ public class TicketChangeTests
 
         var shown = Assert.Single(TakeShown());
         Assert.Equal(NotificationKind.MyTicket, shown.Kind);
+        Assert.True(shown.IsTicketNotification); // counted in the statistics
         Assert.Equal("#500 Login broken", shown.Title);
         Assert.Equal("Jane Customer replied: Still broken for us", shown.Body);
         Assert.Null(shown.Context);

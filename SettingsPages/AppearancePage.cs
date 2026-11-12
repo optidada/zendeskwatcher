@@ -43,6 +43,7 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ComboBox _summaryDisplay = Kit.Combo(DisplayOptions);
     private readonly ComboBox _appSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _appDisplay = Kit.Combo(DisplayOptions);
+    private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
     private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
@@ -78,6 +79,14 @@ internal sealed class AppearancePage : SettingsPage
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
 
+        var content = new Card("Content", "Replies and notes on your tickets, CC / following tickets and colleagues' tickets.", Kit.CardWidth);
+        content.Body.Controls.Add(_commentText);
+        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
+            "the Windows notification center; the custom popups are never stored.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+        privacy.Margin = new Padding(50, 0, 0, 0);
+        content.Body.Controls.Add(privacy);
+        Panel.Controls.Add(content);
+
         var windows = new Card("Windows notifications", "Used with the Windows style, and for every style while you present or use a full-screen app.", Kit.CardWidth);
         windows.Body.Controls.Add(_showLogo);
         windows.Body.Controls.Add(_groupByType);
@@ -94,7 +103,7 @@ internal sealed class AppearancePage : SettingsPage
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         TrackChanges(_position, _newSound, _newDisplay, _mySound, _myDisplay, _ccSound, _ccDisplay, _helpSound, _helpDisplay,
-            _summarySound, _summaryDisplay, _appSound, _appDisplay, _showLogo, _groupByType);
+            _summarySound, _summaryDisplay, _appSound, _appDisplay, _commentText, _showLogo, _groupByType);
     }
 
     public override void Load(Settings settings)
@@ -111,6 +120,7 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_summaryDisplay, settings.SummaryStyle.Display);
         Kit.Select(_appSound, settings.AppMessageStyle.Sound);
         Kit.Select(_appDisplay, settings.AppMessageStyle.Display);
+        _commentText.Checked = settings.ShowCommentText;
         _showLogo.Checked = settings.ShowAppLogo;
         SelectTheme(settings.Theme);
         Kit.Select(_position, settings.Position);
@@ -125,6 +135,7 @@ internal sealed class AppearancePage : SettingsPage
         s.CcTicketStyle = Style(_ccSound, _ccDisplay);
         s.SummaryStyle = Style(_summarySound, _summaryDisplay);
         s.AppMessageStyle = Style(_appSound, _appDisplay);
+        s.ShowCommentText = _commentText.Checked;
         s.ShowAppLogo = _showLogo.Checked;
         s.Theme = _themeTiles.FirstOrDefault(t => t.Selected)?.Value ?? NotificationTheme.NeonDark;
         s.Position = Kit.Selected<PopupPosition>(_position);

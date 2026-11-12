@@ -7,6 +7,8 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 - **Sound and display for every kind of notification** under Settings → Appearance: CC / following tickets (until now the same as My tickets, and they start with your My tickets choice), the start summary and app messages (update ready, welcome, group not found) each have their own row. New display time: Medium (~10 s).
 - **Priorities for ticket changes** under Settings → Notifications: choose which priorities notify, separately for your own tickets (all by default) and for CC / following tickets (Urgent and High by default). The ticket's current priority counts, so a ticket raised to Urgent notifies.
+- **Statistics** (new page in Settings): ticket notifications of the last 30 days per kind, and what you did with them: opened, opened Zendesk, took it, snoozed, closed or let them time out. Kept on your PC only.
+- "Show the comment text" moved to Settings → Appearance → Content: it applies to your tickets, CC tickets and colleagues' tickets.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10

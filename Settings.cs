@@ -80,7 +80,7 @@ public sealed class Settings
     /// you're only watching these, so the important ones are enough.</summary>
     public List<string> CcTicketPriorities { get; set; } = ["urgent", "high"];
 
-    /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
+    /// <summary>Show the start of the comment text in notifications (my, CC and colleagues' tickets), or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 
     // Appearance of the notifications

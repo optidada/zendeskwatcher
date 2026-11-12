@@ -95,6 +95,9 @@ public sealed class TrayAppContext : ApplicationContext
     {
         args.TryGetValue("action", out var action);
         long? ticketId = args.TryGetValue("ticketId", out var id) && long.TryParse(id, out var parsed) ? parsed : null;
+        if (args.TryGetValue(Notifier.StatArgument, out var kindName) && Enum.TryParse<NotificationKind>(kindName, out var kind) &&
+            NotificationStats.ForToastAction(action ?? "") is { } outcome)
+            _notifier.Stats.Record(kind, outcome);
         HandleAction(action ?? "", ticketId);
     }, null);
 

@@ -12,12 +12,15 @@ public sealed class PopupManager
     private readonly Queue<(NotificationContent Content, Settings Settings)> _pending = new();
     private readonly Action<string, long?> _onAction;
     private readonly Action<NotificationContent> _onSnooze;
+    private readonly Action<NotificationContent, PopupForm.Result> _onClosed;
 
     /// <param name="onSnooze">The user snoozed a popup; the caller decides when (and whether) it shows again.</param>
-    public PopupManager(Action<string, long?> onAction, Action<NotificationContent> onSnooze)
+    /// <param name="onClosed">A popup closed, and how (for the statistics).</param>
+    public PopupManager(Action<string, long?> onAction, Action<NotificationContent> onSnooze, Action<NotificationContent, PopupForm.Result> onClosed)
     {
         _onAction = onAction;
         _onSnooze = onSnooze;
+        _onClosed = onClosed;
     }
 
     public void Show(NotificationContent content, Settings settings)
@@ -47,6 +50,7 @@ public sealed class PopupManager
     private void OnFinished(PopupForm popup, Settings settings)
     {
         _visible.Remove(popup);
+        _onClosed(popup.Content, popup.Outcome);
 
         switch (popup.Outcome)
         {

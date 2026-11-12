@@ -198,14 +198,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New tickets",
                     $"{fresh.Count} new unassigned tickets",
                     string.Join("\n", fresh.Take(3).Select(t => $"#{t.Id} {TextCleanup.Plain(t.Subject)}")),
-                    Context: GroupLabel(group)));
+                    Context: GroupLabel(group)) { IsTicketNotification = true });
                 continue;
             }
 
             foreach (var ticket in fresh)
             {
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt });
+                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
             }
         }
 
@@ -453,7 +453,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 notifier.Show(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
                     $"{said}\n{who} is off work · {English(local, "ddd HH:mm")} their time",
-                    ticket.Id, ticket.Priority, GroupLabel(group)));
+                    ticket.Id, ticket.Priority, GroupLabel(group)) { IsTicketNotification = true });
             }
         }
 
@@ -535,7 +535,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             shown.Insert(0, $"(+{lines.Count - shown.Count} earlier changes)");
 
         notifier.Show(new NotificationContent(kind, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-            string.Join("\n", shown), ticket.Id, ticket.Priority, context));
+            string.Join("\n", shown), ticket.Id, ticket.Priority, context) { IsTicketNotification = true });
     }
 
     /// <summary>"Now watching Tier 2 · 3 unassigned tickets" when a group is added; a ticket notification if there's just one.</summary>
@@ -548,7 +548,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             var ticket = oldestFirst[0];
             notifier.Show(new NotificationContent(NotificationKind.NewTicket, "Already waiting", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt });
+                $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
             return;
         }
 
@@ -556,7 +556,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (oldestFirst.Count > 3)
             lines.Add($"… and {oldestFirst.Count - 3} more");
         notifier.Show(new NotificationContent(NotificationKind.NewTicket, "Now watching",
-            $"{tickets.Count} unassigned tickets already waiting", string.Join("\n", lines), Context: GroupLabel(group)));
+            $"{tickets.Count} unassigned tickets already waiting", string.Join("\n", lines), Context: GroupLabel(group)) { IsTicketNotification = true });
     }
 
     /// <summary>Day and month names in English, whatever the PC's language (the app's texts are English).</summary>

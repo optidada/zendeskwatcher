@@ -22,7 +22,6 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly CheckBox _status = Kit.Check("Status changes");
     private readonly CheckBox _assignment = Kit.Check("Reassignment and group moves");
     private readonly CheckBox _priority = Kit.Check("Priority changes");
-    private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ComboBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
     private readonly ComboBox _snoozeBehavior = Kit.Combo(SnoozeBehaviorOptions, width: 300);
     private readonly NumericUpDown _interval = new() { Minimum = 30, Maximum = 3600, Increment = 15, Width = 80, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle };
@@ -54,12 +53,6 @@ internal sealed class NotificationsPage : SettingsPage
         for (var i = 0; i < changeTypes.Length; i++)
             options.Controls.Add(changeTypes[i], i % 2, i / 2);
         which.Body.Controls.Add(options);
-        _commentText.Margin = new Padding(0, 10, 0, 0);
-        which.Body.Controls.Add(_commentText);
-        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
-            "the Windows notification center; the custom popups are never stored.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-        privacy.Margin = new Padding(50, 0, 0, 0);
-        which.Body.Controls.Add(privacy);
         Panel.Controls.Add(which);
 
         _help = new HelpColleaguesCard(context, groups);
@@ -87,7 +80,7 @@ internal sealed class NotificationsPage : SettingsPage
         _trackCc.CheckedChanged += (_, _) => UpdateChangeTypes();
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
-        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText,
+        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority,
             _snoozeMinutes, _snoozeBehavior, _interval);
     }
 
@@ -102,7 +95,6 @@ internal sealed class NotificationsPage : SettingsPage
         _status.Checked = settings.NotifyStatusChanges;
         _assignment.Checked = settings.NotifyAssignmentChanges;
         _priority.Checked = settings.NotifyPriorityChanges;
-        _commentText.Checked = settings.ShowCommentText;
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
         _help.Load(settings);
@@ -122,7 +114,6 @@ internal sealed class NotificationsPage : SettingsPage
         s.NotifyStatusChanges = _status.Checked;
         s.NotifyAssignmentChanges = _assignment.Checked;
         s.NotifyPriorityChanges = _priority.Checked;
-        s.ShowCommentText = _commentText.Checked;
         s.MyTicketPriorities = _myPriorities.Selected;
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);

@@ -51,6 +51,12 @@ public sealed record NotificationContent(
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 
+    /// <summary>About tickets (not an app message or sample): counted in the statistics.</summary>
+    public bool IsTicketNotification { get; init; }
+
+    /// <summary>A snoozed notification coming back (not counted as shown again).</summary>
+    public bool IsSnoozedRepeat { get; init; }
+
     /// <summary>The priority for display, e.g. "High (P2)".</summary>
     public string? PriorityLabel => LabelForPriority(Priority);
 

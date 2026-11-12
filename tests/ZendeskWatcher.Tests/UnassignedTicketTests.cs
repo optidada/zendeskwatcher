@@ -79,6 +79,8 @@ public class UnassignedTicketTests
         Assert.Equal(103, shown.TicketId);
         Assert.Equal("Tier 2", shown.Context);
         Assert.True(shown.CanTake);
+        Assert.True(shown.IsTicketNotification); // counted in the statistics
+        Assert.False(watcher.StartSummary().IsTicketNotification); // the summary isn't
 
         await watcher.PollAsync(CancellationToken.None);
         Assert.Empty(TakeShown()); // not again on the next check

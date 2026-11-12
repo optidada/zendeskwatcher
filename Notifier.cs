@@ -44,7 +44,16 @@ public sealed class Notifier : INotificationSink
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups;
 
-    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze);
+    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze, OnPopupClosed);
+
+    /// <summary>Where ticket notifications and what was done with them are counted.</summary>
+    public NotificationStats Stats { get; set; } = NotificationStats.Shared;
+
+    private void OnPopupClosed(NotificationContent content, PopupForm.Result result)
+    {
+        if (content.IsTicketNotification && NotificationStats.ForPopup(result, content.ResolvedAction) is { } outcome)
+            Stats.Record(content.Kind, outcome);
+    }
 
     /// <summary>While paused, changes are still recorded but nothing is shown. Snoozed popups wait for the end of the pause.</summary>
     public bool Paused
@@ -119,7 +128,7 @@ public sealed class Notifier : INotificationSink
             return;
         }
         var heading = content.Heading.StartsWith("Snoozed · ") ? content.Heading : $"Snoozed · {content.Heading}";
-        Show(content with { Heading = heading }, Settings);
+        Show(content with { Heading = heading, IsSnoozedRepeat = true }, Settings);
     }
 
     /// <summary>The settings that decide theme, sound, display time, logo and grouping.</summary>
@@ -265,6 +274,8 @@ public sealed class Notifier : INotificationSink
 
         try
         {
+            if (content.IsTicketNotification && !content.IsSnoozedRepeat)
+                Stats.Record(content.Kind, StatOutcome.Shown);
             if (settings.Theme != NotificationTheme.WindowsNative && PopupManager.CanShowPopups())
                 _popups.Show(content, settings);
             else
@@ -278,7 +289,10 @@ public sealed class Notifier : INotificationSink
 
     // ------------------------------------------------------------------ Windows toasts
 
-    private static void ShowToast(NotificationContent content, Settings settings)
+    /// <summary>Toast argument with the kind of a ticket notification, so a click on it can be counted.</summary>
+    public const string StatArgument = "stat";
+
+    private void ShowToast(NotificationContent content, Settings settings)
     {
         var style = content.Style ?? settings.StyleFor(content.Kind);
         var action = content.ResolvedAction;
@@ -296,6 +310,8 @@ public sealed class Notifier : INotificationSink
 
         if (content.TicketId is { } id)
             builder.AddArgument("ticketId", id);
+        if (content.IsTicketNotification)
+            builder.AddArgument(StatArgument, content.Kind.ToString());
 
         if (settings.ShowAppLogo)
             builder.AddAppLogoOverride(Logo.Value, ToastGenericAppLogoCrop.Circle);
@@ -313,10 +329,13 @@ public sealed class Notifier : INotificationSink
 
         if (content.CanTake && content.TicketId is { } takeTicket)
         {
-            builder.AddButton(new ToastButton()
+            var take = new ToastButton()
                 .SetContent("Take it")
                 .AddArgument("action", ActionTake)
-                .AddArgument("ticketId", takeTicket));
+                .AddArgument("ticketId", takeTicket);
+            if (content.IsTicketNotification)
+                take.AddArgument(StatArgument, content.Kind.ToString());
+            builder.AddButton(take);
         }
 
         var button = new ToastButton()
@@ -331,6 +350,8 @@ public sealed class Notifier : INotificationSink
             .AddArgument("action", action);
         if (content.TicketId is { } buttonTicket)
             button.AddArgument("ticketId", buttonTicket);
+        if (content.IsTicketNotification)
+            button.AddArgument(StatArgument, content.Kind.ToString());
         builder.AddButton(button);
 
         switch (style.Display)
@@ -355,7 +376,23 @@ public sealed class Notifier : INotificationSink
         else
             builder.AddAudio(new Uri(SoundUri(style.Sound)));
 
-        builder.Show();
+        builder.Show(toast =>
+        {
+            if (!content.IsTicketNotification)
+                return;
+            // Closed or timed out (only noticed while the app runs). Clicks arrive via OnToastActivated.
+            toast.Dismissed += (_, e) =>
+            {
+                StatOutcome? outcome = e.Reason switch
+                {
+                    Windows.UI.Notifications.ToastDismissalReason.UserCanceled => StatOutcome.Closed,
+                    Windows.UI.Notifications.ToastDismissalReason.TimedOut => StatOutcome.TimedOut,
+                    _ => null
+                };
+                if (outcome is { } o)
+                    Stats.Record(content.Kind, o);
+            };
+        });
     }
 
     private static string SoundUri(ToastSound sound) => sound switch
