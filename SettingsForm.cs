@@ -784,10 +784,45 @@ public sealed class SettingsForm : Form
         {
             _signingIn = false;
             Activate();
-            SessionChanged?.Invoke();
         }
 
+        SaveConnection(); // signed in: remember which Zendesk this is, without saving other pending changes
+        SessionChanged?.Invoke();
         await RefreshAccountAsync(force: true);
+    }
+
+    /// <summary>
+    /// After a successful sign-in, saves the subdomain right away (only that), so the app watches this Zendesk even if
+    /// the window is closed without Save. Other unsaved changes stay unsaved.
+    /// </summary>
+    private void SaveConnection()
+    {
+        var subdomain = Settings.NormalizeSubdomain(_subdomain.Text);
+        if (subdomain == Result.Subdomain && !Settings.IsFirstRun)
+            return;
+
+        var saved = Result.Clone();
+        saved.Subdomain = subdomain;
+        try
+        {
+            saved.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not save the subdomain after sign-in", ex);
+            return;
+        }
+        Result = saved;
+
+        // The saved snapshot gets the new subdomain too, so other pending changes still count as unsaved.
+        var bar = _savedSnapshot.LastIndexOf('|');
+        var snapshot = Settings.FromJson(_savedSnapshot[..bar]);
+        snapshot.Subdomain = subdomain;
+        _savedSnapshot = snapshot.ToJson() + _savedSnapshot[bar..];
+        UpdateSaveState();
+
+        Log.Info($"Settings: subdomain {subdomain} saved after sign-in");
+        Saved?.Invoke(saved);
     }
 
     private void SignOut()

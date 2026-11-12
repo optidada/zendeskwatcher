@@ -133,6 +133,8 @@ public sealed class Settings
 
     public Settings Clone() => JsonSerializer.Deserialize<Settings>(ToJson(), JsonOptions)!;
 
+    public static Settings FromJson(string json) => JsonSerializer.Deserialize<Settings>(json, JsonOptions)!;
+
     /// <summary>Normalizes "acme", "acme.zendesk.com" or "https://acme.zendesk.com/" to "acme".</summary>
     public static string NormalizeSubdomain(string input)
     {
