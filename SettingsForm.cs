@@ -93,7 +93,7 @@ public sealed class SettingsForm : Form
     private readonly Button _testBurst = Theme.SecondaryButton("Several");
     private readonly ThemeTile[] _themeTiles =
     [
-        new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
+        new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
         new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"),
         new(NotificationTheme.WindowsNative, "Windows")
     ];
@@ -406,7 +406,8 @@ public sealed class SettingsForm : Form
 
         var style = new Card("Style", "Custom popups slide in at the screen corner and stack. While you present or run a full-screen app, " +
             "Windows notifications are used instead, so nothing pops up over your screen.", CardWidth);
-        var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 0, 0, 12) };
+        // Two rows of three tiles.
+        var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(0, 0, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
         style.Body.Controls.Add(tiles);
         style.Body.Controls.Add(Row(Theme.Label("Popup position"), _position));

@@ -69,7 +69,7 @@ public sealed class Settings
         NotificationKind.HelpColleague => HelpStyle,
         _ => MyTicketStyle
     };
-    public NotificationTheme Theme { get; set; } = NotificationTheme.NeonDark;
+    public NotificationTheme Theme { get; set; } = NotificationTheme.Optimizely;
     public PopupPosition Position { get; set; } = PopupPosition.BottomRight;
     public bool ShowAppLogo { get; set; } = true;
     public bool GroupNotificationsByType { get; set; } = true;
@@ -184,7 +184,10 @@ public enum NotificationTheme
     WindowsNative,
 
     /// <summary>Dusky purple with warm cream text and soft pastel accents. (Added last: settings store the number.)</summary>
-    CozyPurple
+    CozyPurple,
+
+    /// <summary>The optimizely.com look: dark fir green with lime accents. (Added last: settings store the number.)</summary>
+    Optimizely
 }
 
 public enum PopupPosition { BottomRight, TopRight }

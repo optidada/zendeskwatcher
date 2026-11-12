@@ -568,7 +568,7 @@ public sealed class PopupForm : Form
     public static void RenderSamples(string dir)
     {
         Directory.CreateDirectory(dir);
-        foreach (var theme in new[] { NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple })
+        foreach (var theme in new[] { NotificationTheme.Optimizely, NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple })
         {
             var i = 0;
             foreach (var content in Notifier.AllSamples())

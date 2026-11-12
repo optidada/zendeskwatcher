@@ -26,6 +26,7 @@ public sealed record UiPalette(
         NotificationTheme.Terminal => Terminal,
         NotificationTheme.WindowsNative => WindowsNative(),
         NotificationTheme.CozyPurple => CozyPurple,
+        NotificationTheme.Optimizely => Optimizely,
         _ => CleanLight
     }).Distinct();
 
@@ -48,6 +49,14 @@ public sealed record UiPalette(
         Accent: Rgb(57, 255, 110), AccentHover: Rgb(130, 255, 170), AccentSoft: Rgb(14, 44, 24), OnAccent: Rgb(5, 10, 6),
         Success: Rgb(57, 255, 110), Warning: Rgb(255, 200, 60), Danger: Rgb(255, 95, 86), Neutral: Rgb(30, 120, 60),
         Sidebar: Rgb(2, 5, 3), SidebarHover: Rgb(12, 30, 16), SidebarText: Rgb(40, 190, 90), SidebarTitle: Rgb(57, 255, 110),
+        Dark: true);
+
+    /// <summary>optimizely.com: darkfir page, midfir cards, lightfir borders, lime accent, light neutrals.</summary>
+    private static readonly UiPalette Optimizely = new(
+        Window: Rgb(0x08, 0x25, 0x1A), Surface: Rgb(0x0D, 0x3A, 0x29), Border: Rgb(0x19, 0x70, 0x50), Text: Rgb(0xEF, 0xF6, 0xE9), TextMuted: Rgb(0xA1, 0xAC, 0x8D),
+        Accent: Rgb(0xAB, 0xFF, 0x44), AccentHover: Rgb(0xC4, 0xFF, 0x7A), AccentSoft: Rgb(0x14, 0x52, 0x3B), OnAccent: Rgb(0x08, 0x25, 0x1A),
+        Success: Rgb(0x71, 0xFF, 0x84), Warning: Rgb(0xFF, 0xC4, 0x6B), Danger: Rgb(0xFF, 0x99, 0xB6), Neutral: Rgb(0x71, 0x78, 0x63),
+        Sidebar: Rgb(0x05, 0x1A, 0x12), SidebarHover: Rgb(0x0D, 0x3A, 0x29), SidebarText: Rgb(0xD8, 0xE4, 0xCB), SidebarTitle: Rgb(0xAB, 0xFF, 0x44),
         Dark: true);
 
     private static readonly UiPalette CozyPurple = new(

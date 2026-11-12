@@ -30,6 +30,7 @@ public sealed class PopupPalette
         NotificationTheme.Terminal => TerminalGreen,
         NotificationTheme.CleanLight => CleanLight,
         NotificationTheme.CozyPurple => CozyPurple,
+        NotificationTheme.Optimizely => Optimizely,
         _ => NeonDark
     };
 
@@ -66,6 +67,28 @@ public sealed class PopupPalette
         Terminal = true,
         Dark = true,
         Accent = (priority, _) => priority is "urgent" or "high" ? Color.FromArgb(255, 95, 86) : Color.FromArgb(57, 255, 110)
+    };
+
+    /// <summary>The optimizely.com palette: fir greens, lime ("lfgreen") accent, light neutrals, pink and light blue.</summary>
+    public static readonly PopupPalette Optimizely = new()
+    {
+        Name = "Optimizely",
+        Background = Color.FromArgb(0x0D, 0x3A, 0x29),    // midfir
+        BackgroundEnd = Color.FromArgb(0x08, 0x25, 0x1A), // darkfir
+        Border = Color.FromArgb(0x19, 0x70, 0x50),        // lightfir
+        Text = Color.FromArgb(0xEF, 0xF6, 0xE9),          // neutral-2
+        Muted = Color.FromArgb(0xA1, 0xAC, 0x8D),         // neutral-6
+        OnAccent = Color.FromArgb(0x08, 0x25, 0x1A),      // dark text on lime/pink/blue
+        FontFamily = "Segoe UI",
+        Stripe = true,
+        Dark = true,
+        Accent = (priority, kind) => priority switch
+        {
+            "urgent" => Color.FromArgb(0xFF, 0x99, 0xB6), // ltpink
+            "high" => Color.FromArgb(0xAB, 0xFF, 0x44),   // lfgreen
+            "low" => Color.FromArgb(0xD8, 0xE4, 0xCB),    // neutral-4
+            _ => kind == NotificationKind.MyTicket ? Color.FromArgb(0x71, 0xFF, 0x84) : Color.FromArgb(0x91, 0xDB, 0xDA) // green, ltblue
+        }
     };
 
     /// <summary>Dusky purple, like a lamp-lit evening: warm cream text, soft pastel accents, no hard neon.</summary>
