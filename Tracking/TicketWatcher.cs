@@ -356,12 +356,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
                 var who = assignee?.Name ?? $"User {assigneeId}";
                 var (customer, comment) = reply.Value;
-                Log.Info($"Ticket #{ticket.Id}: {customer} replied while {who} is outside working hours ({local:ddd HH:mm} their time)");
+                Log.Info($"Ticket #{ticket.Id}: {customer} replied while {who} is outside working hours ({English(local, "ddd HH:mm")} their time)");
 
                 var said = settings.ShowCommentText ? $"{customer} replied: {Snippet(comment)}" : $"{customer} replied";
                 notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Customer waiting",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                    $"{said}\n{who} is off work · {local:ddd HH:mm} their time",
+                    $"{said}\n{who} is off work · {English(local, "ddd HH:mm")} their time",
                     ticket.Id, ticket.Priority, GroupLabel(group)));
             }
         }
@@ -470,10 +470,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             $"{tickets.Count} unassigned tickets already waiting", string.Join("\n", lines), Context: GroupLabel(group)));
     }
 
+    /// <summary>Day and month names in English, whatever the PC's language (the app's texts are English).</summary>
+    private static string English(DateTime value, string format) =>
+        value.ToString(format, System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+
     private static string CreatedLabel(Ticket t)
     {
         var local = t.CreatedAt.ToLocalTime();
-        return local.Date == DateTime.Today ? $"{local:HH:mm}" : $"{local:d MMM HH:mm}";
+        return local.Date == DateTime.Today ? $"{local:HH:mm}" : English(local.DateTime, "d MMM HH:mm");
     }
 
     private static string GroupLabel(WatchedGroup group) => group.IsNoGroup ? "No group" : group.Name;
