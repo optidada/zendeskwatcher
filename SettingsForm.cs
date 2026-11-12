@@ -1,166 +1,33 @@
+using ZendeskWatcher.SettingsPages;
 using ZendeskWatcher.Tracking;
 using ZendeskWatcher.UI;
 using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher;
 
-/// <summary>Settings window: account and sign-in, monitored groups, and notification options.</summary>
+/// <summary>
+/// Settings window: the sidebar, the Save/Close footer and unsaved-changes tracking. The pages themselves are in
+/// SettingsPages/ (one class each); every page shows its part of <see cref="Settings"/> and writes it back.
+/// </summary>
 public sealed class SettingsForm : Form
 {
-    private const int CardWidth = 556;
-    private const string Author = "Claude & Daniel Dahlin @ Optimizely";
-    private const string FeedbackName = "Daniel";
     private static readonly string AppVersion = typeof(SettingsForm).Assembly.GetName().Version?.ToString(3) ?? "?";
 
-    private readonly Func<Settings, IZendeskSession> _sessionFactory;
-    private readonly Notifier _notifier;
     private readonly bool _knownSignedOut;
+    private readonly SettingsContext _context;
+    private readonly AccountPage _account;
+    private readonly GroupsPage _groups;
+    private readonly NotificationsPage _notifications;
+    private readonly AppearancePage _appearance;
+    private readonly GeneralPage _general;
+    private readonly SettingsPage[] _pages;
+    private readonly List<NavItem> _nav = [];
 
-    // Navigation
-    private readonly List<(NavItem Nav, Control Page)> _pages = [];
-
-    // Account
-    private readonly InputBox _subdomain = new(220, "e.g. episerver");
-    private readonly StatusDot _accountDot = new();
-    private readonly Label _account = Theme.Label("Not signed in", maxWidth: CardWidth - 70);
-    private readonly Button _signIn = Theme.PrimaryButton("Sign in");
-    private readonly Button _signOut = Theme.SecondaryButton("Sign out");
-
-    // Groups
-    private readonly InputBox _groupFilter = new(CardWidth - 44, "Filter groups…", searchIcon: true);
-    private readonly SmoothListView _groups = new()
-    {
-        Width = CardWidth - 44, Height = 280, View = View.Details, CheckBoxes = true, HeaderStyle = ColumnHeaderStyle.None,
-        FullRowSelect = true, MultiSelect = false, ShowGroups = true, BorderStyle = BorderStyle.None,
-        BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body, Margin = new Padding(0, 10, 0, 10)
-    };
-    private readonly Label _groupsLoading = new()
-    {
-        Text = "Loading your groups…", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
-        Font = Theme.Body, ForeColor = Theme.TextMuted, BackColor = Theme.Surface, Visible = false
-    };
-    private readonly ListViewGroup _monitoredSection = new("Monitored");
-    private readonly ListViewGroup _suggestedSection = new("Suggested");
-    private readonly ListViewGroup _otherSection = new("Other groups");
-    private Dictionary<long, Suggestion> _suggestions = [];
-    private readonly Label _groupsHint = Theme.Label("Sign in to load your groups.", Theme.Small, Theme.TextMuted);
-    private readonly Button _reloadGroups = Theme.SecondaryButton("Reload");
-    private List<GroupItem> _allGroups = [];
-    private readonly HashSet<long> _selectedGroups = [];
-    private bool _suppressGroupEvents;
-    private readonly Panel _groupsHost = new() { BackColor = Theme.Surface };
-
-    // Notifications
-    private readonly ToggleSwitch _notifyUnassigned = new("New unassigned tickets in my monitored groups");
-    private readonly NumericUpDown _interval = new() { Minimum = 30, Maximum = 3600, Increment = 15, Width = 80, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle };
-    private readonly ToggleSwitch _trackMine = new("Changes on tickets assigned to me (any group)");
-    private readonly ToggleSwitch _trackCc = new("Changes on tickets where I'm CC or a follower (any group)");
-    private readonly CheckBox _replies = Check("Public replies");
-    private readonly CheckBox _notes = Check("Internal notes");
-    private readonly CheckBox _status = Check("Status changes");
-    private readonly CheckBox _assignment = Check("Reassignment and group moves");
-    private readonly CheckBox _priority = Check("Priority changes");
-    private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
-
-    // Help colleagues
-    private readonly ToggleSwitch _help = new("Customer replies on colleagues' tickets outside their working hours");
-    private readonly RadioButton _helpSame = Radio("Same as my monitored groups");
-    private readonly RadioButton _helpCustom = Radio("Only these groups:");
-    private readonly FlowLayoutPanel _helpGroupList = new()
-    {
-        FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(20, 0, 0, 4)
-    };
-    private readonly HashSet<long> _helpChosen = [];
-    private readonly FlowLayoutPanel _helpPeopleList = new()
-    {
-        FlowDirection = FlowDirection.LeftToRight, WrapContents = true, AutoSize = true, BackColor = Theme.Surface,
-        MaximumSize = new Size(HelpPeopleWidth, 0), Margin = new Padding(20, 0, 0, 0)
-    };
-    private readonly Label _helpPeopleAll = LinkLabel("All");
-    private readonly Label _helpPeopleNone = LinkLabel("None");
-    private readonly Label _helpPeopleHint = Theme.Label("", Theme.Small, Theme.TextMuted, HelpPeopleWidth);
-    private const int HelpPeopleWidth = CardWidth - 120;
-    /// <summary>Unticked colleagues (id -> name): the only ones stored, so new group members are included automatically.</summary>
-    private readonly Dictionary<long, string> _helpExcluded = [];
-    /// <summary>The colleagues currently shown in the list.</summary>
-    private List<Member> _helpPeopleShown = [];
-    private int _helpPeopleVersion;
-    /// <summary>Client and user id of the signed-in session, for loading group members; null when not signed in.</summary>
-    private ZendeskClient? _client;
-    private long _meId;
-    private TimeRegion _myRegion = TimeRegion.Other;
-    private readonly Dictionary<long, string> _helpNames = [];
-    private readonly ComboBox _workStart = HourCombo(0, 23);
-    private readonly ComboBox _workEnd = HourCombo(1, 24);
-    private readonly (string Priority, CheckBox Box)[] _helpPriorities =
-    [
-        ("urgent", Check("Urgent (P1)")), ("high", Check("High (P2)")), ("normal", Check("Normal (P3)")), ("low", Check("Low (P4)"))
-    ];
-    private readonly CheckBox _helpMyHours = Check("Only notify me while I'm working myself (same hours, my local time)");
-    private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
-    private readonly ComboBox _snoozeMinutes = IntCombo(SnoozeMinuteOptions);
-    private readonly ComboBox _snoozeBehavior = Combo(SnoozeBehaviorOptions);
-    private readonly ToggleSwitch _startSummary = new("Show a summary when Zendesk Watcher starts");
-
-    // Appearance
-    private readonly ComboBox _newSound = Combo(SoundOptions);
-    private readonly ComboBox _newDisplay = Combo(DisplayOptions);
-    private readonly ComboBox _mySound = Combo(SoundOptions);
-    private readonly ComboBox _myDisplay = Combo(DisplayOptions);
-    private readonly ComboBox _helpSound = Combo(SoundOptions);
-    private readonly ComboBox _helpDisplay = Combo(DisplayOptions);
-    private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
-    private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
-    private readonly Button _testNew = Theme.SecondaryButton("New ticket");
-    private readonly Button _testMine = Theme.SecondaryButton("My ticket");
-    private readonly Button _testHelp = Theme.SecondaryButton("Colleague");
-    private readonly Button _testBurst = Theme.SecondaryButton("Several");
-    private readonly ThemeTile[] _themeTiles =
-    [
-        new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
-        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"),
-        new(NotificationTheme.WindowsNative, "Windows")
-    ];
-    private readonly ComboBox _position = Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right")]);
-
-    private static readonly Option<ToastSound>[] SoundOptions =
-    [
-        new(ToastSound.Default, "Default"), new(ToastSound.Mail, "Mail"), new(ToastSound.InstantMessage, "Instant message"),
-        new(ToastSound.Reminder, "Reminder"), new(ToastSound.Sms, "SMS"),
-        new(ToastSound.ChipBlip, "Chiptune: Blip"), new(ToastSound.ChipArpeggio, "Chiptune: Arpeggio"),
-        new(ToastSound.ChipBounce, "Chiptune: Bounce"), new(ToastSound.ChipAlert, "Chiptune: Alert"),
-        new(ToastSound.ChipFanfare, "Chiptune: Fanfare"),
-        new(ToastSound.SongBouncy, "Chiptune song: Bouncy"), new(ToastSound.SongGroove, "Chiptune song: Groove"),
-        new(ToastSound.SongCelebration, "Chiptune song: Celebration"),
-        new(ToastSound.Silent, "Silent")
-    ];
-
-    private static readonly Option<int>[] SnoozeMinuteOptions =
-        [new(5, "5 minutes"), new(10, "10 minutes"), new(15, "15 minutes"), new(30, "30 minutes"), new(60, "1 hour")];
-
-    private static readonly Option<SnoozeBehavior>[] SnoozeBehaviorOptions =
-    [
-        new(SnoozeBehavior.IfStillNeeded, "Only if the ticket still needs attention"),
-        new(SnoozeBehavior.Always, "Always")
-    ];
-
-    private static readonly Option<ToastDisplay>[] DisplayOptions =
-    [
-        new(ToastDisplay.Standard, "Standard (~5 s)"), new(ToastDisplay.Long, "Long (~25 s)"), new(ToastDisplay.UntilDismissed, "Stay until dismissed")
-    ];
-
-    // Footer
-    private readonly Button _checkUpdates = Theme.SecondaryButton("Check for updates");
-    private readonly Button _sendFeedback = Theme.PrimaryButton("Send feedback…");
-    private readonly Button _openLogs = Theme.SecondaryButton("Open log folder");
     private readonly Button _save = Theme.PrimaryButton("Save");
     private readonly Button _close = Theme.SecondaryButton("Close");
     private readonly Label _saveState = Theme.Label("", Theme.Small, Theme.TextMuted);
-
     private readonly Panel _content = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(32, 26, 20, 10), BackColor = Theme.Window };
     private bool _loading = true;
-    private bool _signingIn;
-    private string? _loadedFor;
     private string _savedSnapshot = "";
 
     /// <summary>The last saved settings; the original settings if nothing was saved.</summary>
@@ -181,11 +48,7 @@ public sealed class SettingsForm : Form
     public event Action? OpenLogFolderClicked;
 
     /// <summary>Mirrors the tray menu's update item ("Checking for updates…", "Restart to update to …").</summary>
-    public void ShowUpdateState(string text, bool enabled)
-    {
-        _checkUpdates.Text = text;
-        _checkUpdates.Enabled = enabled;
-    }
+    public void ShowUpdateState(string text, bool enabled) => _general.ShowUpdateState(text, enabled);
 
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false)
         : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0)
@@ -193,8 +56,8 @@ public sealed class SettingsForm : Form
     }
 
     /// <summary>
-    /// Applies the saved appearance before any control exists: field initializers create many controls, and they
-    /// run before the constructor body, so this has to happen in the arguments of the chained constructor.
+    /// Applies the saved appearance before any control exists: field initializers create controls, and they run
+    /// before the constructor body, so this has to happen in the arguments of the chained constructor.
     /// </summary>
     private static Settings UseThemeOf(Settings settings)
     {
@@ -204,8 +67,6 @@ public sealed class SettingsForm : Form
 
     private SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut, int _)
     {
-        _sessionFactory = sessionFactory;
-        _notifier = notifier;
         _knownSignedOut = knownSignedOut;
         Result = settings;
 
@@ -221,18 +82,35 @@ public sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         Icon = AppIcon.CreateIcon(AppIcon.NeonGreen, 32);
 
+        _context = new SettingsContext(this, _content, notifier, sessionFactory) { Current = Current, Changed = UpdateSaveState };
+        _groups = new GroupsPage(_context);
+        _account = new AccountPage(_context, _groups);
+        _notifications = new NotificationsPage(_context, _groups);
+        _appearance = new AppearancePage(_context);
+        _general = new GeneralPage(_context, AppVersion);
+        _pages = [_account, _groups, _notifications, _appearance, _general];
+
+        _account.SessionChanging += () => SessionChanging?.Invoke();
+        _account.SessionChanged += () => SessionChanged?.Invoke();
+        _account.SignedIn += SaveConnection;
+        _general.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
+        _general.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
+        _general.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
+
         BuildLayout();
-        LoadValues(settings);
-        WireEvents();
+        foreach (var page in _pages)
+            page.Load(settings);
         SelectPage(0);
 
         ResumeLayout(false);
         PerformLayout();
         Load += (_, _) =>
         {
-            foreach (var (_, page) in _pages) CreateHandles(page);
+            foreach (var page in _pages) CreateHandles(page.Panel);
             Theme.ApplyWindowChrome(this, Theme.Current.Dark);
         };
+        Shown += async (_, _) => await _account.OnWindowShownAsync(_knownSignedOut);
+        FormClosing += OnFormClosing;
 
         _savedSnapshot = Snapshot();
         _loading = false;
@@ -243,19 +121,15 @@ public sealed class SettingsForm : Form
 
     private void BuildLayout()
     {
-        // The sidebar registers the navigation entries that the pages attach to, so it is built first.
         var sidebar = BuildSidebar();
         var footer = BuildFooter();
 
-        var content = _content;
-        content.Controls.Add(BuildGeneralPage());
-        content.Controls.Add(BuildAppearancePage());
-        content.Controls.Add(BuildNotificationsPage());
-        content.Controls.Add(BuildGroupsPage());
-        content.Controls.Add(BuildAccountPage());
+        // Docked to the top in reverse, so the first page ends up on top (only one is visible at a time anyway).
+        foreach (var page in _pages.Reverse())
+            _content.Controls.Add(page.Panel);
 
         // Docking order: the Fill control is added first so the sidebar and footer claim their space before it.
-        Controls.Add(content);
+        Controls.Add(_content);
         Controls.Add(footer);
         Controls.Add(sidebar);
     }
@@ -272,13 +146,13 @@ public sealed class SettingsForm : Form
         stack.Controls.Add(title);
         stack.Controls.Add(subtitle);
 
-        foreach (var name in new[] { "Account", "Groups", "Notifications", "Appearance", "General" })
+        foreach (var page in _pages)
         {
-            var nav = new NavItem(name);
-            var index = _pages.Count;
+            var nav = new NavItem(page.Title);
+            var index = _nav.Count;
             nav.Click += (_, _) => SelectPage(index);
             stack.Controls.Add(nav);
-            _pages.Add((nav, null!));
+            _nav.Add(nav);
         }
 
         // Just the version; the author is on the General page.
@@ -323,234 +197,6 @@ public sealed class SettingsForm : Form
         return footer;
     }
 
-    private Control BuildAccountPage()
-    {
-        var page = Page("Account", "Connect to Zendesk with your own agent account.");
-
-        var account = new Card("Zendesk account",
-            "The address you use to open Zendesk. You sign in as usual (Okta) in a built-in browser window; " +
-            "the app then reads tickets with your own agent permissions.", CardWidth);
-        account.Body.Controls.Add(Row(_subdomain, Theme.Label(".zendesk.com", color: Theme.TextMuted)));
-        page.Controls.Add(account);
-
-        var status = new Card("Status", null, CardWidth);
-        status.Body.Controls.Add(Row(_accountDot, _account));
-        var buttons = Row(_signIn, _signOut);
-        buttons.Margin = new Padding(0, 12, 0, 0);
-        status.Body.Controls.Add(buttons);
-        page.Controls.Add(status);
-
-        _pages[0] = (_pages[0].Nav, page);
-        return page;
-    }
-
-    private Control BuildGroupsPage()
-    {
-        var page = Page("Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.");
-
-        var card = new Card("Monitored groups",
-            $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +
-            "Whether you get notifications is set under Notifications.", CardWidth);
-        _groups.Columns.Add("Group");
-        _groups.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
-        var listHost = _groupsHost;
-        listHost.Size = _groups.Size;
-        listHost.Margin = _groups.Margin;
-        _groups.Dock = DockStyle.Fill;
-        listHost.Controls.Add(_groupsLoading); // overlay, shown while loading
-        listHost.Controls.Add(_groups);
-        card.Body.Controls.Add(_groupFilter);
-        card.Body.Controls.Add(listHost);
-
-        // Full card width, so the Reload button sits at the right edge.
-        var footer = new TableLayoutPanel
-        {
-            ColumnCount = 2, AutoSize = true, MinimumSize = new Size(CardWidth - 44, 0), MaximumSize = new Size(CardWidth - 44, 0),
-            BackColor = Theme.Surface, Margin = Padding.Empty
-        };
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _groupsHint.Anchor = AnchorStyles.Left;
-        _reloadGroups.Margin = Padding.Empty;
-        _reloadGroups.Anchor = AnchorStyles.Right;
-        footer.Controls.Add(_groupsHint, 0, 0);
-        footer.Controls.Add(_reloadGroups, 1, 0);
-        card.Body.Controls.Add(footer);
-        page.Controls.Add(card);
-
-        _pages[1] = (_pages[1].Nav, page);
-        return page;
-    }
-
-    private Control BuildNotificationsPage()
-    {
-        var page = Page("Notifications", "Choose what you want to hear about and how often to check.");
-
-        var unassigned = new Card("New tickets", "A notification for each new unassigned ticket in the groups you monitor.", CardWidth);
-        unassigned.Body.Controls.Add(_notifyUnassigned);
-        page.Controls.Add(unassigned);
-
-        var mine = new Card("Ticket changes", "Get notified when someone else changes these tickets.", CardWidth);
-        mine.Body.Controls.Add(_trackMine);
-        mine.Body.Controls.Add(_trackCc);
-        page.Controls.Add(mine);
-
-        // Its own card: the change types apply to both kinds of tickets above, not to one of the switches.
-        var which = new Card("Which changes", "Applies to your tickets and to tickets you're CC'd on or follow. Changes you make yourself never trigger a notification.", CardWidth);
-        var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (CardWidth - 44) / 2));
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment];
-        for (var i = 0; i < changeTypes.Length; i++)
-            options.Controls.Add(changeTypes[i], i % 2, i / 2);
-        which.Body.Controls.Add(options);
-        _commentText.Margin = new Padding(0, 10, 0, 0);
-        which.Body.Controls.Add(_commentText);
-        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
-            "the Windows notification center; the custom popups are never stored.", Theme.Small, Theme.TextMuted, CardWidth - 44);
-        privacy.Margin = new Padding(50, 0, 0, 0);
-        which.Body.Controls.Add(privacy);
-        page.Controls.Add(which);
-
-        var help = new Card("Help colleagues",
-            "Get notified when a customer replies on a colleague's open ticket while the colleague is off work, so you can step in.", CardWidth);
-        help.Body.Controls.Add(_help);
-        var helpOptions = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(50, 2, 0, 0) };
-        helpOptions.Controls.Add(Theme.Label("Groups", Theme.BodyBold));
-        helpOptions.Controls.Add(_helpSame);
-        helpOptions.Controls.Add(_helpCustom);
-        helpOptions.Controls.Add(_helpGroupList);
-        var peopleTitle = Theme.Label("Assignees", Theme.BodyBold);
-        peopleTitle.Margin = new Padding(0, 6, 14, 4);
-        helpOptions.Controls.Add(Row(peopleTitle, _helpPeopleAll, _helpPeopleNone));
-        helpOptions.Controls.Add(_helpPeopleList);
-        _helpPeopleHint.Margin = new Padding(20, 2, 0, 4);
-        helpOptions.Controls.Add(_helpPeopleHint);
-        var priorities = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
-        var priorityLabel = Theme.Label("Priority");
-        priorityLabel.Margin = new Padding(4, 6, 12, 0);
-        priorities.Controls.Add(priorityLabel);
-        foreach (var (_, box) in _helpPriorities)
-        {
-            box.Margin = new Padding(0, 3, 14, 3);
-            priorities.Controls.Add(box);
-        }
-        helpOptions.Controls.Add(priorities);
-        helpOptions.Controls.Add(Theme.Label("Tickets without a priority count as Normal.", Theme.Small, Theme.TextMuted, CardWidth - 100));
-
-        var hours = Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
-        hours.Margin = new Padding(0, 8, 0, 0);
-        helpOptions.Controls.Add(hours);
-        helpOptions.Controls.Add(Theme.Label("Monday to Friday, in the assignee's own time zone (from their Zendesk profile). " +
-            "Assignees without a time zone are skipped.", Theme.Small, Theme.TextMuted, CardWidth - 100));
-        _helpMyHours.Margin = new Padding(0, 8, 0, 0);
-        helpOptions.Controls.Add(_helpMyHours);
-        help.Body.Controls.Add(helpOptions);
-        page.Controls.Add(help);
-
-        var snooze = new Card("Snooze", "Snooze on a popup hides it and shows it again later. " +
-            "A ticket still needs attention when a new ticket is still unassigned, or another ticket isn't solved or closed. " +
-            "While notifications are paused, snoozed popups wait until the pause ends.", CardWidth);
-        var snoozeGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
-        snoozeGrid.Controls.Add(Theme.Label("Show again after"), 0, 0);
-        snoozeGrid.Controls.Add(_snoozeMinutes, 1, 0);
-        snoozeGrid.Controls.Add(Theme.Label("Show it"), 0, 1);
-        snoozeGrid.Controls.Add(_snoozeBehavior, 1, 1);
-        foreach (Control control in snoozeGrid.Controls)
-            if (control is Label) control.Anchor = AnchorStyles.Left;
-        _snoozeBehavior.Width = 300;
-        snooze.Body.Controls.Add(snoozeGrid);
-        page.Controls.Add(snooze);
-
-        var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", CardWidth);
-        checking.Body.Controls.Add(Row(Theme.Label("Check Zendesk every"), _interval, Theme.Label("seconds")));
-        Theme.WheelScrollsPage(_interval);
-        page.Controls.Add(checking);
-
-
-        _pages[2] = (_pages[2].Nav, page);
-        return page;
-    }
-
-    private Control BuildAppearancePage()
-    {
-        var page = Page("Appearance", "How notifications look and sound. The test buttons use your current choices, even before saving.");
-
-        var style = new Card("Style", "Custom popups slide in at the screen corner and stack. While you present or run a full-screen app, " +
-            "Windows notifications are used instead, so nothing pops up over your screen.", CardWidth);
-        // Two rows of three tiles.
-        var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(0, 0, 0, 12) };
-        tiles.Controls.AddRange(_themeTiles);
-        style.Body.Controls.Add(tiles);
-        style.Body.Controls.Add(Row(Theme.Label("Popup position"), _position));
-        page.Controls.Add(style);
-
-        var sound = new Card("Sound and display", null, CardWidth);
-        var grid = new TableLayoutPanel { ColumnCount = 4, AutoSize = true, BackColor = Theme.Surface };
-        grid.Controls.Add(Theme.Label(""), 0, 0);
-        grid.Controls.Add(Theme.Label("Sound", Theme.Small, Theme.TextMuted), 1, 0);
-        grid.Controls.Add(Theme.Label("Display", Theme.Small, Theme.TextMuted), 3, 0);
-        AddStyleRow(grid, 1, "New tickets", _newSound, _newDisplay);
-        AddStyleRow(grid, 2, "My tickets", _mySound, _myDisplay);
-        AddStyleRow(grid, 3, "Colleagues' tickets", _helpSound, _helpDisplay);
-        sound.Body.Controls.Add(grid);
-        page.Controls.Add(sound);
-
-        var windows = new Card("Windows notifications", "Used with the Windows style, and for every style while you present or use a full-screen app.", CardWidth);
-        windows.Body.Controls.Add(_showLogo);
-        windows.Body.Controls.Add(_groupByType);
-        page.Controls.Add(windows);
-
-        var test = new Card("Try it", "Sends sample notifications; clicking them does nothing.", CardWidth);
-        test.Body.Controls.Add(Row(_testNew, _testMine, _testHelp, _testBurst));
-        page.Controls.Add(test);
-
-        _pages[3] = (_pages[3].Nav, page);
-        return page;
-    }
-
-    private Control BuildGeneralPage()
-    {
-        var page = Page("General", $"Zendesk Watcher {AppVersion}, by {Author}.");
-
-        var startup = new Card("Startup", null, CardWidth);
-        startup.Body.Controls.Add(_startup);
-        startup.Body.Controls.Add(_startSummary);
-        page.Controls.Add(startup);
-
-        var updates = new Card("Updates", "New versions are downloaded automatically and installed when you restart the app.", CardWidth);
-        _checkUpdates.AutoSize = true;
-        updates.Body.Controls.Add(Row(_checkUpdates));
-        page.Controls.Add(updates);
-
-        var feedback = new Card("Feedback", $"Ideas, questions or something not working? Send feedback opens an email to {FeedbackName} " +
-            "in Outlook (or another mail app) with your app and Windows version filled in. If something went wrong, please attach the latest log from the log folder.", CardWidth);
-        feedback.Body.Controls.Add(Row(_sendFeedback, _openLogs));
-        page.Controls.Add(feedback);
-
-        _checkUpdates.Click += (_, _) => CheckForUpdatesClicked?.Invoke();
-        _sendFeedback.Click += (_, _) => SendFeedbackClicked?.Invoke();
-        _openLogs.Click += (_, _) => OpenLogFolderClicked?.Invoke();
-
-        _pages[4] = (_pages[4].Nav, page);
-        return page;
-    }
-
-    private void SelectTheme(NotificationTheme theme)
-    {
-        foreach (var tile in _themeTiles)
-            tile.Selected = tile.Value == theme;
-        _position.Enabled = theme != NotificationTheme.WindowsNative;
-
-        // Preview the appearance on this window right away (only kept if saved; the next open uses the saved one).
-        var from = Theme.Use(theme);
-        if (from != Theme.Current)
-            Theme.Recolor(this, from, Theme.Current);
-        UpdateSaveState();
-    }
-
-    private NotificationTheme SelectedTheme => _themeTiles.FirstOrDefault(t => t.Selected)?.Value ?? NotificationTheme.NeonDark;
-
     private void SelectPage(int index)
     {
         // Swap pages with drawing turned off, then repaint once, so a page never appears piece by piece.
@@ -558,15 +204,12 @@ public sealed class SettingsForm : Form
         if (redraw)
             SendMessage(_content.Handle, WmSetRedraw, 0, 0);
 
-        for (var i = 0; i < _pages.Count; i++)
+        for (var i = 0; i < _pages.Length; i++)
         {
-            _pages[i].Nav.Selected = i == index;
-            _pages[i].Page.Visible = i == index;
+            _nav[i].Selected = i == index;
+            _pages[i].Panel.Visible = i == index;
         }
-        if (_pages[index].Page == _pages[1].Page)
-            FitGroupsList();
-        if (_pages[index].Page == _pages[2].Page)
-            ShowHelpGroups(); // monitored groups may have changed on the Groups page
+        _pages[index].OnShowing();
 
         if (redraw)
         {
@@ -589,323 +232,81 @@ public sealed class SettingsForm : Form
             CreateHandles(child);
     }
 
-    // ------------------------------------------------------------------ values
+    // ------------------------------------------------------------------ save
 
-    private void LoadValues(Settings settings)
-    {
-        _subdomain.Text = settings.Subdomain;
-
-        // Show the saved groups until the real list is loaded, so they are not lost when offline.
-        foreach (var group in settings.WatchedGroups)
-            _selectedGroups.Add(group.Id);
-        SetGroups(settings.WatchedGroups.Where(g => !g.IsNoGroup).Select(g => new GroupItem(g.Id, g.Name)));
-
-        _notifyUnassigned.Checked = settings.NotifyUnassigned;
-        _interval.Value = Math.Clamp(settings.PollIntervalSeconds, 30, 3600);
-        _trackMine.Checked = settings.TrackMyTickets;
-        _trackCc.Checked = settings.TrackCcTickets;
-        _replies.Checked = settings.NotifyPublicReplies;
-        _notes.Checked = settings.NotifyInternalNotes;
-        _status.Checked = settings.NotifyStatusChanges;
-        _assignment.Checked = settings.NotifyAssignmentChanges;
-        _priority.Checked = settings.NotifyPriorityChanges;
-        _commentText.Checked = settings.ShowCommentText;
-        _help.Checked = settings.HelpColleagues;
-        _helpSame.Checked = settings.HelpSameAsMonitored;
-        _helpCustom.Checked = !settings.HelpSameAsMonitored;
-        foreach (var group in settings.HelpGroups)
-        {
-            _helpChosen.Add(group.Id);
-            _helpNames[group.Id] = group.Name;
-        }
-        foreach (var colleague in settings.HelpExcludedAssignees)
-            _helpExcluded[colleague.Id] = colleague.Name;
-        _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
-        _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
-        _helpMyHours.Checked = settings.HelpOnlyDuringMyHours;
-        foreach (var (priority, box) in _helpPriorities)
-            box.Checked = settings.HelpPriorities.Contains(priority);
-        ShowHelpGroups();
-        _startup.Checked = StartupRegistration.IsEnabled;
-        _startSummary.Checked = settings.ShowStartSummary;
-        SelectInt(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
-        Select(_snoozeBehavior, settings.SnoozeBehavior);
-        Select(_newSound, settings.NewTicketStyle.Sound);
-        Select(_newDisplay, settings.NewTicketStyle.Display);
-        Select(_mySound, settings.MyTicketStyle.Sound);
-        Select(_myDisplay, settings.MyTicketStyle.Display);
-        Select(_helpSound, settings.HelpStyle.Sound);
-        Select(_helpDisplay, settings.HelpStyle.Display);
-        _showLogo.Checked = settings.ShowAppLogo;
-        SelectTheme(settings.Theme);
-        Select(_position, settings.Position);
-        _groupByType.Checked = settings.GroupNotificationsByType;
-        UpdateMyTicketOptions();
-
-        _reloadGroups.Enabled = false;
-        SetAccount("Not signed in", AccountState.SignedOut);
-    }
-
-    private void WireEvents()
-    {
-        _subdomain.Leave += async (_, _) => await RefreshAccountAsync();
-        _trackMine.CheckedChanged += (_, _) => UpdateMyTicketOptions();
-        _trackCc.CheckedChanged += (_, _) => UpdateMyTicketOptions();
-        _signIn.Click += async (_, _) => await SignInAsync();
-        _signOut.Click += (_, _) => SignOut();
-        _reloadGroups.Click += async (_, _) => await RefreshAccountAsync(force: true);
-        _groupFilter.TextChanged += (_, _) => ShowGroupList();
-        _groups.ItemChecked += (_, e) =>
-        {
-            if (_suppressGroupEvents)
-                return;
-            var item = e.Item;
-            var group = (GroupItem)item.Tag!;
-            if (item.Checked) _selectedGroups.Add(group.Id); else _selectedGroups.Remove(group.Id);
-
-            // Move the row to its section after the event. Only this row moves, so the list doesn't jump.
-            BeginInvoke(() => { MoveGroupItem(item); UpdateSaveState(); });
-        };
-        _groups.MouseClick += (_, e) =>
-        {
-            // Clicking anywhere on the row toggles it, not just the checkbox.
-            var hit = _groups.HitTest(e.Location);
-            if (hit.Item is not null && hit.Location != ListViewHitTestLocations.StateImage)
-                hit.Item.Checked = !hit.Item.Checked;
-        };
-
-        // Track unsaved changes.
-        _subdomain.TextChanged += (_, _) => UpdateSaveState();
-        _interval.ValueChanged += (_, _) => UpdateSaveState();
-        foreach (var radio in new[] { _helpSame, _helpCustom })
-            radio.CheckedChanged += (_, _) => { UpdateHelpOptions(); UpdateSaveState(); if (radio.Checked) RefreshHelpPeople(); };
-        _help.CheckedChanged += (_, _) => { UpdateHelpOptions(); RefreshHelpPeople(); };
-        _helpPeopleAll.Click += (_, _) => SetAllHelpPeople(true);
-        _helpPeopleNone.Click += (_, _) => SetAllHelpPeople(false);
-        foreach (var combo in new[] { _workStart, _workEnd, _snoozeMinutes, _snoozeBehavior })
-            combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var combo in new[] { _newSound, _newDisplay, _mySound, _myDisplay, _helpSound, _helpDisplay })
-            combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        _testNew.Click += (_, _) => SendTest(NotificationKind.NewTicket);
-        _testMine.Click += (_, _) => SendTest(NotificationKind.MyTicket);
-        _testHelp.Click += (_, _) => SendTest(NotificationKind.HelpColleague);
-        _testBurst.Click += (_, _) => SendTest(null);
-        foreach (var tile in _themeTiles)
-            tile.Click += (_, _) => SelectTheme(tile.Value);
-        _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _helpMyHours, _startup, _startSummary, _showLogo, _groupByType }.Concat(_helpPriorities.Select(p => p.Box)))
-            box.CheckedChanged += (_, _) => UpdateSaveState();
-
-        Shown += async (_, _) =>
-        {
-            if (_knownSignedOut && Current() is { IsConnectionConfigured: true } connection)
-            {
-                // The app just found no active session; don't make the user wait for another check.
-                _loadedFor = connection.Subdomain;
-                SetAccount($"Not signed in to {connection.Subdomain}.zendesk.com. Click Sign in.", AccountState.SignedOut);
-                _signIn.Focus();
-                return;
-            }
-
-            // Windows focuses the first field and selects its text. Only put the cursor there when it's empty
-            // (first start); otherwise focus nothing, so the saved subdomain isn't highlighted.
-            if (_subdomain.Text.Length == 0)
-                _subdomain.Box.Focus();
-            else
-                ActiveControl = null;
-
-            await RefreshAccountAsync();
-        };
-        FormClosing += OnFormClosing;
-    }
-
-    /// <summary>Settings built from the fields as they are right now (possibly not saved yet).</summary>
+    /// <summary>Settings built from all pages as they are right now (possibly not saved yet).</summary>
     private Settings Current()
     {
-        var names = _allGroups.ToDictionary(g => g.Id, g => g.Name);
-        names[WatchedGroup.NoGroupId] = WatchedGroup.NoGroupName;
-
-        var s = Result.Clone();
-        s.Subdomain = Settings.NormalizeSubdomain(_subdomain.Text);
-        s.WatchedGroups = _selectedGroups
-            .Select(id => new WatchedGroup { Id = id, Name = names.GetValueOrDefault(id, $"Group {id}") })
-            .OrderBy(g => g.Id == WatchedGroup.NoGroupId ? 0 : 1)
-            .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
-        s.NotifyUnassigned = _notifyUnassigned.Checked;
-        s.PollIntervalSeconds = (int)_interval.Value;
-        s.TrackMyTickets = _trackMine.Checked;
-        s.TrackCcTickets = _trackCc.Checked;
-        s.NotifyPublicReplies = _replies.Checked;
-        s.NotifyInternalNotes = _notes.Checked;
-        s.NotifyStatusChanges = _status.Checked;
-        s.NotifyAssignmentChanges = _assignment.Checked;
-        s.NotifyPriorityChanges = _priority.Checked;
-        s.ShowCommentText = _commentText.Checked;
-        s.HelpColleagues = _help.Checked;
-        s.HelpSameAsMonitored = _helpSame.Checked;
-        s.HelpGroups = _helpChosen.Select(id => new WatchedGroup { Id = id, Name = _helpNames.GetValueOrDefault(id, $"Group {id}") })
-            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        s.HelpExcludedAssignees = _helpExcluded.Select(kv => new Colleague { Id = kv.Key, Name = kv.Value })
-            .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
-        s.WorkdayStartHour = _workStart.SelectedIndex;
-        s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
-        s.HelpOnlyDuringMyHours = _helpMyHours.Checked;
-        s.ShowStartSummary = _startSummary.Checked;
-        s.SnoozeMinutes = ((Option<int>)_snoozeMinutes.SelectedItem!).Value;
-        s.SnoozeBehavior = Selected<SnoozeBehavior>(_snoozeBehavior);
-        s.HelpPriorities = _helpPriorities.Where(p => p.Box.Checked).Select(p => p.Priority).ToList();
-        s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
-        s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
-        s.HelpStyle = new NotificationStyle { Sound = Selected<ToastSound>(_helpSound), Display = Selected<ToastDisplay>(_helpDisplay) };
-        s.ShowAppLogo = _showLogo.Checked;
-        s.Theme = SelectedTheme;
-        s.Position = Selected<PopupPosition>(_position);
-        s.GroupNotificationsByType = _groupByType.Checked;
-        return s;
+        var settings = Result.Clone();
+        foreach (var page in _pages)
+            page.Apply(settings);
+        return settings;
     }
 
-    // ------------------------------------------------------------------ account
-
-    private async Task RefreshAccountAsync(bool force = false)
+    /// <summary>For tests: what the pages show, written into fresh settings (catches a setting a page doesn't load or save).</summary>
+    internal Settings PagesAsSettings()
     {
-        if (_signingIn)
+        var settings = new Settings();
+        foreach (var page in _pages)
+            page.Apply(settings);
+        return settings;
+    }
+
+    private string Snapshot() => $"{Current().ToJson()}|startup={_general.StartWithWindows}";
+
+    private bool HasUnsavedChanges => Snapshot() != _savedSnapshot;
+
+    private void UpdateSaveState()
+    {
+        if (_loading)
             return;
 
-        var connection = Current();
-        var key = connection.Subdomain;
-        if (!force && key == _loadedFor)
-            return;
-
-        _loadedFor = key;
-        _reloadGroups.Enabled = false;
-
-        if (!connection.IsConnectionConfigured)
+        var dirty = HasUnsavedChanges;
+        _save.Enabled = dirty;
+        _save.Visible = dirty; // only offered when there's something to save (a disabled flat button still looks clickable)
+        if (dirty)
         {
-            SetAccount("Enter your Zendesk subdomain, then sign in.", AccountState.SignedOut);
-            return;
+            _saveState.Text = "Unsaved changes";
+            _saveState.ForeColor = Theme.Warning;
+        }
+        else if (_saveState.Text == "Unsaved changes")
+        {
+            _saveState.Text = "";
+        }
+    }
+
+    /// <summary>Saves the settings and applies them right away; the window stays open.</summary>
+    private bool Save()
+    {
+        var result = Current();
+
+        if (result.IsConnectionConfigured && result.WatchedGroups.Count == 0 && !result.TrackMyTickets && !result.TrackCcTickets &&
+            MessageBox.Show(this, "No groups are monitored and ticket tracking is off, so nothing will be watched. Save anyway?",
+                Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return false;
         }
 
-        SetAccount("Checking your Zendesk session…", AccountState.Checking);
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var client = new ZendeskClient(connection, _sessionFactory(connection));
-            var me = await client.GetMeAsync(CancellationToken.None);
-            if (key != _loadedFor)
-                return; // the subdomain changed meanwhile
-
-            SetAccount($"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}", AccountState.SignedIn);
-            if (force)
-                _memberCache = null; // Reload fetches the group members again too
-            _client = client;
-            _meId = me.Id;
-            _myRegion = TimeRegions.Of(ZoneOf(me) ?? LocalZone());
-            RefreshHelpPeople();
-            var sessionMs = clock.ElapsedMilliseconds;
-
-            // Groups rarely change: reuse what was loaded in the last half hour (Reload always fetches).
-            if (!force && _groupCache is { } cache && cache.Subdomain == key && DateTime.UtcNow - cache.At < GroupCacheLifetime)
-            {
-                _suggestions = cache.Suggestions;
-                SetGroups(WithMissing(cache.Groups));
-                _reloadGroups.Enabled = true;
-                return;
-            }
-
-            SetGroupsLoading(true);
-            var groups = (await client.GetGroupsAsync(CancellationToken.None)).Select(g => new GroupItem(g.Id, g.Name)).ToList();
-            if (key != _loadedFor)
-                return;
-            SetGroups(WithMissing(groups));
-            SetGroupsLoading(false);
-            _reloadGroups.Enabled = true;
-            var groupsMs = clock.ElapsedMilliseconds;
-
-            // Suggestions (needs a ticket search, the slowest part) fill in afterwards.
-            await LoadSuggestionsAsync(client, me.Id);
-            if (key != _loadedFor)
-                return;
-            ShowGroupList();
-            _groupCache = (key, DateTime.UtcNow, groups, _suggestions);
-            Log.Info($"Settings: session {sessionMs} ms, groups {groupsMs - sessionMs} ms, suggestions {clock.ElapsedMilliseconds - groupsMs} ms");
-        }
-        catch (AuthRequiredException)
-        {
-            SetAccount($"Not signed in to {connection.Subdomain}.zendesk.com. Click Sign in.", AccountState.SignedOut);
+            result.Save();
+            StartupRegistration.Set(_general.StartWithWindows);
         }
         catch (Exception ex)
         {
-            Log.Error("Settings: could not load account", ex);
-            SetAccount($"Could not connect: {ex.Message}", AccountState.Error);
-            _reloadGroups.Enabled = true;
-        }
-        finally
-        {
-            SetGroupsLoading(false);
-        }
-    }
-
-    /// <summary>Groups loaded from Zendesk, remembered for this app session so reopening Settings is instant.</summary>
-    private static (string Subdomain, DateTime At, List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions)? _groupCache;
-    private static readonly TimeSpan GroupCacheLifetime = TimeSpan.FromMinutes(30);
-
-    /// <summary>
-    /// Adds monitored groups that Zendesk didn't return, flagged, so they can be unticked. Not removed automatically:
-    /// an agent who may only list assignable groups won't see every group.
-    /// </summary>
-    private List<GroupItem> WithMissing(List<GroupItem> loaded)
-    {
-        var loadedIds = loaded.Select(g => g.Id).ToHashSet();
-        var missing = _allGroups
-            .Where(g => g.Id != WatchedGroup.NoGroupId && _selectedGroups.Contains(g.Id) && !loadedIds.Contains(g.Id))
-            .Select(g => g with { Missing = true })
-            .ToList();
-        if (missing.Count > 0)
-            Log.Info($"Settings: monitored group(s) not found in Zendesk: {string.Join(", ", missing.Select(g => $"{g.Name} ({g.Id})"))}");
-        return loaded.Concat(missing).ToList();
-    }
-
-    private async Task SignInAsync()
-    {
-        var connection = Current();
-        if (!connection.IsConnectionConfigured)
-        {
-            SelectPage(0);
-            MessageBox.Show(this, "Enter your Zendesk subdomain first (for example: episerver).", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
+            Log.Error("Could not save settings", ex);
+            MessageBox.Show(this, ex.Message, "Could not save settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
         }
 
-        Log.Info($"Sign-in started: {connection.BaseUrl}");
-        _signingIn = true;
-        SetAccount("Sign in in the window that opened…", AccountState.Checking);
-
-        SessionChanging?.Invoke();
-        try
-        {
-            await _sessionFactory(connection).SignInAsync(this, CancellationToken.None);
-        }
-        catch (OperationCanceledException)
-        {
-            SetAccount("Sign-in was cancelled.", AccountState.SignedOut);
-            return;
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Sign-in failed", ex);
-            SetAccount("Sign-in failed.", AccountState.SignedOut);
-            MessageBox.Show(this, ex.Message, "Sign-in failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-        finally
-        {
-            _signingIn = false;
-            Activate();
-        }
-
-        SaveConnection(); // signed in: remember which Zendesk this is, without saving other pending changes
-        SessionChanged?.Invoke();
-        await RefreshAccountAsync(force: true);
+        Result = result;
+        _savedSnapshot = Snapshot();
+        _saveState.Text = $"✓ Saved at {DateTime.Now:HH:mm}";
+        _saveState.ForeColor = Theme.Success;
+        UpdateSaveState();
+        Log.Info("Settings saved");
+        Saved?.Invoke(result);
+        return true;
     }
 
     /// <summary>
@@ -914,7 +315,7 @@ public sealed class SettingsForm : Form
     /// </summary>
     private void SaveConnection()
     {
-        var subdomain = Settings.NormalizeSubdomain(_subdomain.Text);
+        var subdomain = _account.Subdomain;
         if (subdomain == Result.Subdomain && !Settings.IsFirstRun)
             return;
 
@@ -942,282 +343,6 @@ public sealed class SettingsForm : Form
         Saved?.Invoke(saved);
     }
 
-    private void SignOut()
-    {
-        SessionChanging?.Invoke();
-        _sessionFactory(Current()).SignOut();
-        _reloadGroups.Enabled = false;
-        SetAccount("Signed out.", AccountState.SignedOut);
-        SessionChanged?.Invoke();
-    }
-
-    private enum AccountState { SignedOut, Checking, SignedIn, Error }
-
-    /// <summary>Shows the account status; only the buttons that make sense for the state are visible.</summary>
-    private void SetAccount(string text, AccountState state)
-    {
-        if (state != AccountState.SignedIn && _client is not null)
-        {
-            _client = null;
-            RefreshHelpPeople();
-        }
-        _account.Text = text;
-        _accountDot.DotColor = state switch
-        {
-            AccountState.SignedIn => Theme.Success,
-            AccountState.Checking => Theme.Warning,
-            AccountState.Error => Theme.Danger,
-            _ => Theme.Neutral
-        };
-
-        // While checking it isn't known yet whether you're signed in, so neither button is offered.
-        _signIn.Visible = state is AccountState.SignedOut or AccountState.Error;
-        _signIn.Enabled = true;
-        _signOut.Visible = state is AccountState.SignedIn or AccountState.Error;
-    }
-
-    // ------------------------------------------------------------------ groups
-
-    /// <summary>Sets the available groups; the "(No group)" entry is always listed first.</summary>
-    private void SetGroups(IEnumerable<GroupItem> groups)
-    {
-        _allGroups = groups
-            .Where(g => g.Id != WatchedGroup.NoGroupId)
-            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Prepend(new GroupItem(WatchedGroup.NoGroupId, WatchedGroup.NoGroupName))
-            .ToList();
-        ShowGroupList();
-    }
-
-    /// <summary>Monitored groups first (highlighted), then the others; both filtered by the search box.</summary>
-    /// <summary>Monitored groups first (highlighted), then suggestions, then the rest; all filtered by the search box.</summary>
-    private void ShowGroupList()
-    {
-        var filter = _groupFilter.Text.Trim();
-        var visible = _allGroups.Where(g => filter.Length == 0 || g.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        var ordered = visible
-            .OrderBy(g => SectionFor(g) == _monitoredSection ? 0 : SectionFor(g) == _suggestedSection ? 1 : 2)
-            .ThenBy(g => g, Comparer<GroupItem>.Create((x, y) => CompareInSection(x, y, SectionFor(x))))
-            .ToList();
-
-        _suppressGroupEvents = true;
-        _groups.BeginUpdate();
-        _groups.Items.Clear();
-        foreach (var group in ordered)
-        {
-            var item = new ListViewItem { Tag = group };
-            Style(item, group, SectionFor(group));
-            _groups.Items.Add(item);
-        }
-        UpdateSectionHeaders();
-        _groups.EndUpdate();
-        _groups.FitColumn();
-        _suppressGroupEvents = false;
-
-        UpdateGroupsHint();
-    }
-
-    /// <summary>Monitored if ticked; suggested if it's one of your groups or has your tickets; otherwise the rest.</summary>
-    private ListViewGroup SectionFor(GroupItem group) =>
-        _selectedGroups.Contains(group.Id) ? _monitoredSection
-        : !group.Missing && _suggestions.ContainsKey(group.Id) ? _suggestedSection
-        : _otherSection;
-
-    /// <summary>Suggestions: groups you're a member of first, then by how many of your tickets they have. Others: by name.</summary>
-    private int CompareInSection(GroupItem a, GroupItem b, ListViewGroup section)
-    {
-        if (section == _suggestedSection && _suggestions.TryGetValue(a.Id, out var sa) && _suggestions.TryGetValue(b.Id, out var sb))
-        {
-            var byMember = sb.Member.CompareTo(sa.Member);
-            if (byMember != 0) return byMember;
-            var byTickets = sb.Tickets.CompareTo(sa.Tickets);
-            if (byTickets != 0) return byTickets;
-        }
-        return _allGroups.IndexOf(a).CompareTo(_allGroups.IndexOf(b));
-    }
-
-    private void Style(ListViewItem item, GroupItem group, ListViewGroup section)
-    {
-        var monitored = section == _monitoredSection;
-        item.Text = section == _suggestedSection && _suggestions.TryGetValue(group.Id, out var why)
-            ? $"{group.Name}  ·  {why.Reason}"
-            : group.DisplayName;
-        item.Checked = monitored;
-        item.Group = section;
-        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
-        item.Font = monitored ? Theme.BodyBold : Theme.Body;
-        item.ForeColor = group.Missing ? Theme.TextMuted : Theme.Text;
-    }
-
-    /// <summary>
-    /// Moves one row to its section, in order, without rebuilding the list (a rebuild resets the scroll position).
-    /// </summary>
-    private void MoveGroupItem(ListViewItem item)
-    {
-        if (item.ListView != _groups)
-            return; // the list was rebuilt in the meantime
-
-        var group = (GroupItem)item.Tag!;
-        var section = SectionFor(group);
-
-        _suppressGroupEvents = true;
-        _groups.BeginUpdate();
-        _groups.Items.Remove(item);
-
-        if (group.Missing && section != _monitoredSection)
-        {
-            // A group that no longer exists has nowhere to go once unticked.
-            _allGroups.Remove(group);
-        }
-        else
-        {
-            Style(item, group, section);
-            // Rows show in collection order within their section.
-            var index = _groups.Items.Cast<ListViewItem>().ToList()
-                .FindIndex(i => i.Group == section && CompareInSection(group, (GroupItem)i.Tag!, section) < 0);
-            _groups.Items.Insert(index < 0 ? _groups.Items.Count : index, item);
-        }
-
-        UpdateSectionHeaders();
-        _groups.EndUpdate();
-        _suppressGroupEvents = false;
-
-        UpdateGroupsHint();
-    }
-
-    /// <summary>"Other groups" only makes sense next to monitored or suggested ones; alone it's just "Groups".</summary>
-    private void UpdateSectionHeaders()
-    {
-        var monitored = _monitoredSection.Items.Count;
-        var suggested = _suggestedSection.Items.Count;
-        var others = _otherSection.Items.Count;
-        _monitoredSection.Header = $"Monitored · {monitored}";
-        _suggestedSection.Header = $"Suggested · {suggested}";
-        _otherSection.Header = monitored + suggested == 0 ? $"Groups · {others}" : $"Other groups · {others}";
-    }
-
-    /// <summary>
-    /// Why a group is suggested: you're a member, and/or some of your open tickets are in it.
-    /// Loaded with the group list; never fatal.
-    /// </summary>
-    private async Task LoadSuggestionsAsync(ZendeskClient client, long meId)
-    {
-        try
-        {
-            var memberOf = (await client.GetMyGroupIdsAsync(meId, CancellationToken.None)).ToHashSet();
-            var myTickets = await client.GetMyOpenTicketsAsync(CancellationToken.None);
-            var ticketCounts = myTickets.Where(t => t.GroupId is not null).GroupBy(t => t.GroupId!.Value).ToDictionary(g => g.Key, g => g.Count());
-
-            _suggestions = memberOf.Union(ticketCounts.Keys)
-                .ToDictionary(id => id, id => new Suggestion(memberOf.Contains(id), ticketCounts.GetValueOrDefault(id)));
-            Log.Info($"Settings: {_suggestions.Count} suggested group(s) ({memberOf.Count} memberships, tickets in {ticketCounts.Count} group(s))");
-        }
-        catch (Exception ex) when (ex is not AuthRequiredException)
-        {
-            Log.Error("Settings: could not load group suggestions", ex);
-            _suggestions = [];
-        }
-    }
-
-    private sealed record Suggestion(bool Member, int Tickets)
-    {
-        public string Reason => (Member, Tickets) switch
-        {
-            (true, 0) => "you're a member",
-            (true, var n) => $"you're a member · {n} of your tickets",
-            (false, 1) => "1 of your tickets",
-            (false, var n) => $"{n} of your tickets"
-        };
-    }
-
-    private void SetGroupsLoading(bool loading)
-    {
-        _groupsLoading.Visible = loading;
-        _groups.Visible = !loading;
-        if (loading)
-            _groupsLoading.BringToFront();
-        _groupFilter.Enabled = !loading;
-        if (loading)
-            _groupsHint.Text = "Loading…";
-        else
-            UpdateGroupsHint();
-    }
-
-    private void UpdateGroupsHint()
-    {
-        var realGroups = _allGroups.Count(g => g.Id != WatchedGroup.NoGroupId && !g.Missing);
-        var missing = _allGroups.Count(g => g.Missing);
-        _groupsHint.Text = (realGroups <= 0
-            ? $"{_selectedGroups.Count} monitored · sign in to load your groups"
-            : $"{_selectedGroups.Count} monitored · {realGroups} groups available")
-            + (missing > 0 ? $" · {missing} not found in Zendesk" : "");
-    }
-
-    // ------------------------------------------------------------------ save
-
-    private void UpdateMyTicketOptions()
-    {
-        foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority })
-            box.Enabled = _trackMine.Checked || _trackCc.Checked;
-    }
-
-    private string Snapshot() => $"{Current().ToJson()}|startup={_startup.Checked}";
-
-    private bool HasUnsavedChanges => Snapshot() != _savedSnapshot;
-
-    private void UpdateSaveState()
-    {
-        if (_loading)
-            return;
-
-        var dirty = HasUnsavedChanges;
-        _save.Enabled = dirty;
-        _save.Visible = dirty; // only offered when there's something to save (a disabled flat button still looks clickable)
-        if (dirty)
-        {
-            _saveState.Text = "Unsaved changes";
-            _saveState.ForeColor = Theme.Warning;
-        }
-        else if (_saveState.Text == "Unsaved changes")
-        {
-            _saveState.Text = "";
-        }
-    }
-
-    /// <summary>Saves the settings (applied when the window closes); the window stays open.</summary>
-    private bool Save()
-    {
-        var result = Current();
-
-        if (result.IsConnectionConfigured && result.WatchedGroups.Count == 0 && !result.TrackMyTickets && !result.TrackCcTickets &&
-            MessageBox.Show(this, "No groups are monitored and ticket tracking is off, so nothing will be watched. Save anyway?",
-                Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-        {
-            return false;
-        }
-
-        try
-        {
-            result.Save();
-            StartupRegistration.Set(_startup.Checked);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not save settings", ex);
-            MessageBox.Show(this, ex.Message, "Could not save settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
-        }
-
-        Result = result;
-        _savedSnapshot = Snapshot();
-        _saveState.Text = $"✓ Saved at {DateTime.Now:HH:mm}";
-        _saveState.ForeColor = Theme.Success;
-        UpdateSaveState();
-        Log.Info("Settings saved");
-        Saved?.Invoke(result);
-        return true;
-    }
-
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
         if (!HasUnsavedChanges)
@@ -1230,414 +355,7 @@ public sealed class SettingsForm : Form
             e.Cancel = true;
     }
 
-    // ------------------------------------------------------------------ helpers
-
-    /// <summary>
-    /// Sizes the group list so the Groups page fits the window: only the list scrolls, not the page.
-    /// </summary>
-    private void FitGroupsList()
-    {
-        var page = _pages[1].Page;
-        page.PerformLayout();
-        var available = _content.ClientSize.Height - _content.Padding.Vertical;
-        var minimum = (int)(120 * DeviceDpi / 96f);
-        var height = Math.Max(minimum, _groupsHost.Height + available - page.PreferredSize.Height);
-        if (height != _groupsHost.Height)
-        {
-            _groupsHost.Height = height;
-            page.PerformLayout();
-        }
-    }
-
-    private static FlowLayoutPanel Page(string title, string subtitle)
-    {
-        var page = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Theme.Window
-        };
-        page.Controls.Add(Theme.Label(title, Theme.PageTitle));
-        var sub = Theme.Label(subtitle, Theme.Body, Theme.TextMuted, CardWidth);
-        sub.Margin = new Padding(0, 0, 0, 20);
-        page.Controls.Add(sub);
-        return page;
-    }
-
-    private static TableLayoutPanel Row(params Control[] controls)
-    {
-        // A one-row table, so labels are vertically centered next to taller controls (e.g. the drop-downs).
-        var row = new TableLayoutPanel
-        {
-            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Theme.Surface, Margin = Padding.Empty,
-            RowCount = 1, ColumnCount = controls.Length
-        };
-        for (var i = 0; i < controls.Length; i++)
-        {
-            var c = controls[i];
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            c.Anchor = AnchorStyles.Left;
-            if (c is Label label)
-                label.Margin = new Padding(4, 0, 6, 0);
-            row.Controls.Add(c, i, 0);
-        }
-        return row;
-    }
-
-    /// <summary>Sends samples of one kind, or several of both kinds when <paramref name="kind"/> is null.</summary>
-    private void SendTest(NotificationKind? kind)
-    {
-        try
-        {
-            if (kind is { } single)
-                _notifier.ShowTest(Current(), single);
-            else
-                _notifier.ShowTestBurst(Current());
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Test notification failed", ex);
-            MessageBox.Show(this, ex.Message, "Test notification failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-    }
-
-    private void AddStyleRow(TableLayoutPanel grid, int row, string label, ComboBox sound, ComboBox display)
-    {
-        var text = Theme.Label(label);
-        text.Anchor = AnchorStyles.Left;
-        text.Margin = new Padding(0, 4, 20, 4);
-        sound.Width = display.Width = 160;
-        sound.Margin = new Padding(0, 3, 4, 3);
-
-        // ▶ plays the selected sound, without showing a notification.
-        var play = Theme.SecondaryButton("▶");
-        play.AutoSize = false;
-        play.MinimumSize = Size.Empty;
-        play.Padding = Padding.Empty;
-        play.Font = new Font("Segoe UI Symbol", 9f);
-        play.Size = new Size(32, sound.Height);
-        play.Margin = new Padding(0, 3, 10, 3);
-        play.Anchor = AnchorStyles.Left;
-        _tips.SetToolTip(play, "Play this sound");
-        play.Click += (_, _) => UI.Popups.PopupManager.PlaySound(Selected<ToastSound>(sound));
-
-        grid.Controls.Add(text, 0, row);
-        grid.Controls.Add(sound, 1, row);
-        grid.Controls.Add(play, 2, row);
-        grid.Controls.Add(display, 3, row);
-    }
-
-    private readonly ToolTip _tips = new();
-
-    private static ComboBox Combo<T>(Option<T>[] options)
-    {
-        var combo = new RoomyComboBox { Width = 180, Margin = new Padding(0, 3, 10, 3) };
-        combo.Items.AddRange(options.Cast<object>().ToArray());
-        combo.SelectedIndex = 0;
-        return combo;
-    }
-
-    private static ComboBox IntCombo(Option<int>[] options)
-    {
-        var combo = new RoomyComboBox { Width = 140, Margin = new Padding(0, 3, 10, 3) };
-        combo.Items.AddRange(options.Cast<object>().ToArray());
-        combo.SelectedIndex = 0;
-        return combo;
-    }
-
-    /// <summary>Selects the option with this value, or the fallback (e.g. a value from an edited settings file).</summary>
-    private static void SelectInt(ComboBox combo, int value, int fallback)
-    {
-        var values = combo.Items.Cast<Option<int>>().Select(o => o.Value).ToList();
-        combo.SelectedIndex = Math.Max(0, values.Contains(value) ? values.IndexOf(value) : values.IndexOf(fallback));
-    }
-
-    private static void Select<T>(ComboBox combo, T value) where T : struct, Enum
-    {
-        var index = combo.Items.Cast<Option<T>>().ToList().FindIndex(o => o.Value.Equals(value));
-        combo.SelectedIndex = Math.Max(0, index);
-    }
-
-    private static T Selected<T>(ComboBox combo) where T : struct, Enum => ((Option<T>)combo.SelectedItem!).Value;
-
-    private sealed record Option<T>(T Value, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
-    /// <summary>
-    /// The groups offered for "Help colleagues": your monitored groups, groups you're a member of, and any chosen
-    /// before. Rebuilt when the Notifications page is shown, since monitored groups can change on the Groups page.
-    /// </summary>
-    private void ShowHelpGroups()
-    {
-        foreach (var group in _allGroups)
-            _helpNames[group.Id] = group.Name;
-
-        var offered = _selectedGroups.Where(id => id != WatchedGroup.NoGroupId)
-            .Concat(_suggestions.Where(kv => kv.Value.Member).Select(kv => kv.Key))
-            .Concat(_helpChosen)
-            .Distinct()
-            .Select(id => (Id: id, Name: _helpNames.GetValueOrDefault(id, $"Group {id}")))
-            // Selected first, then monitored, then member groups; by name within each. Sorted only when the list
-            // is rebuilt, so ticking a box doesn't make it jump.
-            .OrderBy(g => _helpChosen.Contains(g.Id) ? 0 : _selectedGroups.Contains(g.Id) ? 1 : 2)
-            .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
-
-        _helpGroupList.SuspendLayout();
-        foreach (var old in _helpGroupList.Controls.Cast<Control>().ToList())
-            old.Dispose();
-        _helpGroupList.Controls.Clear();
-        if (offered.Count == 0)
-            _helpGroupList.Controls.Add(Theme.Label("Monitor a group on the Groups page first.", Theme.Small, Theme.TextMuted));
-        foreach (var (id, name) in offered)
-        {
-            var why = _selectedGroups.Contains(id) ? "monitored"
-                : _suggestions.TryGetValue(id, out var s) && s.Member ? "you're a member" : null;
-            var box = Check(why is null ? name : $"{name}  ·  {why}");
-            box.Checked = _helpChosen.Contains(id);
-            box.CheckedChanged += (_, _) =>
-            {
-                if (box.Checked) _helpChosen.Add(id); else _helpChosen.Remove(id);
-                UpdateSaveState();
-                RefreshHelpPeople();
-            };
-            _helpGroupList.Controls.Add(box);
-        }
-        _helpGroupList.ResumeLayout();
-        UpdateHelpOptions();
-        RefreshHelpPeople();
-    }
-
-    // ------------------------------------------------------------------ help colleagues: assignees
-
-    /// <summary>A group member offered under "Assignees". Zone: their IANA time zone, null if it can't be used.</summary>
-    private sealed record Member(long Id, string Name, string? Zone)
-    {
-        public TimeRegion Region => TimeRegions.Of(Zone);
-    }
-
-    /// <summary>The IANA id of a profile's time zone, if it can be used (the same rule "Help colleagues" applies).</summary>
-    private static string? ZoneOf(User user) =>
-        IanaId(TicketRules.ResolveTimeZone(user.IanaTimeZone) ?? TicketRules.ResolveTimeZone(user.TimeZone));
-
-    private static string? LocalZone() => IanaId(TimeZoneInfo.Local);
-
-    private static string? IanaId(TimeZoneInfo? zone) =>
-        zone is null ? null
-        : zone.HasIanaId ? zone.Id
-        : TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana) ? iana : null;
-
-    /// <summary>Group members loaded from Zendesk (group id -> members), remembered like the group list.</summary>
-    private static (string Subdomain, DateTime At, Dictionary<long, List<Member>> Groups)? _memberCache;
-
-    /// <summary>The groups "Help colleagues" covers with the choices as they are right now.</summary>
-    private List<long> HelpGroupIds() =>
-        (_helpSame.Checked ? _selectedGroups : _helpChosen).Where(id => id != WatchedGroup.NoGroupId).ToList();
-
-    private async void RefreshHelpPeople()
-    {
-        try
-        {
-            await ShowHelpPeopleAsync();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Settings: could not show the assignees", ex);
-        }
-    }
-
-    /// <summary>
-    /// Lists the members of the covered groups, all ticked except the ones you excluded. Members are only loaded
-    /// while "Help colleagues" is on and you're signed in; otherwise just the excluded colleagues are shown.
-    /// </summary>
-    private async Task ShowHelpPeopleAsync()
-    {
-        var version = ++_helpPeopleVersion;
-        var groupIds = HelpGroupIds();
-        var failed = 0;
-        Dictionary<long, List<Member>>? loaded = null;
-
-        if (_help.Checked && _client is { } client && groupIds.Count > 0)
-        {
-            var subdomain = Current().Subdomain;
-            if (_memberCache is not { } cache || cache.Subdomain != subdomain || DateTime.UtcNow - cache.At > GroupCacheLifetime)
-                _memberCache = (subdomain, DateTime.UtcNow, []);
-            var groups = _memberCache.Value.Groups;
-
-            var missing = groupIds.Where(id => !groups.ContainsKey(id)).ToList();
-            if (missing.Count > 0)
-            {
-                _helpPeopleHint.Text = "Loading the group members…";
-                foreach (var id in missing)
-                {
-                    try
-                    {
-                        groups[id] = (await client.GetGroupMembersAsync(id, CancellationToken.None))
-                            .Where(u => u.Role != "end-user")
-                            .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", ZoneOf(u)))
-                            .ToList();
-                    }
-                    catch (AuthRequiredException)
-                    {
-                        failed++;
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Error($"Settings: could not load the members of group {id}", ex);
-                        failed++;
-                    }
-                }
-                Log.Info($"Settings: loaded the members of {missing.Count - failed} group(s) for Help colleagues");
-            }
-            if (version != _helpPeopleVersion || !ReferenceEquals(client, _client))
-                return; // the choices or the session changed meanwhile
-            loaded = groups;
-        }
-        else if (version != _helpPeopleVersion)
-            return;
-
-        List<Member> shown;
-        if (loaded is null)
-            shown = _helpExcluded.Select(kv => new Member(kv.Key, kv.Value, null)).ToList();
-        else
-        {
-            shown = groupIds.SelectMany(id => loaded.GetValueOrDefault(id) ?? [])
-                .Where(m => m.Id != _meId)
-                .DistinctBy(m => m.Id)
-                .ToList();
-            foreach (var m in shown.Where(m => _helpExcluded.ContainsKey(m.Id)))
-                _helpExcluded[m.Id] = m.Name; // keep the stored name current
-        }
-        _helpPeopleShown = shown.OrderBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-
-        _helpPeopleList.SuspendLayout();
-        foreach (var old in _helpPeopleList.Controls.Cast<Control>().ToList())
-        {
-            _tips.SetToolTip(old, null);
-            old.Dispose();
-        }
-        _helpPeopleList.Controls.Clear();
-        var isLoaded = loaded is not null;
-
-        // Signed in: by region (from each colleague's time zone), so e.g. only other regions can be covered.
-        // Otherwise just the unticked colleagues, whose time zones aren't known.
-        var sections = isLoaded
-            ? _helpPeopleShown.GroupBy(m => m.Region).OrderBy(g => g.Key).Select(g => (Region: (TimeRegion?)g.Key, Members: g.ToList())).ToList()
-            : [(Region: (TimeRegion?)null, Members: _helpPeopleShown)];
-        var boxesBefore = false;
-        foreach (var (region, members) in sections)
-        {
-            var boxes = new List<CheckBox>();
-            if (region is { } r)
-            {
-                var title = Theme.Label(TimeRegions.Name(r) + (r == _myRegion ? "  ·  your region" : ""), Theme.Small, Theme.TextMuted);
-                title.Margin = new Padding(0, 6, 12, 2);
-                title.UseMnemonic = false; // show the "&" in "Europe & Africa"
-                var all = LinkLabel("All", Theme.Small);
-                var none = LinkLabel("None", Theme.Small);
-                all.Margin = none.Margin = new Padding(0, 6, 10, 2);
-                all.Click += (_, _) => { foreach (var b in boxes) b.Checked = true; };
-                none.Click += (_, _) => { foreach (var b in boxes) b.Checked = false; };
-                var header = Row(title, all, none);
-                header.Margin = new Padding(0, boxesBefore ? 8 : 2, 0, 2);
-                _helpPeopleList.Controls.Add(header);
-                _helpPeopleList.SetFlowBreak(header, true);
-            }
-            foreach (var member in members)
-            {
-                var box = Check(member.Name);
-                box.AutoSize = false;
-                box.AutoEllipsis = true;
-                box.Size = new Size(HelpPeopleWidth / 2 - 4, box.PreferredSize.Height);
-                box.Margin = new Padding(0, 1, 4, 1);
-                box.Checked = !_helpExcluded.ContainsKey(member.Id);
-                box.CheckedChanged += (_, _) =>
-                {
-                    if (box.Checked) _helpExcluded.Remove(member.Id); else _helpExcluded[member.Id] = member.Name;
-                    UpdateHelpPeopleHint(isLoaded, failed);
-                    UpdateSaveState();
-                };
-                if (isLoaded)
-                    _tips.SetToolTip(box, member.Zone is { } zone ? $"{member.Name} · {zone.Replace('_', ' ')}" : $"{member.Name} · no time zone in their Zendesk profile");
-                _helpPeopleList.Controls.Add(box);
-                boxes.Add(box);
-            }
-            if (boxes.Count > 0)
-                _helpPeopleList.SetFlowBreak(boxes[^1], true);
-            boxesBefore |= boxes.Count > 0;
-        }
-        _helpPeopleList.ResumeLayout();
-        UpdateHelpPeopleHint(isLoaded, failed);
-        UpdateHelpOptions();
-    }
-
-    private void UpdateHelpPeopleHint(bool loaded, int failed)
-    {
-        var excludedShown = _helpPeopleShown.Count(m => _helpExcluded.ContainsKey(m.Id));
-        var everyone = excludedShown == 0 ? "Everyone in these groups." : "Everyone in these groups except the ones unticked above.";
-        string text;
-        if (HelpGroupIds().Count == 0)
-            text = "Choose a group first.";
-        else if (!loaded)
-            text = _help.Checked ? everyone + " Sign in to choose from the group members." : everyone;
-        else if (_helpPeopleShown.Count == 0)
-            text = "No other members found in these groups.";
-        else
-            text = $"{_helpPeopleShown.Count - excludedShown} of {_helpPeopleShown.Count} colleagues covered. New group members are included automatically.";
-        if (failed > 0)
-            text += $" Could not load the members of {failed} group(s).";
-        _helpPeopleHint.Text = text;
-    }
-
-    private void SetAllHelpPeople(bool covered)
-    {
-        if (!_help.Checked)
-            return;
-        foreach (var box in _helpPeopleList.Controls.OfType<CheckBox>())
-            box.Checked = covered; // each box updates _helpExcluded
-    }
-
-    /// <summary>A small clickable text in the accent color.</summary>
-    private static Label LinkLabel(string text, Font? font = null)
-    {
-        var label = Theme.Label(text, font ?? Theme.Body, Theme.Accent);
-        label.Cursor = Cursors.Hand;
-        label.Margin = new Padding(0, 6, 12, 4);
-        return label;
-    }
-
-    private void UpdateHelpOptions()
-    {
-        var on = _help.Checked;
-        _helpSame.Enabled = _helpCustom.Enabled = _workStart.Enabled = _workEnd.Enabled = _helpMyHours.Enabled = on;
-        foreach (var (_, box) in _helpPriorities)
-            box.Enabled = on;
-        _helpGroupList.Enabled = on && _helpCustom.Checked;
-        _helpPeopleList.Enabled = _helpPeopleAll.Enabled = _helpPeopleNone.Enabled = on;
-    }
-
-    private static ComboBox HourCombo(int from, int to)
-    {
-        var combo = new RoomyComboBox { Width = 90, Margin = new Padding(0, 3, 6, 3) };
-        for (var hour = from; hour <= to; hour++)
-            combo.Items.Add($"{hour:00}:00");
-        combo.SelectedIndex = 0;
-        return combo;
-    }
-
-    private static RadioButton Radio(string text) => new ThemedRadioButton()
-    {
-        Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
-        Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
-    };
-
-    private static CheckBox Check(string text) => new ThemedCheckBox()
-    {
-        Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
-        Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
-    };
+    // ------------------------------------------------------------------ screenshots (developer tool)
 
     /// <summary>
     /// Developer helper: opens the window in Clean light, switches to each appearance the way a tile click does
@@ -1661,21 +379,19 @@ public sealed class SettingsForm : Form
             form.ShowInTaskbar = false;
             form.Show();
             Application.DoEvents();
-            form._suggestions = new() { [3] = new Suggestion(false, 2), [4] = new Suggestion(true, 6) };
-            form.SetGroups([new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding"), new GroupItem(5, "Partner Support")]);
+            form._groups.ShowSample(new() { [3] = new Suggestion(false, 2), [4] = new Suggestion(true, 6) },
+                [new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding"), new GroupItem(5, "Partner Support")]);
 
-            // Sample group members (cached, so nothing is requested), shown as if signed in.
-            _memberCache = ("example", DateTime.UtcNow, new()
+            // Shown as if signed in, with sample group members (cached, so nothing is requested).
+            form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
+            form._notifications.Help.ShowSample(new()
             {
                 [1] = [new(9, "Alex Example", "Europe/Stockholm"), new(10, "Maria Svensson", "Europe/Stockholm"), new(11, "Jordan Lee", "America/New_York"),
                        new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
                 [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
-            });
-            form._myRegion = TimeRegion.EuropeAfrica;
-            form._client = new ZendeskClient(settings, new SignedOutSession());
-            form.RefreshHelpPeople();
-            form.SelectTheme(theme);
-            for (var page = 0; page < form._pages.Count; page++)
+            }, TimeRegion.EuropeAfrica);
+            form._appearance.SelectTheme(theme);
+            for (var page = 0; page < form._pages.Length; page++)
             {
                 form.SelectPage(page);
                 Application.DoEvents();
@@ -1713,12 +429,5 @@ public sealed class SettingsForm : Form
         public Task<bool> TryRecoverAsync(CancellationToken ct) => Task.FromResult(false);
         public Task SignInAsync(IWin32Window? owner, CancellationToken ct) => Task.FromCanceled(new CancellationToken(true));
         public void SignOut() { }
-    }
-
-    /// <param name="Missing">Monitored, but not in the list loaded from Zendesk (deleted, or no longer visible to you).</param>
-    private sealed record GroupItem(long Id, string Name, bool Missing = false)
-    {
-        public string DisplayName => Missing ? $"{Name} (not found in Zendesk)" : Name;
-        public override string ToString() => Name;
     }
 }
