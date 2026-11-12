@@ -71,6 +71,10 @@ public sealed class SettingsForm : Form
     private readonly Dictionary<long, string> _helpNames = [];
     private readonly ComboBox _workStart = HourCombo(0, 23);
     private readonly ComboBox _workEnd = HourCombo(1, 24);
+    private readonly (string Priority, CheckBox Box)[] _helpPriorities =
+    [
+        ("urgent", Check("Urgent (P1)")), ("high", Check("High (P2)")), ("normal", Check("Normal (P3)")), ("low", Check("Low (P4)"))
+    ];
     private readonly CheckBox _helpMyHours = Check("Only notify me while I'm working myself (same hours, my local time)");
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
 
@@ -349,6 +353,18 @@ public sealed class SettingsForm : Form
         helpOptions.Controls.Add(_helpSame);
         helpOptions.Controls.Add(_helpCustom);
         helpOptions.Controls.Add(_helpGroupList);
+        var priorities = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
+        var priorityLabel = Theme.Label("Priority");
+        priorityLabel.Margin = new Padding(4, 6, 12, 0);
+        priorities.Controls.Add(priorityLabel);
+        foreach (var (_, box) in _helpPriorities)
+        {
+            box.Margin = new Padding(0, 3, 14, 3);
+            priorities.Controls.Add(box);
+        }
+        helpOptions.Controls.Add(priorities);
+        helpOptions.Controls.Add(Theme.Label("Tickets without a priority count as Normal.", Theme.Small, Theme.TextMuted, CardWidth - 100));
+
         var hours = Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
         hours.Margin = new Padding(0, 8, 0, 0);
         helpOptions.Controls.Add(hours);
@@ -492,6 +508,8 @@ public sealed class SettingsForm : Form
         _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
         _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
         _helpMyHours.Checked = settings.HelpOnlyDuringMyHours;
+        foreach (var (priority, box) in _helpPriorities)
+            box.Checked = settings.HelpPriorities.Contains(priority);
         ShowHelpGroups();
         _startup.Checked = StartupRegistration.IsEnabled;
         Select(_newSound, settings.NewTicketStyle.Sound);
@@ -552,7 +570,7 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _helpMyHours, _startup, _showLogo, _groupByType })
+        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _helpMyHours, _startup, _showLogo, _groupByType }.Concat(_helpPriorities.Select(p => p.Box)))
             box.CheckedChanged += (_, _) => UpdateSaveState();
 
         Shown += async (_, _) =>
@@ -608,6 +626,7 @@ public sealed class SettingsForm : Form
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _helpMyHours.Checked;
+        s.HelpPriorities = _helpPriorities.Where(p => p.Box.Checked).Select(p => p.Priority).ToList();
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
         s.ShowAppLogo = _showLogo.Checked;
@@ -1174,6 +1193,8 @@ public sealed class SettingsForm : Form
     {
         var on = _help.Checked;
         _helpSame.Enabled = _helpCustom.Enabled = _workStart.Enabled = _workEnd.Enabled = _helpMyHours.Enabled = on;
+        foreach (var (_, box) in _helpPriorities)
+            box.Enabled = on;
         _helpGroupList.Enabled = on && _helpCustom.Checked;
     }
 

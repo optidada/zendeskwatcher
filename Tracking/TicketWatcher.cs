@@ -313,6 +313,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             {
                 if (ticket.AssigneeId is not { } assigneeId || assigneeId == me)
                     continue; // your own tickets are covered by "my tickets"
+                if (!settings.HelpPriorities.Contains(string.IsNullOrEmpty(ticket.Priority) ? "normal" : ticket.Priority))
+                    continue; // not a priority you chose (no priority counts as normal)
                 var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
                 if (ticket.UpdatedAt <= seen)
                     continue;

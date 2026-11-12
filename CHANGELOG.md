@@ -5,7 +5,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.3.0
 
-- **Help colleagues** (Settings → Notifications): get notified when a customer replies on a colleague's open ticket while they're off work, so you can step in. "Off work" means outside working hours (default Mon–Fri 08:00–17:00) in the colleague's own time zone from their Zendesk profile. Uses your monitored groups, or a custom selection.
+- **Help colleagues** (Settings → Notifications): get notified when a customer replies on a colleague's open ticket while they're off work, so you can step in. "Off work" means outside working hours (default Mon–Fri 08:00–17:00) in the colleague's own time zone from their Zendesk profile. Uses your monitored groups, or a custom selection, for Urgent (P1) and High (P2) tickets by default, and only while you're working yourself (can be changed).
 
 ## 1.2.2
 

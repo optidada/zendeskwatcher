@@ -46,6 +46,12 @@ public sealed class Settings
     public int WorkdayStartHour { get; set; } = 8;
     public int WorkdayEndHour { get; set; } = 17;
 
+    /// <summary>
+    /// "Help colleagues" only for these Zendesk priorities (urgent, high, normal, low). Tickets without a priority
+    /// count as normal. Default: urgent (P1) and high (P2).
+    /// </summary>
+    public List<string> HelpPriorities { get; set; } = ["urgent", "high"];
+
     /// <summary>"Help colleagues" only notifies while it's within the same working hours on this PC (your own time).</summary>
     public bool HelpOnlyDuringMyHours { get; set; } = true;
 
