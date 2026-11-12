@@ -46,11 +46,17 @@ public sealed class Notifier(Action<string, long?> onAction)
             Show(content, Settings);
     }
 
+    // App messages have their own fixed behavior, independent of the ticket styles in Appearance.
+    private static readonly NotificationStyle QuietInfo = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Standard };
+    private static readonly NotificationStyle ActOnIt = new() { Sound = ToastSound.Default, Display = ToastDisplay.Long };
+    private static readonly NotificationStyle Blocking = new() { Sound = ToastSound.Default, Display = ToastDisplay.UntilDismissed };
+
     /// <summary>Shown even when paused: the app cannot work until the user signs in.</summary>
     public void ShowSignInRequired() => Show(new NotificationContent(
         NotificationKind.MyTicket, "Sign-in required", "Your Zendesk session has expired", "Click to sign in again.")
     {
-        Action = ActionSignIn
+        Action = ActionSignIn,
+        Style = Blocking
     }, Settings);
 
     /// <summary>Monitored groups that Zendesk no longer lists. Shown even when paused; click opens Settings.</summary>
@@ -60,7 +66,8 @@ public sealed class Notifier(Action<string, long?> onAction)
         "Enter your Zendesk subdomain (e.g. episerver) and sign in. Then pick the groups to watch, and make the " +
         "notifications yours under Notifications and Appearance.")
     {
-        Action = ActionSettings
+        Action = ActionSettings,
+        Style = ActOnIt
     }, Settings);
 
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => Show(new NotificationContent(
@@ -68,14 +75,16 @@ public sealed class Notifier(Action<string, long?> onAction)
         names.Count == 1 ? "A monitored group was not found" : $"{names.Count} monitored groups were not found",
         $"{string.Join(", ", names)}: deleted, or you no longer have access. Open Settings to untick {(names.Count == 1 ? "it" : "them")}.")
     {
-        Action = ActionSettings
+        Action = ActionSettings,
+        Style = ActOnIt
     }, Settings);
 
     /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>
     public void ShowInfo(string title, string body, long? ticketId = null) => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", title, body, ticketId)
     {
-        Action = ticketId is null ? ActionInfo : null
+        Action = ticketId is null ? ActionInfo : null,
+        Style = QuietInfo
     }, Settings);
 
     /// <summary>A new version has been downloaded; clicking restarts into it.</summary>
@@ -83,7 +92,8 @@ public sealed class Notifier(Action<string, long?> onAction)
         NotificationKind.MyTicket, "Update ready", $"Zendesk Watcher {version} is ready",
         (highlights is null ? "" : highlights + "\n") + "Click to restart and update now, or it installs on the next start.")
     {
-        Action = ActionUpdate
+        Action = ActionUpdate,
+        Style = ActOnIt
     });
 
     /// <summary>Sample notifications with the given (possibly unsaved) settings. Shown even when paused.</summary>
@@ -170,7 +180,7 @@ public sealed class Notifier(Action<string, long?> onAction)
 
     private static void ShowToast(NotificationContent content, Settings settings)
     {
-        var style = settings.StyleFor(content.Kind);
+        var style = content.Style ?? settings.StyleFor(content.Kind);
         var action = content.ResolvedAction;
 
         var heading = content.Context is null ? content.Heading : $"{content.Heading} · {content.Context}";
@@ -237,6 +247,11 @@ public sealed class Notifier(Action<string, long?> onAction)
 
         if (style.Sound == ToastSound.Silent)
             builder.AddAudio(new ToastAudio { Silent = true });
+        else if (ChipSounds.IsChip(style.Sound))
+        {
+            builder.AddAudio(new ToastAudio { Silent = true }); // Windows can't play our own sounds in a toast
+            ChipSounds.Play(style.Sound);
+        }
         else
             builder.AddAudio(new Uri(SoundUri(style.Sound)));
 

@@ -23,7 +23,7 @@ public sealed class PopupManager
             return;
         }
 
-        var style = settings.StyleFor(content.Kind);
+        var style = content.Style ?? settings.StyleFor(content.Kind);
         var palette = PopupPalette.For(settings.Theme);
         var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
         var scale = DpiScale();
@@ -122,6 +122,11 @@ public sealed class PopupManager
     {
         if (sound == ToastSound.Silent)
             return;
+        if (ChipSounds.IsChip(sound))
+        {
+            ChipSounds.Play(sound);
+            return;
+        }
 
         var file = sound switch
         {

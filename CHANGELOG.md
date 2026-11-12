@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.7
+
+- **Chiptune sounds**: five little Amiga-style jingles (Blip, Arpeggio, Bounce, Alert, Fanfare) to choose from under Sound and display.
+- App messages have their own sensible behavior instead of the "My tickets" settings: "No updates" and similar are silent and short, "Update ready", the welcome and "group not found" stay about 25 s, and "Sign-in required" stays until dismissed.
+
 ## 1.3.6
 
 - **New Optimizely theme**: the optimizely.com look (dark fir green, lime accents), for popups and the Settings window. It's the default for new installs.

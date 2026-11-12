@@ -102,7 +102,11 @@ public sealed class SettingsForm : Form
     private static readonly Option<ToastSound>[] SoundOptions =
     [
         new(ToastSound.Default, "Default"), new(ToastSound.Mail, "Mail"), new(ToastSound.InstantMessage, "Instant message"),
-        new(ToastSound.Reminder, "Reminder"), new(ToastSound.Sms, "SMS"), new(ToastSound.Silent, "Silent")
+        new(ToastSound.Reminder, "Reminder"), new(ToastSound.Sms, "SMS"),
+        new(ToastSound.ChipBlip, "Chiptune: Blip"), new(ToastSound.ChipArpeggio, "Chiptune: Arpeggio"),
+        new(ToastSound.ChipBounce, "Chiptune: Bounce"), new(ToastSound.ChipAlert, "Chiptune: Alert"),
+        new(ToastSound.ChipFanfare, "Chiptune: Fanfare"),
+        new(ToastSound.Silent, "Silent")
     ];
 
     private static readonly Option<ToastDisplay>[] DisplayOptions =

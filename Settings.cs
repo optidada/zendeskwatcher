@@ -166,7 +166,8 @@ public sealed class NotificationStyle
     public ToastDisplay Display { get; set; } = ToastDisplay.Standard;
 }
 
-public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent }
+/// <summary>Windows sounds, then chiptune jingles (added last: settings store the number).</summary>
+public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent, ChipBlip, ChipArpeggio, ChipBounce, ChipAlert, ChipFanfare }
 
 public enum ToastDisplay
 {

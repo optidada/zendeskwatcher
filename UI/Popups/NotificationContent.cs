@@ -42,6 +42,9 @@ public sealed record NotificationContent(
         _ => (int)span.TotalDays == 1 ? "1 day ago" : $"{(int)span.TotalDays} days ago"
     };
 
+    /// <summary>Fixed sound and display time for app messages (updates, welcome, …), instead of the user's ticket styles.</summary>
+    public NotificationStyle? Style { get; init; }
+
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 
