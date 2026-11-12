@@ -14,6 +14,8 @@ internal sealed class HelpColleaguesPage : SettingsPage
 
     public override bool IsSubPage => true; // under Notifications
 
+    public override string NavTitle => "Colleagues";
+
     public override void Load(Settings settings) => Card.Load(settings);
 
     public override void Apply(Settings settings) => Card.Apply(settings);

@@ -396,7 +396,7 @@ public sealed class NavItem : Control
 
         var indent = _sub ? 40 : 24;
         TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Font, new Rectangle(indent, 0, Width - indent, Height),
-            _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+            _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
     }
 }
 

@@ -53,7 +53,7 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ToolTip _tips = new();
 
     public AppearancePage(SettingsContext context)
-        : base(context, "Appearance", "How notifications look and sound. The test buttons use your current choices, even before saving.")
+        : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
     {
         var style = new Card("Style", "Custom popups slide in at the screen corner and stack. While you present or run a full-screen app, " +
             "Windows notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);

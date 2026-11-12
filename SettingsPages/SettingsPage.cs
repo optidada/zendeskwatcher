@@ -46,8 +46,11 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
 {
     protected SettingsContext Context { get; } = context;
 
-    /// <summary>The name in the sidebar (same as the page title).</summary>
+    /// <summary>The page title.</summary>
     public string Title { get; } = title;
+
+    /// <summary>The name in the sidebar: the title, unless a page has a shorter one.</summary>
+    public virtual string NavTitle => Title;
 
     public FlowLayoutPanel Panel { get; } = Kit.Page(title, subtitle);
 

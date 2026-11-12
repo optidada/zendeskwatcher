@@ -201,7 +201,7 @@ public sealed class Notifier : INotificationSink
     public void ShowWelcome() => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
         "Check your Zendesk subdomain (the part before .zendesk.com) and sign in. Then pick the groups to watch, and make the " +
-        "notifications yours under Notifications and Appearance.")
+        "notifications yours under Notifications and Look & sound.")
     {
         Action = ActionSettings,
         Style = ActOnIt

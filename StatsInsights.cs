@@ -66,7 +66,7 @@ public static class StatsInsights
             {
                 var shortDisplay = settings.StyleFor(kind).Display is ToastDisplay.Standard or ToastDisplay.Medium;
                 insights.Add(new Insight(Tone.Warning, $"{Percent(timedOut)} of {name} notifications disappeared unread. " +
-                    (shortDisplay ? "Show them longer (Appearance → Sound and display). " : "") + Fewer(kind, settings)));
+                    (shortDisplay ? "Show them longer (Look & sound → Sound and display). " : "") + Fewer(kind, settings)));
             }
             else if (closed >= 0.5)
                 insights.Add(new Insight(Tone.Warning, $"You closed {Percent(closed)} of {name} notifications without opening them: " +

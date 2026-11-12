@@ -11,7 +11,7 @@ about changes on your own tickets.
    which asks for admin rights once. If you can't approve that, ask IT to install the
    *.NET 10 Desktop Runtime (x64)*.
 4. **Sign in.** Settings opens. The subdomain (the part before `.zendesk.com` in the address you use for Zendesk) is usually filled in already; otherwise enter it. Click **Sign in**. You sign in with Okta as usual.
-5. **Pick your groups** under *Groups*, look through *Notifications* and *Appearance*, and click **Save**.
+5. **Pick your groups** under *Groups*, look through *Notifications* (with *Colleagues* and *Look & sound*), and click **Save**.
 
 That's it. The app starts with Windows (you can turn that off in Settings) and updates itself: when a new version
 is ready, you get a notification with **Restart now**.

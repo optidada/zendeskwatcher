@@ -20,7 +20,6 @@ internal sealed class HelpColleaguesCard
 
     private readonly SettingsContext _context;
     private readonly GroupsPage _groups;
-    private readonly ToolTip _tips = new();
 
     private readonly ToggleSwitch _help = new("Customer replies on colleagues' tickets outside their working hours");
     private readonly RadioButton _same = Kit.Radio("Same as my monitored groups");
@@ -29,11 +28,9 @@ internal sealed class HelpColleaguesCard
     {
         FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(20, 0, 0, 4)
     };
-    private readonly FlowLayoutPanel _peopleList = new()
-    {
-        FlowDirection = FlowDirection.LeftToRight, WrapContents = true, AutoSize = true, BackColor = Theme.Surface,
-        MaximumSize = new Size(PeopleWidth, 0), Margin = new Padding(20, 0, 0, 0)
-    };
+    private readonly AssigneeList _peopleList;
+    private bool _peopleLoaded;
+    private int _peopleFailed;
     private readonly Label _peopleAll = Kit.LinkLabel("All");
     private readonly Label _peopleNone = Kit.LinkLabel("None");
     private readonly Label _peopleHint = Theme.Label("", Theme.Small, Theme.TextMuted, PeopleWidth);
@@ -68,6 +65,18 @@ internal sealed class HelpColleaguesCard
     {
         _context = context;
         _groups = groups;
+        _peopleList = new AssigneeList(PeopleWidth,
+            isCovered: id => !_excluded.ContainsKey(id),
+            setCovered: (person, covered) =>
+            {
+                if (covered) _excluded.Remove(person.Id); else _excluded[person.Id] = person.Name;
+            })
+        { Margin = new Padding(20, 0, 0, 0) };
+        _peopleList.Changed += () =>
+        {
+            UpdatePeopleHint(_peopleLoaded, _peopleFailed);
+            _context.Changed();
+        };
 
         Card = new Card("Who and when", "Which colleagues' tickets you cover, for which priorities, and their working hours.", Kit.CardWidth);
         Card.Body.Controls.Add(_help);
@@ -308,62 +317,19 @@ internal sealed class HelpColleaguesCard
         }
         _peopleShown = shown.OrderBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
 
-        _peopleList.SuspendLayout();
-        foreach (var old in _peopleList.Controls.Cast<Control>().ToList())
-        {
-            _tips.SetToolTip(old, null);
-            old.Dispose();
-        }
-        _peopleList.Controls.Clear();
         var isLoaded = loaded is not null;
+        _peopleLoaded = isLoaded;
+        _peopleFailed = failed;
 
         // Signed in: by region (from each colleague's time zone), so e.g. only other regions can be covered.
         // Otherwise just the unticked colleagues, whose time zones aren't known.
         var sections = isLoaded
             ? Arrange(_peopleShown, _excluded.Keys.ToHashSet(), _myRegion).Select(s => (Region: (TimeRegion?)s.Region, s.Members)).ToList()
             : [(Region: (TimeRegion?)null, Members: _peopleShown)];
-        var boxesBefore = false;
-        foreach (var (region, members) in sections)
-        {
-            var boxes = new List<CheckBox>();
-            if (region is { } r)
-            {
-                var title = Theme.Label(TimeRegions.Name(r) + (r == _myRegion ? "  ·  your region" : ""), Theme.Small, Theme.TextMuted);
-                title.Margin = new Padding(0, 6, 12, 2);
-                var all = Kit.LinkLabel("All", Theme.Small);
-                var none = Kit.LinkLabel("None", Theme.Small);
-                all.Margin = none.Margin = new Padding(0, 6, 10, 2);
-                all.Click += (_, _) => { foreach (var b in boxes) b.Checked = true; };
-                none.Click += (_, _) => { foreach (var b in boxes) b.Checked = false; };
-                var header = Kit.Row(title, all, none);
-                header.Margin = new Padding(0, boxesBefore ? 8 : 2, 0, 2);
-                _peopleList.Controls.Add(header);
-                _peopleList.SetFlowBreak(header, true);
-            }
-            foreach (var member in members)
-            {
-                var box = Kit.Check(member.Name);
-                box.AutoSize = false;
-                box.AutoEllipsis = true;
-                box.Size = new Size(PeopleWidth / 2 - 4, box.PreferredSize.Height);
-                box.Margin = new Padding(0, 1, 4, 1);
-                box.Checked = !_excluded.ContainsKey(member.Id);
-                box.CheckedChanged += (_, _) =>
-                {
-                    if (box.Checked) _excluded.Remove(member.Id); else _excluded[member.Id] = member.Name;
-                    UpdatePeopleHint(isLoaded, failed);
-                    _context.Changed();
-                };
-                if (isLoaded)
-                    _tips.SetToolTip(box, member.Zone is { } zone ? $"{member.Name} · {zone.Replace('_', ' ')}" : $"{member.Name} · no time zone in their Zendesk profile");
-                _peopleList.Controls.Add(box);
-                boxes.Add(box);
-            }
-            if (boxes.Count > 0)
-                _peopleList.SetFlowBreak(boxes[^1], true);
-            boxesBefore |= boxes.Count > 0;
-        }
-        _peopleList.ResumeLayout();
+        _peopleList.SetGroups(sections.Select(section => new AssigneeList.Group(
+            section.Region is { } r ? TimeRegions.Name(r) + (r == _myRegion ? "  ·  your region" : "") : null,
+            section.Members.Select(m => new AssigneeList.Person(m.Id, m.Name, !isLoaded ? null
+                : m.Zone is { } zone ? $"{m.Name} · {zone.Replace('_', ' ')}" : $"{m.Name} · no time zone in their Zendesk profile")).ToList())).ToList());
         UpdatePeopleHint(isLoaded, failed);
         UpdateOptions();
     }
@@ -407,8 +373,7 @@ internal sealed class HelpColleaguesCard
     {
         if (!_help.Checked)
             return;
-        foreach (var box in _peopleList.Controls.OfType<CheckBox>())
-            box.Checked = covered; // each box updates _excluded
+        _peopleList.SetAll(covered);
     }
 
     private void UpdateOptions()

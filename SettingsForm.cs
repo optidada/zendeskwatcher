@@ -153,7 +153,7 @@ public sealed class SettingsForm : Form
 
         foreach (var page in _pages)
         {
-            var nav = new NavItem(page.Title) { Sub = page.IsSubPage };
+            var nav = new NavItem(page.NavTitle) { Sub = page.IsSubPage };
             var index = _nav.Count;
             nav.Click += (_, _) => SelectPage(index);
             stack.Controls.Add(nav);
