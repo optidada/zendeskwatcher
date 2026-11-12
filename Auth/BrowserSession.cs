@@ -59,6 +59,12 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     public void Configure(string baseUrl) => _baseUrl = baseUrl.TrimEnd('/');
 
     private string MeUrl => $"{_baseUrl}/api/v2/users/me.json";
+
+    /// <summary>
+    /// Where the hidden browser waits between requests: any page on the Zendesk domain allows same-origin fetch.
+    /// A public, content-free page, so no personal data ends up in the browser's page cache.
+    /// </summary>
+    private string HomeUrl => $"{_baseUrl}/robots.txt";
     private string LoginUrl => $"{_baseUrl}/access/login?return_to={Uri.EscapeDataString(MeUrl)}";
 
     public Task<ApiResponse> GetAsync(string url, CancellationToken ct) => RequestAsync(url, null, null, ct);
@@ -108,7 +114,8 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                 if (await IsSignedInSafeAsync(ct))
                 {
                     Log.Info("Browser session: silent sign-in succeeded");
-                    await NavigateAsync(MeUrl, ct);
+                    await NavigateAsync(HomeUrl, ct);
+                    await ClearCacheAsync(); // the sign-in redirect ended on users/me
                     return true;
                 }
 
@@ -118,7 +125,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             }
 
             Log.Info("Browser session: silent sign-in needs user interaction");
-            await NavigateAsync(MeUrl, ct);
+            await NavigateAsync(HomeUrl, ct);
             return false;
         }
         finally
@@ -172,7 +179,8 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
             Log.Info("Browser session: signed in");
             File.Delete(SignedOutMarker);
-            await NavigateAsync(MeUrl, CancellationToken.None);
+            await NavigateAsync(HomeUrl, CancellationToken.None);
+            await ClearCacheAsync(); // the sign-in redirect ended on users/me
         }
         finally
         {
@@ -204,6 +212,15 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
         // API responses are fetched with cache: 'no-store'; also remove anything cached before (older versions, or
         // pages of the sign-in flow). Cookies (the login) are kept.
+        await ClearCacheAsync();
+        _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+        _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        UseLowMemory(true);
+    }
+
+    /// <summary>Empties the browser cache (not the cookies, so the login stays).</summary>
+    private async Task ClearCacheAsync()
+    {
         try
         {
             await _web.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.DiskCache | CoreWebView2BrowsingDataKinds.CacheStorage);
@@ -212,9 +229,6 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         {
             Log.Error("Browser session: could not clear the cache", ex);
         }
-        _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-        _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-        UseLowMemory(true);
     }
 
     // ------------------------------------------------------------------ keeping the hidden browser small
@@ -269,7 +283,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     {
         await EnsureInitializedAsync();
         if (!IsOnZendesk())
-            await NavigateAsync(MeUrl, ct);
+            await NavigateAsync(HomeUrl, ct);
     }
 
     private bool IsOnZendesk() =>
