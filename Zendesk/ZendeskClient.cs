@@ -25,6 +25,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     };
 
     private readonly Dictionary<long, User?> _users = [];
+    private static int _requestCount;
+
+    /// <summary>Zendesk API requests made since the last call (all clients); for the request statistics in the log.</summary>
+    public static int TakeRequestCount() => Interlocked.Exchange(ref _requestCount, 0);
     private readonly HashSet<string> _unsupportedLists = [];
 
     public async Task<User> GetMeAsync(CancellationToken ct) =>
@@ -228,6 +232,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
         for (var attempt = 0; ; attempt++)
         {
+            Interlocked.Increment(ref _requestCount);
             var response = method is null
                 ? await session.GetAsync(url, ct)
                 : await session.SendAsync(method, url, jsonBody ?? "", ct);

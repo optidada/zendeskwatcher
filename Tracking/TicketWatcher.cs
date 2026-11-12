@@ -67,8 +67,20 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
     }
 
+    private static readonly TimeSpan RequestReportInterval = TimeSpan.FromMinutes(10);
+    private DateTime _lastRequestReport = DateTime.UtcNow;
+
     public async Task PollAsync(CancellationToken ct)
     {
+        // Every 10 minutes: how many Zendesk API requests were made (shows the app's load on Zendesk).
+        if (DateTime.UtcNow - _lastRequestReport >= RequestReportInterval)
+        {
+            var minutes = (DateTime.UtcNow - _lastRequestReport).TotalMinutes;
+            var count = ZendeskClient.TakeRequestCount();
+            Log.Info($"Zendesk API requests in the last {minutes:0} min: {count} ({count / minutes:0.#} per minute)");
+            _lastRequestReport = DateTime.UtcNow;
+        }
+
         await CheckUnassignedAsync(ct);
 
         if (settings.TrackMyTickets)

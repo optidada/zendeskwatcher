@@ -21,6 +21,21 @@ internal static class Program
             return;
         }
 
+        // Developer helper: count the requests of the Zendesk Agent Workspace in a browser window, then exit.
+        if (args.Length >= 3 && args[0] == "--measure-zendesk-web")
+        {
+            ApplicationConfiguration.Initialize();
+            Tools.WebMeasure.Run(Settings.Load().Subdomain, int.Parse(args[1]), args[2]);
+            return;
+        }
+
+        // Developer helper: previews of the Optimizely-style icon, then exit.
+        if (args.Length >= 2 && args[0] == "--export-brand-icons")
+        {
+            UI.BrandIcon.ExportPreviews(args[1]);
+            return;
+        }
+
         // Developer helper: draw the sample popups in every theme to PNG files, then exit.
         if (args.Length >= 2 && args[0] == "--render-popups")
         {
