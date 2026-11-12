@@ -98,7 +98,7 @@ public sealed class Notifier(Action<string, long?> onAction)
         ? [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
               $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }]
         : [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
-              "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus pending → open (Jane Doe)",
+              "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
               Priority: "normal") { Action = ActionNone }];
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);

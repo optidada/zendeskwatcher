@@ -46,7 +46,10 @@ public sealed record NotificationContent(
     public bool CanTake { get; init; }
 
     /// <summary>The priority for display, e.g. "High (P2)".</summary>
-    public string? PriorityLabel => Priority?.ToLowerInvariant() switch
+    public string? PriorityLabel => LabelForPriority(Priority);
+
+    /// <summary>"urgent" → "Urgent (P1)", … ; null for no priority.</summary>
+    public static string? LabelForPriority(string? priority) => priority?.ToLowerInvariant() switch
     {
         null or "" => null,
         "urgent" => "Urgent (P1)",

@@ -496,6 +496,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private static string English(DateTime value, string format) =>
         value.ToString(format, System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
 
+    /// <summary>"pending" → "Pending", "hold" → "On-hold", as Zendesk shows them.</summary>
+    private static string? StatusLabel(string? status) => status?.ToLowerInvariant() switch
+    {
+        null or "" => null,
+        "hold" => "On-hold",
+        var other => char.ToUpperInvariant(other[0]) + other[1..]
+    };
+
     private static string CreatedLabel(Ticket t)
     {
         var local = t.CreatedAt.ToLocalTime();
@@ -516,10 +524,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 return withText ? $"{author} added an internal note: {Snippet(ev)}" : $"{author} added an internal note";
 
             case "Change" when ev.FieldName == "status" && settings.NotifyStatusChanges:
-                return $"Status {Text(ev.PreviousValue) ?? "?"} → {Text(ev.Value)} ({author})";
+                return $"Status {StatusLabel(Text(ev.PreviousValue)) ?? "?"} → {StatusLabel(Text(ev.Value))} ({author})";
 
             case "Change" when ev.FieldName == "priority" && settings.NotifyPriorityChanges:
-                return $"Priority {Text(ev.PreviousValue) ?? "none"} → {Text(ev.Value) ?? "none"} ({author})";
+                return $"Priority {NotificationContent.LabelForPriority(Text(ev.PreviousValue)) ?? "None"} → {NotificationContent.LabelForPriority(Text(ev.Value)) ?? "None"} ({author})";
 
             case "Change" when ev.FieldName == "assignee_id" && settings.NotifyAssignmentChanges:
                 var assignee = Id(ev.Value);
