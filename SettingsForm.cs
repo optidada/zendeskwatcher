@@ -426,11 +426,12 @@ public sealed class SettingsForm : Form
         {
             if (_suppressGroupEvents)
                 return;
-            var group = (GroupItem)e.Item.Tag!;
-            if (e.Item.Checked) _selectedGroups.Add(group.Id); else _selectedGroups.Remove(group.Id);
+            var item = e.Item;
+            var group = (GroupItem)item.Tag!;
+            if (item.Checked) _selectedGroups.Add(group.Id); else _selectedGroups.Remove(group.Id);
 
-            // Rebuild after the event so the group moves to its section.
-            BeginInvoke(() => { ShowGroupList(scrollTo: group.Id); UpdateSaveState(); });
+            // Move the row to its section after the event. Only this row moves, so the list doesn't jump.
+            BeginInvoke(() => { MoveGroupItem(item); UpdateSaveState(); });
         };
         _groups.MouseClick += (_, e) =>
         {
@@ -633,7 +634,7 @@ public sealed class SettingsForm : Form
     }
 
     /// <summary>Monitored groups first (highlighted), then the others; both filtered by the search box.</summary>
-    private void ShowGroupList(long? scrollTo = null)
+    private void ShowGroupList()
     {
         var filter = _groupFilter.Text.Trim();
         var visible = _allGroups.Where(g => filter.Length == 0 || g.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
@@ -653,8 +654,40 @@ public sealed class SettingsForm : Form
         _groups.FitColumn();
         _suppressGroupEvents = false;
 
-        if (scrollTo is { } id && _groups.Items.Cast<ListViewItem>().FirstOrDefault(i => ((GroupItem)i.Tag!).Id == id) is { } item)
-            item.EnsureVisible();
+        UpdateGroupsHint();
+    }
+
+    /// <summary>
+    /// Moves one row to the Monitored or Other section, in name order, without rebuilding the list
+    /// (a rebuild resets the scroll position).
+    /// </summary>
+    private void MoveGroupItem(ListViewItem item)
+    {
+        if (item.ListView != _groups)
+            return; // the list was rebuilt in the meantime
+
+        var group = (GroupItem)item.Tag!;
+        var monitored = _selectedGroups.Contains(group.Id);
+        var section = monitored ? _monitoredSection : _otherSection;
+        int Order(ListViewItem i) => _allGroups.IndexOf((GroupItem)i.Tag!);
+
+        _suppressGroupEvents = true;
+        _groups.BeginUpdate();
+        _groups.Items.Remove(item);
+        item.Checked = monitored;
+        item.Group = section;
+        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
+        item.Font = monitored ? Theme.BodyBold : Theme.Body;
+
+        // Rows show in collection order within their section.
+        var order = Order(item);
+        var index = _groups.Items.Cast<ListViewItem>().ToList().FindIndex(i => i.Group == section && Order(i) > order);
+        _groups.Items.Insert(index < 0 ? _groups.Items.Count : index, item);
+
+        _monitoredSection.Header = $"Monitored · {_monitoredSection.Items.Count}";
+        _otherSection.Header = $"Other groups · {_otherSection.Items.Count}";
+        _groups.EndUpdate();
+        _suppressGroupEvents = false;
 
         UpdateGroupsHint();
     }
