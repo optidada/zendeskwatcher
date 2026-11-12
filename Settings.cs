@@ -48,13 +48,31 @@ public sealed class Settings
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), JsonOptions) ?? new Settings();
+            {
+                var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), JsonOptions) ?? new Settings();
+                settings.Normalize();
+                return settings;
+            }
         }
         catch (Exception ex)
         {
             Log.Error("Could not read settings, using defaults", ex);
         }
         return new Settings();
+    }
+
+    /// <summary>
+    /// Replaces values this version doesn't know (e.g. a theme added in a newer version, saved before going back
+    /// to an older one) with defaults, so nothing breaks on them.
+    /// </summary>
+    private void Normalize()
+    {
+        if (!Enum.IsDefined(Theme)) Theme = NotificationTheme.NeonDark;
+        if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
+        if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Default;
+        if (!Enum.IsDefined(NewTicketStyle.Display)) NewTicketStyle.Display = ToastDisplay.Standard;
+        if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Mail;
+        if (!Enum.IsDefined(MyTicketStyle.Display)) MyTicketStyle.Display = ToastDisplay.Standard;
     }
 
     public void Save()

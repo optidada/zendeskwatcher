@@ -381,7 +381,7 @@ public sealed class SettingsForm : Form
         UpdateSaveState();
     }
 
-    private NotificationTheme SelectedTheme => _themeTiles.First(t => t.Selected).Value;
+    private NotificationTheme SelectedTheme => _themeTiles.FirstOrDefault(t => t.Selected)?.Value ?? NotificationTheme.NeonDark;
 
     private void SelectPage(int index)
     {
