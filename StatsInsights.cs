@@ -73,7 +73,7 @@ public static class StatsInsights
                     $"they may not be useful. {Fewer(kind, settings)}"));
             else if (snoozed >= 0.3)
                 insights.Add(new Insight(Tone.Hint, $"You snoozed {Percent(snoozed)} of {name} notifications. " +
-                    "A longer snooze time (Notifications → Snooze) may suit you better."));
+                    "A longer snooze time (Notifications → Behavior → Snooze) may suit you better."));
             else if (acted >= 0.5)
                 insights.Add(new Insight(Tone.Good, $"{capitalized} notifications work well: you opened or took {Percent(acted)} of them."));
         }

@@ -45,8 +45,6 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ComboBox _summaryDisplay = Kit.Combo(DisplayOptions);
     private readonly ComboBox _appSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _appDisplay = Kit.Combo(DisplayOptions);
-    private readonly ToggleSwitch _takeTurns = new("Several notifications take turns: one counts down at a time");
-    private readonly ToggleSwitch _pauseAway = new("Hold the countdown while I'm away (screen locked, or no input for a minute)");
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
     private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
@@ -85,10 +83,6 @@ internal sealed class AppearancePage : SettingsPage
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
 
-        var timing = new Card("Timing", "How long notifications stay on screen. Not for the Windows style: it follows Windows' own timing.", Kit.CardWidth);
-        timing.Body.Controls.Add(_takeTurns);
-        timing.Body.Controls.Add(_pauseAway);
-        Panel.Controls.Add(timing);
 
         var content = new Card("Content", "Replies and notes on your tickets, CC / following tickets and colleagues' tickets.", Kit.CardWidth);
         content.Body.Controls.Add(_commentText);
@@ -116,7 +110,7 @@ internal sealed class AppearancePage : SettingsPage
         foreach (var radio in new[] { _likeApp, _ownStyle })
             radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
         TrackChanges(_position, _newSound, _newDisplay, _mySound, _myDisplay, _ccSound, _ccDisplay, _helpSound, _helpDisplay,
-            _summarySound, _summaryDisplay, _appSound, _appDisplay, _commentText, _showLogo, _groupByType, _takeTurns, _pauseAway);
+            _summarySound, _summaryDisplay, _appSound, _appDisplay, _commentText, _showLogo, _groupByType);
     }
 
     public override bool IsSubPage => true; // under Notifications: how they look and sound
@@ -136,8 +130,6 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_appSound, settings.AppMessageStyle.Sound);
         Kit.Select(_appDisplay, settings.AppMessageStyle.Display);
         _commentText.Checked = settings.ShowCommentText;
-        _takeTurns.Checked = settings.PopupsTakeTurns;
-        _pauseAway.Checked = settings.PausePopupsWhenAway;
         _showLogo.Checked = settings.ShowAppLogo;
         _likeApp.Checked = settings.NotificationsLikeApp;
         _ownStyle.Checked = !settings.NotificationsLikeApp;
@@ -155,8 +147,6 @@ internal sealed class AppearancePage : SettingsPage
         s.SummaryStyle = Style(_summarySound, _summaryDisplay);
         s.AppMessageStyle = Style(_appSound, _appDisplay);
         s.ShowCommentText = _commentText.Checked;
-        s.PopupsTakeTurns = _takeTurns.Checked;
-        s.PausePopupsWhenAway = _pauseAway.Checked;
         s.ShowAppLogo = _showLogo.Checked;
         s.NotificationsLikeApp = _likeApp.Checked;
         if (_themeTiles.FirstOrDefault(t => t.Selected) is { } tile)

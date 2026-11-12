@@ -2,18 +2,9 @@ using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.SettingsPages;
 
-/// <summary>Notifications: what to be notified about, snooze and how often to check.</summary>
+/// <summary>Notifications: what to be notified about, and how often to check.</summary>
 internal sealed class NotificationsPage : SettingsPage
 {
-    private static readonly Option<int>[] SnoozeMinuteOptions =
-        [new(5, "5 minutes"), new(10, "10 minutes"), new(15, "15 minutes"), new(30, "30 minutes"), new(60, "1 hour")];
-
-    private static readonly Option<SnoozeBehavior>[] SnoozeBehaviorOptions =
-    [
-        new(SnoozeBehavior.IfStillNeeded, "Only if the ticket still needs attention"),
-        new(SnoozeBehavior.Always, "Always")
-    ];
-
     private readonly ToggleSwitch _notifyUnassigned = new("New unassigned tickets in my monitored groups");
     private readonly ToggleSwitch _trackMine = new("Changes on tickets assigned to me (any group)");
     private readonly ToggleSwitch _trackCc = new("Changes on tickets where I'm CC or a follower (any group)");
@@ -22,8 +13,6 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly CheckBox _status = Kit.Check("Status changes");
     private readonly CheckBox _assignment = Kit.Check("Reassignment and group moves");
     private readonly CheckBox _priority = Kit.Check("Priority changes");
-    private readonly ComboBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
-    private readonly ComboBox _snoozeBehavior = Kit.Combo(SnoozeBehaviorOptions, width: 300);
     private static readonly Option<int>[] IntervalOptions =
         [new(30, "30 s"), new(60, "1 min"), new(120, "2 min"), new(180, "3 min"), new(300, "5 min")];
 
@@ -58,18 +47,6 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(which);
 
 
-        var snooze = new Card("Snooze", "Snooze on a notification hides it and shows it again later. " +
-            "A ticket still needs attention when a new ticket is still unassigned, or another ticket isn't solved or closed. " +
-            "While notifications are paused, snoozed notifications wait until the pause ends.", Kit.CardWidth);
-        var snoozeGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
-        snoozeGrid.Controls.Add(Theme.Label("Show again after"), 0, 0);
-        snoozeGrid.Controls.Add(_snoozeMinutes, 1, 0);
-        snoozeGrid.Controls.Add(Theme.Label("Show it"), 0, 1);
-        snoozeGrid.Controls.Add(_snoozeBehavior, 1, 1);
-        foreach (Control control in snoozeGrid.Controls)
-            if (control is Label) control.Anchor = AnchorStyles.Left;
-        snooze.Body.Controls.Add(snoozeGrid);
-        Panel.Controls.Add(snooze);
 
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", Kit.CardWidth);
         checking.Body.Controls.Add(Theme.Label("Check Zendesk every"));
@@ -81,8 +58,7 @@ internal sealed class NotificationsPage : SettingsPage
         _trackCc.CheckedChanged += (_, _) => UpdateChangeTypes();
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
-        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority,
-            _snoozeMinutes, _snoozeBehavior);
+        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority);
         _interval.SelectedIndexChanged += (_, _) => Changed();
     }
 
@@ -100,8 +76,6 @@ internal sealed class NotificationsPage : SettingsPage
         _priority.Checked = settings.NotifyPriorityChanges;
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
-        Kit.Select(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
-        Kit.Select(_snoozeBehavior, settings.SnoozeBehavior);
         UpdateChangeTypes();
     }
 
@@ -118,8 +92,6 @@ internal sealed class NotificationsPage : SettingsPage
         s.NotifyPriorityChanges = _priority.Checked;
         s.MyTicketPriorities = _myPriorities.Selected;
         s.CcTicketPriorities = _ccPriorities.Selected;
-        s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);
-        s.SnoozeBehavior = Kit.Selected<SnoozeBehavior>(_snoozeBehavior);
     }
 
 

@@ -19,6 +19,7 @@ public sealed class SettingsForm : Form
     private readonly GroupsPage _groups;
     private readonly NotificationsPage _notifications;
     private readonly HelpColleaguesPage _help;
+    private readonly BehaviorPage _behavior;
     private readonly AppearancePage _appearance;
     private readonly StatisticsPage _statistics;
     private readonly GeneralPage _general;
@@ -89,10 +90,11 @@ public sealed class SettingsForm : Form
         _account = new AccountPage(_context, _groups);
         _notifications = new NotificationsPage(_context);
         _help = new HelpColleaguesPage(_context, _groups);
+        _behavior = new BehaviorPage(_context);
         _appearance = new AppearancePage(_context);
         _statistics = new StatisticsPage(_context);
         _general = new GeneralPage(_context, AppVersion);
-        _pages = [_account, _groups, _notifications, _help, _appearance, _statistics, _general];
+        _pages = [_account, _groups, _notifications, _help, _behavior, _appearance, _statistics, _general];
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();
