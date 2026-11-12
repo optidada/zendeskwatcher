@@ -122,6 +122,33 @@ public static class Theme
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+    /// <summary>
+    /// The mouse wheel over this control scrolls the page instead of changing the value, so scrolling through
+    /// Settings can't change a setting by accident. <paramref name="allowWhen"/> lets the control keep the wheel
+    /// (e.g. an open drop-down list).
+    /// </summary>
+    public static void WheelScrollsPage(Control control, Func<bool>? allowWhen = null)
+    {
+        control.MouseWheel += (_, e) =>
+        {
+            if (allowWhen?.Invoke() == true || e is not HandledMouseEventArgs handled)
+                return;
+            handled.Handled = true;
+
+            // Hand the wheel to the nearest scrolling container (the page).
+            for (var parent = control.Parent; parent is not null; parent = parent.Parent)
+            {
+                if (parent is ScrollableControl { AutoScroll: true } page && page.VerticalScroll.Visible)
+                {
+                    var step = SystemInformation.MouseWheelScrollLines * Body.Height;
+                    var y = Math.Clamp(-page.AutoScrollPosition.Y - e.Delta / 120 * step, 0, Math.Max(0, page.DisplayRectangle.Height - page.ClientSize.Height));
+                    page.AutoScrollPosition = new Point(-page.AutoScrollPosition.X, y);
+                    break;
+                }
+            }
+        };
+    }
+
     [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int SetWindowTheme(IntPtr hwnd, string? appName, string? idList);
 
@@ -462,6 +489,7 @@ public sealed class RoomyComboBox : ComboBox
         BackColor = Theme.Surface;
         ForeColor = Theme.Text;
         UpdateItemHeight();
+        Theme.WheelScrollsPage(this, allowWhen: () => DroppedDown); // an open list still scrolls with the wheel
     }
 
     protected override void OnDpiChangedAfterParent(EventArgs e)

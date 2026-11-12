@@ -322,6 +322,7 @@ public sealed class SettingsForm : Form
 
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", CardWidth);
         checking.Body.Controls.Add(Row(Theme.Label("Check Zendesk every"), _interval, Theme.Label("seconds")));
+        Theme.WheelScrollsPage(_interval);
         page.Controls.Add(checking);
 
         var general = new Card("General", null, CardWidth);
