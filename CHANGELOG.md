@@ -5,13 +5,15 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.3.11
 
-- **Sound and display for every kind of notification** under Settings → Look & sound: CC / following tickets (until now the same as My tickets, and they start with your My tickets choice), the start summary and app messages (update ready, welcome, group not found) each have their own row. New display time: Medium (~10 s).
-- **Priorities for ticket changes** under Settings → Notifications: choose which priorities notify, separately for your own tickets (all by default) and for CC / following tickets (Urgent and High by default). The ticket's current priority counts, so a ticket raised to Urgent notifies.
+- **Copy** on ticket notifications (the icon next to ✕, or "Copy" on Windows notifications): the ticket as a clickable title with its details, ready to paste into Teams. Counted under Insights.
 - **Insights** (new page in Settings): ticket notifications of the last 30 days per kind, and what you did with them: opened, took it, snoozed, closed or let them time out. Kept on your PC only.
+- **Suggestions** on the Insights page: whether a kind of notification is mostly ignored, closed right away, snoozed a lot or too frequent, with what to change (or that it works well).
+- **App theme** under Settings → General: the look of the Settings window and its dialogs. Notifications use the same style, or their own one (Look & sound). Your current style is kept for both.
+- **Priorities for ticket changes** under Settings → Notifications: choose which priorities notify, separately for your own tickets (all by default) and for CC / following tickets (Urgent and High by default). The ticket's current priority counts, so a ticket raised to Urgent notifies.
+- **Sound and display for every kind of notification** under Settings → Look & sound: CC / following tickets (until now the same as My tickets, and they start with your My tickets choice), the start summary and app messages (update ready, welcome, group not found) each have their own row. New display time: Medium (~10 s).
 - "Show the comment text" moved to Settings → Look & sound → Content: it applies to your tickets, CC tickets and colleagues' tickets.
 - "Check Zendesk every": five round buttons (30 s, 1, 2, 3 or 5 min) instead of a seconds box; other saved values move to the nearest one.
 - **Button shapes follow the style**: rounded in Optimizely and Clean light, fully round in Neon dark and Cozy, square in Terminal, lightly rounded in Windows. Applies to the Settings window and the popups.
-- **Copy** on ticket notifications (the icon next to ✕, or "Copy" on Windows notifications): the ticket as a clickable title with its details, ready to paste into Teams. Counted under Insights.
 - **Reset to defaults** under Settings → General: everything except your account and monitored groups, applied when you click Save.
 - New ticket notifications stay about 10 seconds by default (was 5).
 - Every popup has a Close button (the same as ✕ and right-click). Ticket notifications also have Snooze; the start summary and app messages don't.
@@ -20,8 +22,6 @@ app's "Update ready" notification, so put the most interesting changes first.
 - Help colleagues: the first time you switch it on, colleagues in your own region start unticked. Your region is listed last, and in each region the covered colleagues come first.
 - Questions and messages in Settings look like the rest of the app, with buttons that say what they do (Save / Don't save / Cancel).
 - Settings sidebar: Help colleagues has its own page (*Colleagues*), shown with *Look & sound* (was Appearance) under Notifications, so Notifications is shorter. Statistics is now *Insights*. No more smears when scrolling Settings pages.
-- **Suggestions** on the Insights page: whether a kind of notification is mostly ignored, closed right away, snoozed a lot or too frequent, with what to change (or that it works well).
-- **App theme** under Settings → General: the look of the Settings window and its dialogs. Notifications use the same style, or their own one (Look & sound). Your current style is kept for both.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10
