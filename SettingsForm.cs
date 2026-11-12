@@ -1207,13 +1207,13 @@ public sealed class SettingsForm : Form
         return combo;
     }
 
-    private static RadioButton Radio(string text) => new()
+    private static RadioButton Radio(string text) => new ThemedRadioButton()
     {
         Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
         Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
     };
 
-    private static CheckBox Check(string text) => new()
+    private static CheckBox Check(string text) => new ThemedCheckBox()
     {
         Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
         Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
@@ -1231,7 +1231,7 @@ public sealed class SettingsForm : Form
             var settings = new Settings
             {
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
-                HelpColleagues = true, HelpSameAsMonitored = false, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
+                HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }]
             };
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }));
