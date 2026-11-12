@@ -47,7 +47,19 @@ public static class WebMeasure
             counting = true;
             started = DateTime.Now;
             await Task.Delay(TimeSpan.FromMinutes(minutes));
+            Save();
+            form.Close();
+        };
+
+        // Closed early: still save what was counted so far.
+        form.FormClosing += (_, _) => Save();
+
+        void Save()
+        {
+            if (!counting || started is null)
+                return;
             counting = false;
+            minutes = Math.Max(1, (int)Math.Round((DateTime.Now - started.Value).TotalMinutes));
 
             var total = counts.Values.Sum();
             var zendesk = counts.Where(kv => !kv.Key.StartsWith("other host")).Sum(kv => kv.Value);
@@ -60,8 +72,7 @@ public static class WebMeasure
             };
             lines.AddRange(counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  ({kv.Value / (double)minutes,5:0.#}/min)  {kv.Key}"));
             File.WriteAllLines(outFile, lines);
-            form.Close();
-        };
+        }
 
         Application.Run(form);
     }
