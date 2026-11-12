@@ -78,4 +78,16 @@ public class NotificationStatsTests
     [InlineData(Notifier.ActionTake, StatOutcome.Took)]
     public void Windows_notification_clicks(string action, StatOutcome expected)
         => Assert.Equal(expected, NotificationStats.ForToastAction(action));
+
+    [Theory]
+    [InlineData(NotificationKind.NewTicket)]
+    [InlineData(NotificationKind.MyTicket)]
+    [InlineData(NotificationKind.HelpColleague)]
+    [InlineData(null)] // "Several"
+    public void Try_it_samples_never_count(NotificationKind? kind)
+    {
+        var samples = Notifier.TestSamples(kind).ToList();
+        Assert.NotEmpty(samples);
+        Assert.All(samples, s => Assert.False(s.IsTicketNotification));
+    }
 }

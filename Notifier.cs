@@ -205,20 +205,26 @@ public sealed class Notifier : INotificationSink
     /// <summary>Sample notifications with the given (possibly unsaved) settings. Shown even when paused.</summary>
     public void ShowTest(Settings settings, NotificationKind kind)
     {
-        foreach (var sample in Samples(kind))
+        foreach (var sample in TestSamples(kind))
             Show(sample, settings);
     }
 
     /// <summary>Several samples at once, to see how popups stack.</summary>
     public void ShowTestBurst(Settings settings)
     {
-        foreach (var sample in Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(
-                     [new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                         "", Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone, CanTake = true }]))
-        {
+        foreach (var sample in TestSamples(null))
             Show(sample, settings);
-        }
     }
+
+    /// <summary>
+    /// What "Try it" shows: the samples of one kind, or several at once (<paramref name="kind"/> null). Never marked as
+    /// ticket notifications, so they don't count in the statistics.
+    /// </summary>
+    internal static IEnumerable<NotificationContent> TestSamples(NotificationKind? kind) => kind is { } single
+        ? Samples(single)
+        : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
+            new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
+                "", Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone, CanTake = true });
 
     /// <summary>All samples (for the developer --render-popups helper).</summary>
     public static IEnumerable<NotificationContent> AllSamples() =>
