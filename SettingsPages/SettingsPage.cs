@@ -42,14 +42,14 @@ internal sealed class SettingsContext(Form window, Panel content, Notifier notif
 /// One page of the Settings window. It builds its controls, shows the values from <see cref="Settings"/>
 /// (<see cref="Load"/>), and writes the user's choices back (<see cref="Apply"/>); the window does the saving.
 /// </summary>
-internal abstract class SettingsPage(SettingsContext context, string title, string subtitle)
+internal abstract class SettingsPage(SettingsContext context, string title, string subtitle, bool composited = true)
 {
     protected SettingsContext Context { get; } = context;
 
     /// <summary>The name in the sidebar (same as the page title).</summary>
     public string Title { get; } = title;
 
-    public FlowLayoutPanel Panel { get; } = Kit.Page(title, subtitle);
+    public FlowLayoutPanel Panel { get; } = Kit.Page(title, subtitle, composited);
 
     /// <summary>Shows these values: the saved ones after all pages are built, and the defaults on Reset.</summary>
     public abstract void Load(Settings settings);

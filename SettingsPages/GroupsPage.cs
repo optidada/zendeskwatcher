@@ -69,7 +69,7 @@ internal sealed class GroupsPage : SettingsPage
     public IReadOnlyList<GroupItem> AllGroups => _allGroups;
 
     public GroupsPage(SettingsContext context)
-        : base(context, "Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.")
+        : base(context, "Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.", composited: false)
     {
         var card = new Card("Monitored groups",
             $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +

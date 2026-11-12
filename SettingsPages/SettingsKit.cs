@@ -9,19 +9,37 @@ internal sealed record Option<T>(T Value, string Label)
 }
 
 /// <summary>Building blocks shared by the Settings pages: page layout, rows and themed controls.</summary>
+/// <summary>A panel whose children are painted together off-screen (WS_EX_COMPOSITED), so scrolling doesn't stutter.</summary>
+internal sealed class CompositedPanel : FlowLayoutPanel
+{
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return cp;
+        }
+    }
+}
+
 internal static class Kit
 {
     /// <summary>Width of the cards on every page.</summary>
     public const int CardWidth = 556;
 
     /// <summary>A page: title, subtitle, then its cards from top to bottom.</summary>
-    public static FlowLayoutPanel Page(string title, string subtitle)
+    /// <param name="composited">Draw the whole page off-screen, then show it at once: smooth scrolling on long pages with
+    /// many controls. Not for pages with a ListView, which doesn't paint properly that way.</param>
+    public static FlowLayoutPanel Page(string title, string subtitle, bool composited = true)
     {
-        var page = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Theme.Window
-        };
+        var page = (composited ? new CompositedPanel() : new FlowLayoutPanel());
+        page.Dock = DockStyle.Top;
+        page.FlowDirection = FlowDirection.TopDown;
+        page.WrapContents = false;
+        page.AutoSize = true;
+        page.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        page.BackColor = Theme.Window;
         page.Controls.Add(Theme.Label(title, Theme.PageTitle));
         var sub = Theme.Label(subtitle, Theme.Body, Theme.TextMuted, CardWidth);
         sub.Margin = new Padding(0, 0, 0, 20);
