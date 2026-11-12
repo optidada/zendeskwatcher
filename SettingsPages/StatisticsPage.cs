@@ -13,7 +13,7 @@ internal sealed class StatisticsPage : SettingsPage
 
     private static readonly (StatOutcome Outcome, string Label)[] Columns =
     [
-        (StatOutcome.Shown, "Shown"), (StatOutcome.OpenedTicket, "Opened"), (StatOutcome.OpenedZendesk, "Zendesk"),
+        (StatOutcome.Shown, "Shown"), (StatOutcome.OpenedTicket, "Opened"),
         (StatOutcome.Took, "Took it"), (StatOutcome.Snoozed, "Snoozed"), (StatOutcome.Closed, "Closed"), (StatOutcome.TimedOut, "Timed out")
     ];
 
@@ -28,7 +28,7 @@ internal sealed class StatisticsPage : SettingsPage
         card.Body.Controls.Add(_summary);
         card.Body.Controls.Add(_table);
         card.Body.Controls.Add(Theme.Label(
-            "Opened: the ticket. Zendesk: opened Zendesk, e.g. from a summary of several tickets. Timed out: disappeared on its own, " +
+            "Opened: the ticket, or Zendesk for a notification about several tickets. Timed out: disappeared on its own, " +
             "or went to the Windows notification center. A snoozed notification counts again for what you do when it comes back. " +
             "Windows notifications are only counted while Zendesk Watcher runs.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         _clear.Margin = new Padding(0, 10, 0, 0);
@@ -54,11 +54,14 @@ internal sealed class StatisticsPage : SettingsPage
     private void Refresh()
     {
         var totals = Context.Notifier.Stats.Totals(DateOnly.FromDateTime(DateTime.Now));
-        int Count(NotificationKind kind, StatOutcome outcome) => totals.GetValueOrDefault((kind, outcome));
+        // "Opened" includes opening Zendesk from a notification about several tickets: the same reaction, no single ticket.
+        int Count(NotificationKind kind, StatOutcome outcome) => outcome == StatOutcome.OpenedTicket
+            ? totals.GetValueOrDefault((kind, StatOutcome.OpenedTicket)) + totals.GetValueOrDefault((kind, StatOutcome.OpenedZendesk))
+            : totals.GetValueOrDefault((kind, outcome));
         int Total(StatOutcome outcome) => Kinds.Sum(k => Count(k.Kind, outcome));
 
         var shown = Total(StatOutcome.Shown);
-        var acted = Total(StatOutcome.OpenedTicket) + Total(StatOutcome.OpenedZendesk) + Total(StatOutcome.Took);
+        var acted = Total(StatOutcome.OpenedTicket) + Total(StatOutcome.Took);
         _summary.Text = shown == 0
             ? "No ticket notifications in the last 30 days yet."
             : $"{shown} ticket notification{(shown == 1 ? "" : "s")}. You opened or took {acted} ({Percent(acted, shown)}), " +
