@@ -76,9 +76,25 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var now = DateTimeOffset.UtcNow;
         var total = 0;
 
+        // Search finds the candidates, but its index can be stale for hours: a ticket assigned long ago may still
+        // match "assignee:none". Re-read every candidate (exact, no index) and keep only the really unassigned ones.
+        var found = new List<(WatchedGroup Group, List<Ticket> Tickets)>();
         foreach (var group in settings.WatchedGroups)
+            found.Add((group, await zendesk.GetUnassignedTicketsAsync(group.Id, ct)));
+
+        var allIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).Distinct().ToList();
+        var live = allIds.Count > 0 ? (await zendesk.GetTicketsAsync(allIds, ct)).ToDictionary(t => t.Id) : [];
+
+        foreach (var (group, candidates) in found)
         {
-            var tickets = await zendesk.GetUnassignedTicketsAsync(group.Id, ct);
+            var tickets = candidates
+                .Select(t => live.GetValueOrDefault(t.Id))
+                .OfType<Ticket>()
+                .Where(t => t.AssigneeId is null && t.IsOpen && t.GroupId == (group.IsNoGroup ? null : group.Id))
+                .ToList();
+            if (tickets.Count < candidates.Count)
+                Log.Info($"Search returned {candidates.Count - tickets.Count} ticket(s) {group.Describe()} that are no longer unassigned: " +
+                         string.Join(",", candidates.Select(t => t.Id).Except(tickets.Select(t => t.Id))));
             total += tickets.Count;
 
             var isBaseline = _state.BaselinedGroups.Add(group.Id);
@@ -105,7 +121,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             foreach (var ticket in fresh)
             {
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {ticket.Subject}",
-                    $"Created {ticket.CreatedAt.ToLocalTime():HH:mm}", ticket.Id, ticket.Priority, GroupLabel(group)));
+                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)));
             }
         }
 
@@ -205,6 +221,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Ticket updated", $"#{ticket.Id} {ticket.Subject}",
             string.Join("\n", shown), ticket.Id, ticket.Priority));
+    }
+
+    private static string CreatedLabel(Ticket t)
+    {
+        var local = t.CreatedAt.ToLocalTime();
+        return local.Date == DateTime.Today ? $"{local:HH:mm}" : $"{local:d MMM HH:mm}";
     }
 
     private static string GroupLabel(WatchedGroup group) => group.IsNoGroup ? "No group" : group.Name;
