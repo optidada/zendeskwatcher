@@ -30,6 +30,15 @@ public sealed class WatchState
     /// <summary>The newest updated_at seen in the CC'd/followed lists.</summary>
     public DateTimeOffset CcTicketsWatermark { get; set; }
 
+    /// <summary>"Help colleagues": ticket id -> the updated_at already looked at.</summary>
+    public Dictionary<long, DateTimeOffset> HelpSeen { get; set; } = [];
+
+    /// <summary>Groups whose current tickets were recorded silently on their first check.</summary>
+    public HashSet<long> HelpBaselinedGroups { get; set; } = [];
+
+    /// <summary>When the last "Help colleagues" check ran.</summary>
+    public DateTimeOffset HelpLastCheck { get; set; }
+
     public static WatchState Load()
     {
         try

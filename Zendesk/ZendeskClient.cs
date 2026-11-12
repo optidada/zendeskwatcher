@@ -24,7 +24,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly Dictionary<long, string> _userNames = [];
+    private readonly Dictionary<long, User?> _users = [];
     private readonly HashSet<string> _unsupportedLists = [];
 
     public async Task<User> GetMeAsync(CancellationToken ct) =>
@@ -170,24 +170,35 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         return result;
     }
 
-    public async Task<string> GetUserNameAsync(long userId, CancellationToken ct)
+    public async Task<string> GetUserNameAsync(long userId, CancellationToken ct) =>
+        (await GetUserAsync(userId, ct))?.Name ?? $"User {userId}";
+
+    /// <summary>A user's name, role and time zone (cached for this session). Null if it can't be read.</summary>
+    public async Task<User?> GetUserAsync(long userId, CancellationToken ct)
     {
-        if (_userNames.TryGetValue(userId, out var cached))
+        if (_users.TryGetValue(userId, out var cached))
             return cached;
 
-        string name;
+        User? user;
         try
         {
-            name = (await GetAsync<UserResponse>($"/api/v2/users/{userId}.json", ct)).User?.Name ?? $"User {userId}";
+            user = (await GetAsync<UserResponse>($"/api/v2/users/{userId}.json", ct)).User;
         }
         catch (HttpRequestException)
         {
-            name = $"User {userId}";
+            user = null;
         }
 
-        _userNames[userId] = name;
-        return name;
+        _users[userId] = user;
+        return user;
     }
+
+    /// <summary>
+    /// Open tickets in a group, assigned to someone, updated after <paramref name="since"/>. Uses the search index,
+    /// which can lag 1-3 minutes, so callers should look back a little further than their last check.
+    /// </summary>
+    public Task<List<Ticket>> GetAssignedOpenTicketsUpdatedSinceAsync(long groupId, DateTimeOffset since, CancellationToken ct) =>
+        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status:open updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
 
     private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct) =>
         await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct);

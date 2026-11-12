@@ -8,6 +8,10 @@ public sealed class User
     public string? Name { get; set; }
     public string? Email { get; set; }
     public string? Role { get; set; }
+
+    /// <summary>Time zone as set on the profile, e.g. "Europe/Stockholm" (IANA) and "Stockholm" (Zendesk name).</summary>
+    public string? IanaTimeZone { get; set; }
+    public string? TimeZone { get; set; }
 }
 
 public sealed class Group

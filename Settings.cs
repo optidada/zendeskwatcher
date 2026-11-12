@@ -26,6 +26,26 @@ public sealed class Settings
     public bool NotifyAssignmentChanges { get; set; } = true;
     public bool NotifyPriorityChanges { get; set; } = true;
 
+    /// <summary>
+    /// "Help colleagues": notify when a customer replies on a colleague's open ticket while the colleague is outside
+    /// working hours (in their own time zone).
+    /// </summary>
+    public bool HelpColleagues { get; set; }
+
+    /// <summary>Use the monitored groups for "Help colleagues" (default), or <see cref="HelpGroups"/>.</summary>
+    public bool HelpSameAsMonitored { get; set; } = true;
+
+    /// <summary>Custom groups for "Help colleagues" when <see cref="HelpSameAsMonitored"/> is off.</summary>
+    public List<WatchedGroup> HelpGroups { get; set; } = [];
+
+    /// <summary>The groups "Help colleagues" actually covers (none when it's off).</summary>
+    public IReadOnlyList<WatchedGroup> EffectiveHelpGroups =>
+        !HelpColleagues ? [] : (HelpSameAsMonitored ? WatchedGroups : HelpGroups).Where(g => !g.IsNoGroup).ToList();
+
+    /// <summary>Working hours, Monday to Friday, applied in each colleague's own time zone.</summary>
+    public int WorkdayStartHour { get; set; } = 8;
+    public int WorkdayEndHour { get; set; } = 17;
+
     /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 
@@ -71,6 +91,8 @@ public sealed class Settings
     private void Normalize()
     {
         if (!Enum.IsDefined(Theme)) Theme = NotificationTheme.NeonDark;
+        WorkdayStartHour = Math.Clamp(WorkdayStartHour, 0, 23);
+        WorkdayEndHour = Math.Clamp(WorkdayEndHour, WorkdayStartHour + 1, 24);
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
         if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Default;
         if (!Enum.IsDefined(NewTicketStyle.Display)) NewTicketStyle.Display = ToastDisplay.Standard;

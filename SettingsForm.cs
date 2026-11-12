@@ -58,6 +58,19 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _assignment = Check("Reassignment and group moves");
     private readonly CheckBox _priority = Check("Priority changes");
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
+
+    // Help colleagues
+    private readonly ToggleSwitch _help = new("Customer replies on colleagues' tickets outside their working hours");
+    private readonly RadioButton _helpSame = Radio("Same as my monitored groups");
+    private readonly RadioButton _helpCustom = Radio("Only these groups:");
+    private readonly FlowLayoutPanel _helpGroupList = new()
+    {
+        FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(20, 0, 0, 4)
+    };
+    private readonly HashSet<long> _helpChosen = [];
+    private readonly Dictionary<long, string> _helpNames = [];
+    private readonly ComboBox _workStart = HourCombo(0, 23);
+    private readonly ComboBox _workEnd = HourCombo(1, 24);
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
 
     // Appearance
@@ -327,6 +340,22 @@ public sealed class SettingsForm : Form
         which.Body.Controls.Add(privacy);
         page.Controls.Add(which);
 
+        var help = new Card("Help colleagues",
+            "Get notified when a customer replies on a colleague's open ticket while the colleague is off work, so you can step in.", CardWidth);
+        help.Body.Controls.Add(_help);
+        var helpOptions = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(50, 2, 0, 0) };
+        helpOptions.Controls.Add(Theme.Label("Groups", Theme.BodyBold));
+        helpOptions.Controls.Add(_helpSame);
+        helpOptions.Controls.Add(_helpCustom);
+        helpOptions.Controls.Add(_helpGroupList);
+        var hours = Row(Theme.Label("Working hours"), _workStart, Theme.Label("to"), _workEnd);
+        hours.Margin = new Padding(0, 8, 0, 0);
+        helpOptions.Controls.Add(hours);
+        helpOptions.Controls.Add(Theme.Label("Monday to Friday, in each colleague's own time zone (from their Zendesk profile). " +
+            "Colleagues without a time zone are skipped.", Theme.Small, Theme.TextMuted, CardWidth - 100));
+        help.Body.Controls.Add(helpOptions);
+        page.Controls.Add(help);
+
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", CardWidth);
         checking.Body.Controls.Add(Row(Theme.Label("Check Zendesk every"), _interval, Theme.Label("seconds")));
         Theme.WheelScrollsPage(_interval);
@@ -404,6 +433,8 @@ public sealed class SettingsForm : Form
         }
         if (_pages[index].Page == _pages[1].Page)
             FitGroupsList();
+        if (_pages[index].Page == _pages[2].Page)
+            ShowHelpGroups(); // monitored groups may have changed on the Groups page
 
         if (redraw)
         {
@@ -447,6 +478,17 @@ public sealed class SettingsForm : Form
         _assignment.Checked = settings.NotifyAssignmentChanges;
         _priority.Checked = settings.NotifyPriorityChanges;
         _commentText.Checked = settings.ShowCommentText;
+        _help.Checked = settings.HelpColleagues;
+        _helpSame.Checked = settings.HelpSameAsMonitored;
+        _helpCustom.Checked = !settings.HelpSameAsMonitored;
+        foreach (var group in settings.HelpGroups)
+        {
+            _helpChosen.Add(group.Id);
+            _helpNames[group.Id] = group.Name;
+        }
+        _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
+        _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
+        ShowHelpGroups();
         _startup.Checked = StartupRegistration.IsEnabled;
         Select(_newSound, settings.NewTicketStyle.Sound);
         Select(_newDisplay, settings.NewTicketStyle.Display);
@@ -493,6 +535,11 @@ public sealed class SettingsForm : Form
         // Track unsaved changes.
         _subdomain.TextChanged += (_, _) => UpdateSaveState();
         _interval.ValueChanged += (_, _) => UpdateSaveState();
+        foreach (var radio in new[] { _helpSame, _helpCustom })
+            radio.CheckedChanged += (_, _) => { UpdateHelpOptions(); UpdateSaveState(); };
+        _help.CheckedChanged += (_, _) => UpdateHelpOptions();
+        foreach (var combo in new[] { _workStart, _workEnd })
+            combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
         foreach (var combo in new[] { _newSound, _newDisplay, _mySound, _myDisplay })
             combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
         _testNew.Click += (_, _) => SendTest(NotificationKind.NewTicket);
@@ -501,7 +548,7 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _startup, _showLogo, _groupByType })
+        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _startup, _showLogo, _groupByType })
             box.CheckedChanged += (_, _) => UpdateSaveState();
 
         Shown += async (_, _) =>
@@ -550,6 +597,12 @@ public sealed class SettingsForm : Form
         s.NotifyAssignmentChanges = _assignment.Checked;
         s.NotifyPriorityChanges = _priority.Checked;
         s.ShowCommentText = _commentText.Checked;
+        s.HelpColleagues = _help.Checked;
+        s.HelpSameAsMonitored = _helpSame.Checked;
+        s.HelpGroups = _helpChosen.Select(id => new WatchedGroup { Id = id, Name = _helpNames.GetValueOrDefault(id, $"Group {id}") })
+            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        s.WorkdayStartHour = _workStart.SelectedIndex;
+        s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
         s.ShowAppLogo = _showLogo.Checked;
@@ -1072,6 +1125,68 @@ public sealed class SettingsForm : Form
         public override string ToString() => Label;
     }
 
+    /// <summary>
+    /// The groups offered for "Help colleagues": your monitored groups, groups you're a member of, and any chosen
+    /// before. Rebuilt when the Notifications page is shown, since monitored groups can change on the Groups page.
+    /// </summary>
+    private void ShowHelpGroups()
+    {
+        foreach (var group in _allGroups)
+            _helpNames[group.Id] = group.Name;
+
+        var offered = _selectedGroups.Where(id => id != WatchedGroup.NoGroupId)
+            .Concat(_suggestions.Where(kv => kv.Value.Member).Select(kv => kv.Key))
+            .Concat(_helpChosen)
+            .Distinct()
+            .Select(id => (Id: id, Name: _helpNames.GetValueOrDefault(id, $"Group {id}")))
+            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        _helpGroupList.SuspendLayout();
+        foreach (var old in _helpGroupList.Controls.Cast<Control>().ToList())
+            old.Dispose();
+        _helpGroupList.Controls.Clear();
+        if (offered.Count == 0)
+            _helpGroupList.Controls.Add(Theme.Label("Monitor a group on the Groups page first.", Theme.Small, Theme.TextMuted));
+        foreach (var (id, name) in offered)
+        {
+            var why = _selectedGroups.Contains(id) ? "monitored"
+                : _suggestions.TryGetValue(id, out var s) && s.Member ? "you're a member" : null;
+            var box = Check(why is null ? name : $"{name}  ·  {why}");
+            box.Checked = _helpChosen.Contains(id);
+            box.CheckedChanged += (_, _) =>
+            {
+                if (box.Checked) _helpChosen.Add(id); else _helpChosen.Remove(id);
+                UpdateSaveState();
+            };
+            _helpGroupList.Controls.Add(box);
+        }
+        _helpGroupList.ResumeLayout();
+        UpdateHelpOptions();
+    }
+
+    private void UpdateHelpOptions()
+    {
+        var on = _help.Checked;
+        _helpSame.Enabled = _helpCustom.Enabled = _workStart.Enabled = _workEnd.Enabled = on;
+        _helpGroupList.Enabled = on && _helpCustom.Checked;
+    }
+
+    private static ComboBox HourCombo(int from, int to)
+    {
+        var combo = new RoomyComboBox { Width = 90, Margin = new Padding(0, 3, 6, 3) };
+        for (var hour = from; hour <= to; hour++)
+            combo.Items.Add($"{hour:00}:00");
+        combo.SelectedIndex = 0;
+        return combo;
+    }
+
+    private static RadioButton Radio(string text) => new()
+    {
+        Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
+        Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
+    };
+
     private static CheckBox Check(string text) => new()
     {
         Text = text, AutoSize = true, Font = Theme.Body, ForeColor = Theme.Text, BackColor = Theme.Surface,
@@ -1090,6 +1205,7 @@ public sealed class SettingsForm : Form
             var settings = new Settings
             {
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
+                HelpColleagues = true, HelpSameAsMonitored = false, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }]
             };
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }));

@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.0
+
+- **Help colleagues** (Settings → Notifications): get notified when a customer replies on a colleague's open ticket while they're off work, so you can step in. "Off work" means outside working hours (default Mon–Fri 08:00–17:00) in the colleague's own time zone from their Zendesk profile. Uses your monitored groups, or a custom selection.
+
 ## 1.2.2
 
 - **Privacy**: Zendesk responses are no longer kept in the browser cache, the log never contains comment text (older logs are removed once), and saved state holds only ticket IDs and status, no subjects.

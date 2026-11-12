@@ -82,6 +82,15 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.MyTicketsBaselined = false;
         }
 
+        try
+        {
+            await CheckHelpColleaguesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not (AuthRequiredException or OperationCanceledException))
+        {
+            Log.Error("Help colleagues check failed", ex); // never let it stop the other notifications
+        }
+
         if (settings.TrackCcTickets)
         {
             await CheckCcTicketsAsync(ct);
@@ -268,6 +277,109 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.CcTickets[ticket.Id] = ToTracked(ticket);
         }
     }
+
+    // ------------------------------------------------------------------ help colleagues
+
+    /// <summary>Search lags behind; look back this much further than the last check.</summary>
+    private static readonly TimeSpan HelpLookBack = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// "Help colleagues": in the chosen groups, a customer replied on a colleague's open ticket while the colleague is
+    /// outside working hours (in their own time zone). The first check of a group only records what's there.
+    /// </summary>
+    private async Task CheckHelpColleaguesAsync(CancellationToken ct)
+    {
+        var groups = settings.EffectiveHelpGroups;
+        _state.HelpBaselinedGroups.IntersectWith(groups.Select(g => g.Id));
+        if (groups.Count == 0)
+        {
+            _state.HelpSeen.Clear();
+            return;
+        }
+
+        var me = Me!.Id;
+        var now = DateTimeOffset.UtcNow;
+        var since = (_state.HelpLastCheck == default ? now.AddHours(-1) : _state.HelpLastCheck) - HelpLookBack;
+
+        foreach (var group in groups)
+        {
+            var baseline = _state.HelpBaselinedGroups.Add(group.Id);
+            var tickets = await zendesk.GetAssignedOpenTicketsUpdatedSinceAsync(group.Id, since, ct);
+
+            foreach (var ticket in tickets)
+            {
+                if (ticket.AssigneeId is not { } assigneeId || assigneeId == me)
+                    continue; // your own tickets are covered by "my tickets"
+                var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
+                if (ticket.UpdatedAt <= seen)
+                    continue;
+                _state.HelpSeen[ticket.Id] = ticket.UpdatedAt;
+                if (baseline || _state.CcTickets.ContainsKey(ticket.Id))
+                    continue; // first look at this group, or already reported as a CC'd ticket
+
+                var reply = await LatestCustomerReplyAsync(ticket, seen == default ? since : seen, ct);
+                if (reply is null)
+                    continue;
+
+                var assignee = await zendesk.GetUserAsync(assigneeId, ct);
+                var (away, local) = OutsideWorkingHours(assignee, now);
+                if (away is not true)
+                {
+                    if (away is null)
+                        Log.Info($"Ticket #{ticket.Id}: customer replied, but {assignee?.Name ?? $"user {assigneeId}"} has no usable time zone");
+                    continue;
+                }
+
+                var who = assignee?.Name ?? $"User {assigneeId}";
+                var (customer, comment) = reply.Value;
+                Log.Info($"Ticket #{ticket.Id}: {customer} replied while {who} is outside working hours ({local:ddd HH:mm} their time)");
+
+                var said = settings.ShowCommentText ? $"{customer} replied: {Snippet(comment)}" : $"{customer} replied";
+                notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Customer waiting",
+                    $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
+                    $"{said}\n{who} is off work · {local:ddd HH:mm} their time",
+                    ticket.Id, ticket.Priority, GroupLabel(group)));
+            }
+        }
+
+        _state.HelpLastCheck = now;
+        foreach (var old in _state.HelpSeen.Where(kv => now - kv.Value > TimeSpan.FromDays(3)).Select(kv => kv.Key).ToList())
+            _state.HelpSeen.Remove(old);
+    }
+
+    /// <summary>The newest public reply by an end user (the customer) after <paramref name="since"/>, if any.</summary>
+    private async Task<(string Customer, AuditEvent Comment)?> LatestCustomerReplyAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct)
+    {
+        var audits = await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct);
+        foreach (var audit in audits.OrderByDescending(a => a.CreatedAt))
+        {
+            var comment = audit.Events.FirstOrDefault(e => e.Type == "Comment" && e.Public == true);
+            if (comment is null || audit.AuthorId == SystemUserId)
+                continue;
+            var author = await zendesk.GetUserAsync(audit.AuthorId, ct);
+            if (author?.Role == "end-user")
+                return (author.Name ?? "The customer", comment);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Whether it's outside working hours (Mon-Fri, <see cref="Settings.WorkdayStartHour"/>-<see cref="Settings.WorkdayEndHour"/>)
+    /// in the user's time zone. Null when the time zone is unknown: then we can't tell and stay quiet.
+    /// </summary>
+    private (bool? Away, DateTime Local) OutsideWorkingHours(User? user, DateTimeOffset now)
+    {
+        var zone = ResolveTimeZone(user?.IanaTimeZone) ?? ResolveTimeZone(user?.TimeZone);
+        if (zone is null)
+            return (null, default);
+        var local = TimeZoneInfo.ConvertTime(now, zone).DateTime;
+        var weekend = local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+        var away = weekend || local.Hour < settings.WorkdayStartHour || local.Hour >= settings.WorkdayEndHour;
+        return (away, local);
+    }
+
+    private static TimeZoneInfo? ResolveTimeZone(string? id) =>
+        !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) ? zone : null;
 
     /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>
     private static string? Involvement(Ticket t, long me) =>
