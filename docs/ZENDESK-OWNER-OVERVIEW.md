@@ -35,7 +35,7 @@ Checks run every 60 seconds by default (the agent can choose 30 s – 1 h). Per 
 **Measured** on an agent's PC with 2 groups, CC tracking and Help colleagues all switched on: **3–11 requests per
 minute** (11-minute averages; the higher one includes opening the Settings window). With default settings it's about
 5. A check takes a few seconds. Also: user names are cached, the group list, the agent's group memberships and
-their open tickets (for group suggestions) are loaded at most twice an hour, when Settings is opened, and the update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
+their open tickets (for group suggestions), and, with Help colleagues on, the members of the covered groups (1 request per group, to choose which colleagues to cover) are loaded at most twice an hour, when Settings is opened, and the update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
 (on HTTP 429 the app waits as instructed by `Retry-After`), and the app logs its own request count every 10 minutes.
 
 For comparison, an open Agent Workspace tab also polls continuously (views, ticket counts, notifications, plus

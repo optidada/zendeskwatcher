@@ -68,6 +68,24 @@ public sealed class SettingsForm : Form
         FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(20, 0, 0, 4)
     };
     private readonly HashSet<long> _helpChosen = [];
+    private readonly FlowLayoutPanel _helpPeopleList = new()
+    {
+        FlowDirection = FlowDirection.LeftToRight, WrapContents = true, AutoSize = true, BackColor = Theme.Surface,
+        MaximumSize = new Size(HelpPeopleWidth, 0), Margin = new Padding(20, 0, 0, 0)
+    };
+    private readonly Label _helpPeopleAll = LinkLabel("All");
+    private readonly Label _helpPeopleNone = LinkLabel("None");
+    private readonly Label _helpPeopleHint = Theme.Label("", Theme.Small, Theme.TextMuted, HelpPeopleWidth);
+    private const int HelpPeopleWidth = CardWidth - 120;
+    /// <summary>Unticked colleagues (id -> name): the only ones stored, so new group members are included automatically.</summary>
+    private readonly Dictionary<long, string> _helpExcluded = [];
+    /// <summary>The colleagues currently shown in the list.</summary>
+    private List<Member> _helpPeopleShown = [];
+    private int _helpPeopleVersion;
+    /// <summary>Client and user id of the signed-in session, for loading group members; null when not signed in.</summary>
+    private ZendeskClient? _client;
+    private long _meId;
+    private Region _myRegion = Region.Other;
     private readonly Dictionary<long, string> _helpNames = [];
     private readonly ComboBox _workStart = HourCombo(0, 23);
     private readonly ComboBox _workEnd = HourCombo(1, 24);
@@ -371,6 +389,12 @@ public sealed class SettingsForm : Form
         helpOptions.Controls.Add(_helpSame);
         helpOptions.Controls.Add(_helpCustom);
         helpOptions.Controls.Add(_helpGroupList);
+        var peopleTitle = Theme.Label("Assignees", Theme.BodyBold);
+        peopleTitle.Margin = new Padding(0, 6, 14, 4);
+        helpOptions.Controls.Add(Row(peopleTitle, _helpPeopleAll, _helpPeopleNone));
+        helpOptions.Controls.Add(_helpPeopleList);
+        _helpPeopleHint.Margin = new Padding(20, 2, 0, 4);
+        helpOptions.Controls.Add(_helpPeopleHint);
         var priorities = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 0) };
         var priorityLabel = Theme.Label("Priority");
         priorityLabel.Margin = new Padding(4, 6, 12, 0);
@@ -525,6 +549,8 @@ public sealed class SettingsForm : Form
             _helpChosen.Add(group.Id);
             _helpNames[group.Id] = group.Name;
         }
+        foreach (var colleague in settings.HelpExcludedAssignees)
+            _helpExcluded[colleague.Id] = colleague.Name;
         _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
         _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
         _helpMyHours.Checked = settings.HelpOnlyDuringMyHours;
@@ -580,8 +606,10 @@ public sealed class SettingsForm : Form
         _subdomain.TextChanged += (_, _) => UpdateSaveState();
         _interval.ValueChanged += (_, _) => UpdateSaveState();
         foreach (var radio in new[] { _helpSame, _helpCustom })
-            radio.CheckedChanged += (_, _) => { UpdateHelpOptions(); UpdateSaveState(); };
-        _help.CheckedChanged += (_, _) => UpdateHelpOptions();
+            radio.CheckedChanged += (_, _) => { UpdateHelpOptions(); UpdateSaveState(); if (radio.Checked) RefreshHelpPeople(); };
+        _help.CheckedChanged += (_, _) => { UpdateHelpOptions(); RefreshHelpPeople(); };
+        _helpPeopleAll.Click += (_, _) => SetAllHelpPeople(true);
+        _helpPeopleNone.Click += (_, _) => SetAllHelpPeople(false);
         foreach (var combo in new[] { _workStart, _workEnd })
             combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
         foreach (var combo in new[] { _newSound, _newDisplay, _mySound, _myDisplay, _helpSound, _helpDisplay })
@@ -646,6 +674,8 @@ public sealed class SettingsForm : Form
         s.HelpSameAsMonitored = _helpSame.Checked;
         s.HelpGroups = _helpChosen.Select(id => new WatchedGroup { Id = id, Name = _helpNames.GetValueOrDefault(id, $"Group {id}") })
             .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        s.HelpExcludedAssignees = _helpExcluded.Select(kv => new Colleague { Id = kv.Key, Name = kv.Value })
+            .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _helpMyHours.Checked;
@@ -691,6 +721,12 @@ public sealed class SettingsForm : Form
                 return; // the subdomain changed meanwhile
 
             SetAccount($"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}", AccountState.SignedIn);
+            if (force)
+                _memberCache = null; // Reload fetches the group members again too
+            _client = client;
+            _meId = me.Id;
+            _myRegion = RegionOf(ZoneOf(me) ?? LocalZone());
+            RefreshHelpPeople();
             var sessionMs = clock.ElapsedMilliseconds;
 
             // Groups rarely change: reuse what was loaded in the last half hour (Reload always fetches).
@@ -845,6 +881,11 @@ public sealed class SettingsForm : Form
     /// <summary>Shows the account status; only the buttons that make sense for the state are visible.</summary>
     private void SetAccount(string text, AccountState state)
     {
+        if (state != AccountState.SignedIn && _client is not null)
+        {
+            _client = null;
+            RefreshHelpPeople();
+        }
         _account.Text = text;
         _accountDot.DotColor = state switch
         {
@@ -1266,11 +1307,232 @@ public sealed class SettingsForm : Form
             {
                 if (box.Checked) _helpChosen.Add(id); else _helpChosen.Remove(id);
                 UpdateSaveState();
+                RefreshHelpPeople();
             };
             _helpGroupList.Controls.Add(box);
         }
         _helpGroupList.ResumeLayout();
         UpdateHelpOptions();
+        RefreshHelpPeople();
+    }
+
+    // ------------------------------------------------------------------ help colleagues: assignees
+
+    /// <summary>A group member offered under "Assignees". Zone: their IANA time zone, null if it can't be used.</summary>
+    private sealed record Member(long Id, string Name, string? Zone)
+    {
+        public Region Region => RegionOf(Zone);
+    }
+
+    /// <summary>Regions the assignees are grouped by, in display order.</summary>
+    private enum Region { Americas, EuropeAfrica, AsiaPacific, Other, NoTimeZone }
+
+    private static string RegionName(Region region) => region switch
+    {
+        Region.Americas => "Americas",
+        Region.EuropeAfrica => "Europe & Africa",
+        Region.AsiaPacific => "Asia & Pacific",
+        Region.Other => "Other time zones",
+        _ => "No time zone (always skipped)"
+    };
+
+    private static Region RegionOf(string? zone) => zone is null ? Region.NoTimeZone : zone.Split('/')[0] switch
+    {
+        "America" or "US" or "Canada" or "Brazil" or "Chile" or "Mexico" => Region.Americas,
+        "Europe" or "Africa" or "Atlantic" or "Arctic" => Region.EuropeAfrica,
+        "Asia" or "Australia" or "Pacific" or "Indian" or "Antarctica" => Region.AsiaPacific,
+        _ => Region.Other
+    };
+
+    /// <summary>The IANA id of a profile's time zone, if it can be used (the same rule "Help colleagues" applies).</summary>
+    private static string? ZoneOf(User user) =>
+        IanaId(ZendeskWatcher.Tracking.TicketWatcher.ResolveTimeZone(user.IanaTimeZone) ?? ZendeskWatcher.Tracking.TicketWatcher.ResolveTimeZone(user.TimeZone));
+
+    private static string? LocalZone() => IanaId(TimeZoneInfo.Local);
+
+    private static string? IanaId(TimeZoneInfo? zone) =>
+        zone is null ? null
+        : zone.HasIanaId ? zone.Id
+        : TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana) ? iana : null;
+
+    /// <summary>Group members loaded from Zendesk (group id -> members), remembered like the group list.</summary>
+    private static (string Subdomain, DateTime At, Dictionary<long, List<Member>> Groups)? _memberCache;
+
+    /// <summary>The groups "Help colleagues" covers with the choices as they are right now.</summary>
+    private List<long> HelpGroupIds() =>
+        (_helpSame.Checked ? _selectedGroups : _helpChosen).Where(id => id != WatchedGroup.NoGroupId).ToList();
+
+    private async void RefreshHelpPeople()
+    {
+        try
+        {
+            await ShowHelpPeopleAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Settings: could not show the assignees", ex);
+        }
+    }
+
+    /// <summary>
+    /// Lists the members of the covered groups, all ticked except the ones you excluded. Members are only loaded
+    /// while "Help colleagues" is on and you're signed in; otherwise just the excluded colleagues are shown.
+    /// </summary>
+    private async Task ShowHelpPeopleAsync()
+    {
+        var version = ++_helpPeopleVersion;
+        var groupIds = HelpGroupIds();
+        var failed = 0;
+        Dictionary<long, List<Member>>? loaded = null;
+
+        if (_help.Checked && _client is { } client && groupIds.Count > 0)
+        {
+            var subdomain = Current().Subdomain;
+            if (_memberCache is not { } cache || cache.Subdomain != subdomain || DateTime.UtcNow - cache.At > GroupCacheLifetime)
+                _memberCache = (subdomain, DateTime.UtcNow, []);
+            var groups = _memberCache.Value.Groups;
+
+            var missing = groupIds.Where(id => !groups.ContainsKey(id)).ToList();
+            if (missing.Count > 0)
+            {
+                _helpPeopleHint.Text = "Loading the group members…";
+                foreach (var id in missing)
+                {
+                    try
+                    {
+                        groups[id] = (await client.GetGroupMembersAsync(id, CancellationToken.None))
+                            .Where(u => u.Role != "end-user")
+                            .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", ZoneOf(u)))
+                            .ToList();
+                    }
+                    catch (AuthRequiredException)
+                    {
+                        failed++;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"Settings: could not load the members of group {id}", ex);
+                        failed++;
+                    }
+                }
+                Log.Info($"Settings: loaded the members of {missing.Count - failed} group(s) for Help colleagues");
+            }
+            if (version != _helpPeopleVersion || !ReferenceEquals(client, _client))
+                return; // the choices or the session changed meanwhile
+            loaded = groups;
+        }
+        else if (version != _helpPeopleVersion)
+            return;
+
+        List<Member> shown;
+        if (loaded is null)
+            shown = _helpExcluded.Select(kv => new Member(kv.Key, kv.Value, null)).ToList();
+        else
+        {
+            shown = groupIds.SelectMany(id => loaded.GetValueOrDefault(id) ?? [])
+                .Where(m => m.Id != _meId)
+                .DistinctBy(m => m.Id)
+                .ToList();
+            foreach (var m in shown.Where(m => _helpExcluded.ContainsKey(m.Id)))
+                _helpExcluded[m.Id] = m.Name; // keep the stored name current
+        }
+        _helpPeopleShown = shown.OrderBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+        _helpPeopleList.SuspendLayout();
+        foreach (var old in _helpPeopleList.Controls.Cast<Control>().ToList())
+        {
+            _tips.SetToolTip(old, null);
+            old.Dispose();
+        }
+        _helpPeopleList.Controls.Clear();
+        var isLoaded = loaded is not null;
+
+        // Signed in: by region (from each colleague's time zone), so e.g. only other regions can be covered.
+        // Otherwise just the unticked colleagues, whose time zones aren't known.
+        var sections = isLoaded
+            ? _helpPeopleShown.GroupBy(m => m.Region).OrderBy(g => g.Key).Select(g => (Region: (Region?)g.Key, Members: g.ToList())).ToList()
+            : [(Region: (Region?)null, Members: _helpPeopleShown)];
+        var boxesBefore = false;
+        foreach (var (region, members) in sections)
+        {
+            var boxes = new List<CheckBox>();
+            if (region is { } r)
+            {
+                var title = Theme.Label(RegionName(r) + (r == _myRegion ? "  ·  your region" : ""), Theme.Small, Theme.TextMuted);
+                title.Margin = new Padding(0, 6, 12, 2);
+                title.UseMnemonic = false; // show the "&" in "Europe & Africa"
+                var all = LinkLabel("All", Theme.Small);
+                var none = LinkLabel("None", Theme.Small);
+                all.Margin = none.Margin = new Padding(0, 6, 10, 2);
+                all.Click += (_, _) => { foreach (var b in boxes) b.Checked = true; };
+                none.Click += (_, _) => { foreach (var b in boxes) b.Checked = false; };
+                var header = Row(title, all, none);
+                header.Margin = new Padding(0, boxesBefore ? 8 : 2, 0, 2);
+                _helpPeopleList.Controls.Add(header);
+                _helpPeopleList.SetFlowBreak(header, true);
+            }
+            foreach (var member in members)
+            {
+                var box = Check(member.Name);
+                box.AutoSize = false;
+                box.AutoEllipsis = true;
+                box.Size = new Size(HelpPeopleWidth / 2 - 4, box.PreferredSize.Height);
+                box.Margin = new Padding(0, 1, 4, 1);
+                box.Checked = !_helpExcluded.ContainsKey(member.Id);
+                box.CheckedChanged += (_, _) =>
+                {
+                    if (box.Checked) _helpExcluded.Remove(member.Id); else _helpExcluded[member.Id] = member.Name;
+                    UpdateHelpPeopleHint(isLoaded, failed);
+                    UpdateSaveState();
+                };
+                if (isLoaded)
+                    _tips.SetToolTip(box, member.Zone is { } zone ? $"{member.Name} · {zone.Replace('_', ' ')}" : $"{member.Name} · no time zone in their Zendesk profile");
+                _helpPeopleList.Controls.Add(box);
+                boxes.Add(box);
+            }
+            if (boxes.Count > 0)
+                _helpPeopleList.SetFlowBreak(boxes[^1], true);
+            boxesBefore |= boxes.Count > 0;
+        }
+        _helpPeopleList.ResumeLayout();
+        UpdateHelpPeopleHint(isLoaded, failed);
+        UpdateHelpOptions();
+    }
+
+    private void UpdateHelpPeopleHint(bool loaded, int failed)
+    {
+        var excludedShown = _helpPeopleShown.Count(m => _helpExcluded.ContainsKey(m.Id));
+        var everyone = excludedShown == 0 ? "Everyone in these groups." : "Everyone in these groups except the ones unticked above.";
+        string text;
+        if (HelpGroupIds().Count == 0)
+            text = "Choose a group first.";
+        else if (!loaded)
+            text = _help.Checked ? everyone + " Sign in to choose from the group members." : everyone;
+        else if (_helpPeopleShown.Count == 0)
+            text = "No other members found in these groups.";
+        else
+            text = $"{_helpPeopleShown.Count - excludedShown} of {_helpPeopleShown.Count} colleagues covered. New group members are included automatically.";
+        if (failed > 0)
+            text += $" Could not load the members of {failed} group(s).";
+        _helpPeopleHint.Text = text;
+    }
+
+    private void SetAllHelpPeople(bool covered)
+    {
+        if (!_help.Checked)
+            return;
+        foreach (var box in _helpPeopleList.Controls.OfType<CheckBox>())
+            box.Checked = covered; // each box updates _helpExcluded
+    }
+
+    /// <summary>A small clickable text in the accent color.</summary>
+    private static Label LinkLabel(string text, Font? font = null)
+    {
+        var label = Theme.Label(text, font ?? Theme.Body, Theme.Accent);
+        label.Cursor = Cursors.Hand;
+        label.Margin = new Padding(0, 6, 12, 4);
+        return label;
     }
 
     private void UpdateHelpOptions()
@@ -1280,6 +1542,7 @@ public sealed class SettingsForm : Form
         foreach (var (_, box) in _helpPriorities)
             box.Enabled = on;
         _helpGroupList.Enabled = on && _helpCustom.Checked;
+        _helpPeopleList.Enabled = _helpPeopleAll.Enabled = _helpPeopleNone.Enabled = on;
     }
 
     private static ComboBox HourCombo(int from, int to)
@@ -1316,6 +1579,7 @@ public sealed class SettingsForm : Form
             {
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
+                HelpExcludedAssignees = [new Colleague { Id = 9, Name = "Alex Example" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }]
             };
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }));
@@ -1326,6 +1590,17 @@ public sealed class SettingsForm : Form
             Application.DoEvents();
             form._suggestions = new() { [3] = new Suggestion(false, 2), [4] = new Suggestion(true, 6) };
             form.SetGroups([new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding"), new GroupItem(5, "Partner Support")]);
+
+            // Sample group members (cached, so nothing is requested), shown as if signed in.
+            _memberCache = ("example", DateTime.UtcNow, new()
+            {
+                [1] = [new(9, "Alex Example", "Europe/Stockholm"), new(10, "Maria Svensson", "Europe/Stockholm"), new(11, "Jordan Lee", "America/New_York"),
+                       new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
+                [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
+            });
+            form._myRegion = Region.EuropeAfrica;
+            form._client = new ZendeskClient(settings, new SignedOutSession());
+            form.RefreshHelpPeople();
             form.SelectTheme(theme);
             for (var page = 0; page < form._pages.Count; page++)
             {
@@ -1338,6 +1613,12 @@ public sealed class SettingsForm : Form
                 // And the bottom of long pages.
                 if (form._content.VerticalScroll.Visible)
                 {
+                    form._content.AutoScrollPosition = new Point(0, form._content.DisplayRectangle.Height / 2);
+                    Application.DoEvents();
+                    using var middle = new Bitmap(form.Width, form.Height);
+                    form.DrawToBitmap(middle, new Rectangle(Point.Empty, middle.Size));
+                    middle.Save(Path.Combine(dir, $"{theme}-{page}-middle.png"));
+
                     form._content.AutoScrollPosition = new Point(0, form._content.DisplayRectangle.Height);
                     Application.DoEvents();
                     using var bottom = new Bitmap(form.Width, form.Height);

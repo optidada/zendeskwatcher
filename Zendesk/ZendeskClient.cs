@@ -63,6 +63,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
+    /// <summary>The members of a group (agents), with name and time zone. Used to pick colleagues for "Help colleagues".</summary>
+    public async Task<List<User>> GetGroupMembersAsync(long groupId, CancellationToken ct) =>
+        await GetAllPagesAsync<UsersResponse, User>($"/api/v2/groups/{groupId}/users.json?per_page=100", r => r.Users, ct);
+
     /// <summary>
     /// Open, unassigned tickets in a group, or with no group at all for <see cref="WatchedGroup.NoGroupId"/>.
     /// Uses the search index, which can lag 1-3 minutes.

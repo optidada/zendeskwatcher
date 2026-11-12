@@ -339,6 +339,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
 
         var me = Me!.Id;
+        var excluded = settings.HelpExcludedAssignees.Select(c => c.Id).ToHashSet();
         var now = DateTimeOffset.UtcNow;
         var since = (_state.HelpLastCheck == default ? now.AddHours(-1) : _state.HelpLastCheck) - HelpLookBack;
 
@@ -354,6 +355,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             {
                 if (ticket.AssigneeId is not { } assigneeId || assigneeId == me)
                     continue; // your own tickets are covered by "my tickets"
+                if (excluded.Contains(assigneeId))
+                    continue; // a colleague you chose not to cover
                 if (!settings.HelpPriorities.Contains(string.IsNullOrEmpty(ticket.Priority) ? "normal" : ticket.Priority))
                     continue; // not a priority you chose (no priority counts as normal)
                 var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
@@ -427,7 +430,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
         local.Hour < settings.WorkdayStartHour || local.Hour >= settings.WorkdayEndHour;
 
-    private static TimeZoneInfo? ResolveTimeZone(string? id) =>
+    internal static TimeZoneInfo? ResolveTimeZone(string? id) =>
         !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) ? zone : null;
 
     /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>

@@ -38,6 +38,12 @@ public sealed class Settings
     /// <summary>Custom groups for "Help colleagues" when <see cref="HelpSameAsMonitored"/> is off.</summary>
     public List<WatchedGroup> HelpGroups { get; set; } = [];
 
+    /// <summary>
+    /// Colleagues "Help colleagues" ignores (unticked in Settings). Only exclusions are stored, so new group members
+    /// are covered automatically. The name is kept for display.
+    /// </summary>
+    public List<Colleague> HelpExcludedAssignees { get; set; } = [];
+
     /// <summary>The groups "Help colleagues" actually covers (none when it's off).</summary>
     public IReadOnlyList<WatchedGroup> EffectiveHelpGroups =>
         !HelpColleagues ? [] : (HelpSameAsMonitored ? WatchedGroups : HelpGroups).Where(g => !g.IsNoGroup).ToList();
@@ -158,6 +164,13 @@ public sealed class WatchedGroup
 
     /// <summary>"in Support Tier 2", or "with no group" for the pseudo group.</summary>
     public string Describe() => IsNoGroup ? "with no group" : $"in {Name}";
+}
+
+/// <summary>A Zendesk agent, by id, with the name as last seen.</summary>
+public sealed class Colleague
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
 }
 
 public sealed class NotificationStyle
