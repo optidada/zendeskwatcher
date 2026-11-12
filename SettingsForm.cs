@@ -859,16 +859,22 @@ public sealed class SettingsForm : Form
         return page;
     }
 
-    private static FlowLayoutPanel Row(params Control[] controls)
+    private static TableLayoutPanel Row(params Control[] controls)
     {
-        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Surface, Margin = Padding.Empty };
-        foreach (var c in controls)
+        // A one-row table, so labels are vertically centered next to taller controls (e.g. the drop-downs).
+        var row = new TableLayoutPanel
         {
+            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, BackColor = Theme.Surface, Margin = Padding.Empty,
+            RowCount = 1, ColumnCount = controls.Length
+        };
+        for (var i = 0; i < controls.Length; i++)
+        {
+            var c = controls[i];
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            c.Anchor = AnchorStyles.Left;
             if (c is Label label)
-            {
-                label.Margin = new Padding(4, 5, 6, 0);
-            }
-            row.Controls.Add(c);
+                label.Margin = new Padding(4, 0, 6, 0);
+            row.Controls.Add(c, i, 0);
         }
         return row;
     }
@@ -902,11 +908,7 @@ public sealed class SettingsForm : Form
 
     private static ComboBox Combo<T>(Option<T>[] options)
     {
-        var combo = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Font = Theme.Body,
-            Width = 170, Margin = new Padding(0, 3, 10, 3), BackColor = Theme.Surface
-        };
+        var combo = new RoomyComboBox { Width = 180, Margin = new Padding(0, 3, 10, 3) };
         combo.Items.AddRange(options.Cast<object>().ToArray());
         combo.SelectedIndex = 0;
         return combo;

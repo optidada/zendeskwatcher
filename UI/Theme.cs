@@ -440,6 +440,53 @@ public sealed class InputBox : Panel
     }
 }
 
+/// <summary>
+/// A drop-down list with breathing room: taller rows, text inset from the border, and colors from the current
+/// palette (also in the open list, so dark themes stay dark).
+/// </summary>
+public sealed class RoomyComboBox : ComboBox
+{
+    private const int PadX = 9;
+
+    public RoomyComboBox()
+    {
+        DropDownStyle = ComboBoxStyle.DropDownList;
+        FlatStyle = FlatStyle.Flat;
+        DrawMode = DrawMode.OwnerDrawFixed;
+        Font = Theme.Body;
+        BackColor = Theme.Surface;
+        ForeColor = Theme.Text;
+        UpdateItemHeight();
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        base.OnDpiChangedAfterParent(e);
+        UpdateItemHeight();
+    }
+
+    private void UpdateItemHeight() => ItemHeight = TextRenderer.MeasureText("Ag", Font).Height + (int)(12 * DeviceDpi / 96f);
+
+    protected override void OnDrawItem(DrawItemEventArgs e)
+    {
+        if (e.Index < 0)
+            return;
+
+        var inEdit = (e.State & DrawItemState.ComboBoxEdit) != 0;
+        var highlighted = !inEdit && (e.State & DrawItemState.Selected) != 0;
+        var back = highlighted ? Theme.Accent : Theme.Surface;
+        var fore = highlighted ? Theme.OnAccent : Enabled ? Theme.Text : Theme.TextMuted;
+
+        using (var brush = new SolidBrush(back))
+            e.Graphics.FillRectangle(brush, e.Bounds);
+
+        var pad = (int)(PadX * DeviceDpi / 96f) - (inEdit ? 3 : 0); // the edit area already has a small inset
+        var text = new Rectangle(e.Bounds.X + pad, e.Bounds.Y, e.Bounds.Width - pad, e.Bounds.Height);
+        TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, text, fore,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+}
+
 /// <summary>A ListView that paints without flicker and whose single column always fills the width.</summary>
 public sealed class SmoothListView : ListView
 {
