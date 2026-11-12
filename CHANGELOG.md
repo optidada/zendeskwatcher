@@ -6,6 +6,9 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.2
 
 - When you start monitoring a group, one notification shows what's already waiting there ("Now watching Tier 2 · 3 unassigned tickets already waiting"); new tickets after that notify one by one as before.
+- The tray icon turns lime as soon as you're signed in, instead of staying gray until the first check finishes.
+- Notifications use English day and month names whatever the PC's language ("Fri 01:06", "12 Nov").
+- Fixed: re-ticking a group right after unticking it didn't show the "Now watching" summary.
 
 ## 1.3.1
 

@@ -172,6 +172,9 @@ public sealed class TrayAppContext : ApplicationContext
                     await watcher.InitializeAsync(ct);
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
                     initialized = true;
+                    // Signed in: show it right away; the first check (a few seconds) then sets green/orange.
+                    if (_tray.Icon == _iconOff)
+                        SetStatus("Signed in · checking…", _iconOk);
                 }
 
                 await watcher.PollAsync(ct);
