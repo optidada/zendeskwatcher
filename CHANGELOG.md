@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.10
+
+- **Send feedback** in the tray menu and on the new Settings → General page: opens an email to Daniel with the app and Windows version filled in, in Outlook if you have it, otherwise your default mail app. If something went wrong, attach the latest log from the log folder.
+- **General page** in Settings: start with Windows and the start summary (moved from Notifications), check for updates, send feedback and open the log folder.
+- **Snooze** can be set up under Settings → Notifications: show again after 5 minutes to 1 hour (default 10), and only if the ticket still needs attention (default) or always. A snoozed new ticket no longer comes back once someone has taken it, and snoozed popups wait while notifications are paused.
+- Help colleagues: the groups list shows the selected groups first, then monitored ones, then groups you're a member of.
+
 ## 1.3.9
 
 - **Start summary**: after the first check, a short greeting ("Good morning, Daniel") with what's waiting: unassigned tickets per group and the oldest one, your tickets (open, pending, on hold), CC tickets and Help colleagues. Silent, about 10 seconds; can be switched off under Settings → General.

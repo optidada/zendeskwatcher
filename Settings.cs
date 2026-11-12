@@ -64,6 +64,12 @@ public sealed class Settings
     /// <summary>After the first check of each start: a short summary of what's being watched and what's waiting.</summary>
     public bool ShowStartSummary { get; set; } = true;
 
+    /// <summary>How long the Snooze button on a popup hides it before it shows again.</summary>
+    public int SnoozeMinutes { get; set; } = 10;
+
+    /// <summary>Whether a snoozed popup shows again only if its ticket still needs attention.</summary>
+    public SnoozeBehavior SnoozeBehavior { get; set; } = SnoozeBehavior.IfStillNeeded;
+
     /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 
@@ -185,6 +191,15 @@ public sealed class NotificationStyle
 /// <summary>Windows sounds, then chiptune jingles (added last: settings store the number).</summary>
 public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent, ChipBlip, ChipArpeggio, ChipBounce, ChipAlert, ChipFanfare,
     SongBouncy, SongGroove, SongCelebration }
+
+public enum SnoozeBehavior
+{
+    /// <summary>Checks the ticket first: a new ticket must still be unassigned, any ticket not solved or closed.</summary>
+    IfStillNeeded,
+
+    /// <summary>Shows it again whatever happened to the ticket.</summary>
+    Always
+}
 
 public enum ToastDisplay
 {

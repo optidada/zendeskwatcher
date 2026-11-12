@@ -50,7 +50,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         Current = this;
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-        _notifier = new Notifier(HandleAction) { Settings = _settings };
+        _notifier = new Notifier(HandleAction) { Settings = _settings, StillNeeded = StillNeededAsync };
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_statusItem);
@@ -62,6 +62,7 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
         menu.Items.Add("Open log folder", null, (_, _) => OpenUrl(AppPaths.DataDir));
         menu.Items.Add(_updateItem);
+        menu.Items.Add("Send feedback…", null, (_, _) => SendFeedback());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
@@ -305,6 +306,10 @@ public sealed class TrayAppContext : ApplicationContext
         };
         form.SessionChanging += () => PauseChecking("Paused while signing in or out");
         form.SessionChanged += () => Start(openSettingsIfNeeded: false);
+        form.CheckForUpdatesClicked += OnUpdateMenuClicked;
+        form.SendFeedbackClicked += SendFeedback;
+        form.OpenLogFolderClicked += () => OpenUrl(AppPaths.DataDir);
+        form.ShowUpdateState(_updateItem.Text ?? "Check for updates", _updateItem.Enabled);
         form.FormClosed += (_, _) =>
         {
             _settingsForm = null;
@@ -371,11 +376,10 @@ public sealed class TrayAppContext : ApplicationContext
         _checkingForUpdates = true;
         try
         {
-            _updateItem.Enabled = false;
-            _updateItem.Text = "Checking for updates…";
+            SetUpdateState("Checking for updates…", enabled: false);
             if (await _updater.CheckAndDownloadAsync())
             {
-                _updateItem.Text = $"Restart to update to {_updater.PendingVersion}";
+                SetUpdateState($"Restart to update to {_updater.PendingVersion}");
                 _updateTimer.Stop();
                 if (_announcedVersion != _updater.PendingVersion)
                 {
@@ -385,7 +389,7 @@ public sealed class TrayAppContext : ApplicationContext
             }
             else
             {
-                _updateItem.Text = "Check for updates";
+                SetUpdateState("Check for updates");
                 if (userInitiated)
                     _notifier.ShowInfo("No updates", $"You have the latest version ({_updater.CurrentVersion}).");
             }
@@ -393,15 +397,23 @@ public sealed class TrayAppContext : ApplicationContext
         catch (Exception ex)
         {
             Log.Error("Update check failed", ex);
-            _updateItem.Text = "Check for updates";
+            SetUpdateState("Check for updates");
             if (userInitiated)
                 _notifier.ShowInfo("Couldn't check for updates", ex.Message);
         }
         finally
         {
             _checkingForUpdates = false;
-            _updateItem.Enabled = true;
+            SetUpdateState(_updateItem.Text ?? "Check for updates");
         }
+    }
+
+    /// <summary>The update item's text and state, in the tray menu and on the Settings General page.</summary>
+    private void SetUpdateState(string text, bool enabled = true)
+    {
+        _updateItem.Text = text;
+        _updateItem.Enabled = enabled;
+        _settingsForm?.ShowUpdateState(text, enabled);
     }
 
     private void RestartToUpdate()
@@ -455,6 +467,79 @@ public sealed class TrayAppContext : ApplicationContext
         }
         _pulseFrame = (_pulseFrame + 1) % frames.Length;
         _tray.Icon = frames[_pulseFrame];
+    }
+
+    /// <summary>
+    /// For snoozed popups: a new unassigned ticket must still be unassigned and open; any other ticket must not be
+    /// solved or closed. Not signed in yet: assume it's still needed.
+    /// </summary>
+    private async Task<bool> StillNeededAsync(NotificationContent content)
+    {
+        if (_taker is not { } taker || content.TicketId is not { } id)
+            return true;
+        var ticket = (await taker.Client.GetTicketsAsync([id], CancellationToken.None)).FirstOrDefault();
+        if (ticket is null)
+            return false; // deleted, or no longer visible to you
+        return content.Kind == NotificationKind.NewTicket
+            ? ticket.IsOpen && ticket.AssigneeId is null
+            : ticket.IsOpen;
+    }
+
+    // ------------------------------------------------------------------ feedback
+
+    /// <summary>
+    /// Opens a pre-filled feedback email, picking the app automatically: classic Outlook if it's installed (most
+    /// colleagues use it, while mailto may go to e.g. Gmail), else the default mail app. If neither opens, the
+    /// email is copied to the clipboard. A new email can't carry attachments, so the text points at the log folder.
+    /// </summary>
+    private void SendFeedback()
+    {
+        if (ClassicOutlookPath() is { } outlook)
+        {
+            try
+            {
+                Process.Start(outlook, ["/c", "ipm.note", "/m", $"{AppUpdater.FeedbackEmail}?{FeedbackQuery()}"]);
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not open Outlook for feedback; trying the default mail app", ex);
+            }
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo($"mailto:{AppUpdater.FeedbackEmail}?{FeedbackQuery()}") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not open a mail app for feedback", ex);
+            Clipboard.SetText($"To: {AppUpdater.FeedbackEmail}\r\nSubject: {FeedbackSubject}\r\n\r\n{FeedbackBody}");
+            _notifier.ShowInfo("No mail app found", $"The feedback email is copied to the clipboard. Paste it into an email to {AppUpdater.FeedbackEmail}.");
+        }
+    }
+
+    private string FeedbackSubject => $"Zendesk Watcher feedback ({_updater.CurrentVersion})";
+
+    private string FeedbackBody => string.Join("\r\n",
+        "What happened, or what would you like?",
+        "",
+        "",
+        "",
+        "---",
+        $"Version: {_updater.CurrentVersion}",
+        $"Windows: {Environment.OSVersion.Version}",
+        $"Log folder: {AppPaths.DataDir}",
+        "(If something went wrong, please attach the latest log from that folder.)");
+
+    private string FeedbackQuery() =>
+        $"subject={Uri.EscapeDataString(FeedbackSubject)}&body={Uri.EscapeDataString(FeedbackBody)}";
+
+    /// <summary>Classic desktop Outlook (OUTLOOK.EXE), which can open a pre-filled email; null if not installed.</summary>
+    private static string? ClassicOutlookPath()
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE");
+        return key?.GetValue(null) is string path && File.Exists(path) ? path : null;
     }
 
     private static void OpenUrl(string? url)

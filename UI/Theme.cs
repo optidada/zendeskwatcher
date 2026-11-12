@@ -168,7 +168,8 @@ public static class Theme
         ForeColor = color ?? Text,
         BackColor = Color.Transparent,
         MaximumSize = new Size(maxWidth, 0),
-        Margin = new Padding(0, 0, 0, 4)
+        Margin = new Padding(0, 0, 0, 4),
+        UseMnemonic = false // show "&" as is (names, group names) instead of as a shortcut underline
     };
 
     public static Button PrimaryButton(string text) => StyledButton(text, Accent, OnAccent, Accent, AccentHover);

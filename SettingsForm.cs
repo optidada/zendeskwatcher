@@ -7,7 +7,9 @@ namespace ZendeskWatcher;
 public sealed class SettingsForm : Form
 {
     private const int CardWidth = 556;
-    private const string Author = "Claude + Daniel Dahlin @ Optimizely";
+    private const string Author = "Claude & Daniel Dahlin @ Optimizely";
+    private const string FeedbackName = "Daniel";
+    private static readonly string AppVersion = typeof(SettingsForm).Assembly.GetName().Version?.ToString(3) ?? "?";
 
     private readonly Func<Settings, IZendeskSession> _sessionFactory;
     private readonly Notifier _notifier;
@@ -85,7 +87,7 @@ public sealed class SettingsForm : Form
     /// <summary>Client and user id of the signed-in session, for loading group members; null when not signed in.</summary>
     private ZendeskClient? _client;
     private long _meId;
-    private Region _myRegion = Region.Other;
+    private TimeRegion _myRegion = TimeRegion.Other;
     private readonly Dictionary<long, string> _helpNames = [];
     private readonly ComboBox _workStart = HourCombo(0, 23);
     private readonly ComboBox _workEnd = HourCombo(1, 24);
@@ -95,6 +97,8 @@ public sealed class SettingsForm : Form
     ];
     private readonly CheckBox _helpMyHours = Check("Only notify me while I'm working myself (same hours, my local time)");
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
+    private readonly ComboBox _snoozeMinutes = IntCombo(SnoozeMinuteOptions);
+    private readonly ComboBox _snoozeBehavior = Combo(SnoozeBehaviorOptions);
     private readonly ToggleSwitch _startSummary = new("Show a summary when Zendesk Watcher starts");
 
     // Appearance
@@ -130,12 +134,24 @@ public sealed class SettingsForm : Form
         new(ToastSound.Silent, "Silent")
     ];
 
+    private static readonly Option<int>[] SnoozeMinuteOptions =
+        [new(5, "5 minutes"), new(10, "10 minutes"), new(15, "15 minutes"), new(30, "30 minutes"), new(60, "1 hour")];
+
+    private static readonly Option<SnoozeBehavior>[] SnoozeBehaviorOptions =
+    [
+        new(SnoozeBehavior.IfStillNeeded, "Only if the ticket still needs attention"),
+        new(SnoozeBehavior.Always, "Always")
+    ];
+
     private static readonly Option<ToastDisplay>[] DisplayOptions =
     [
         new(ToastDisplay.Standard, "Standard (~5 s)"), new(ToastDisplay.Long, "Long (~25 s)"), new(ToastDisplay.UntilDismissed, "Stay until dismissed")
     ];
 
     // Footer
+    private readonly Button _checkUpdates = Theme.SecondaryButton("Check for updates");
+    private readonly Button _sendFeedback = Theme.PrimaryButton("Send feedback…");
+    private readonly Button _openLogs = Theme.SecondaryButton("Open log folder");
     private readonly Button _save = Theme.PrimaryButton("Save");
     private readonly Button _close = Theme.SecondaryButton("Close");
     private readonly Label _saveState = Theme.Label("", Theme.Small, Theme.TextMuted);
@@ -157,6 +173,18 @@ public sealed class SettingsForm : Form
 
     /// <summary>The sign-in or sign-out has finished.</summary>
     public event Action? SessionChanged;
+
+    /// <summary>General page buttons; the tray app does the same as its menu items.</summary>
+    public event Action? CheckForUpdatesClicked;
+    public event Action? SendFeedbackClicked;
+    public event Action? OpenLogFolderClicked;
+
+    /// <summary>Mirrors the tray menu's update item ("Checking for updates…", "Restart to update to …").</summary>
+    public void ShowUpdateState(string text, bool enabled)
+    {
+        _checkUpdates.Text = text;
+        _checkUpdates.Enabled = enabled;
+    }
 
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false)
         : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0)
@@ -219,6 +247,7 @@ public sealed class SettingsForm : Form
         var footer = BuildFooter();
 
         var content = _content;
+        content.Controls.Add(BuildGeneralPage());
         content.Controls.Add(BuildAppearancePage());
         content.Controls.Add(BuildNotificationsPage());
         content.Controls.Add(BuildGroupsPage());
@@ -242,7 +271,7 @@ public sealed class SettingsForm : Form
         stack.Controls.Add(title);
         stack.Controls.Add(subtitle);
 
-        foreach (var name in new[] { "Account", "Groups", "Notifications", "Appearance" })
+        foreach (var name in new[] { "Account", "Groups", "Notifications", "Appearance", "General" })
         {
             var nav = new NavItem(name);
             var index = _pages.Count;
@@ -251,15 +280,15 @@ public sealed class SettingsForm : Form
             _pages.Add((nav, null!));
         }
 
-        var version = typeof(SettingsForm).Assembly.GetName().Version;
+        // Just the version; the author is on the General page.
         var about = new Label
         {
-            Text = $"Author: {Author}\n\nVersion {version?.ToString(3)}",
+            Text = $"Version {AppVersion}",
             Font = Theme.Small,
             ForeColor = Theme.Neutral,
             BackColor = Theme.Sidebar,
             Dock = DockStyle.Bottom,
-            Height = 96,
+            Height = 48,
             Padding = new Padding(24, 0, 12, 18),
             TextAlign = ContentAlignment.BottomLeft
         };
@@ -418,15 +447,25 @@ public sealed class SettingsForm : Form
         help.Body.Controls.Add(helpOptions);
         page.Controls.Add(help);
 
+        var snooze = new Card("Snooze", "Snooze on a popup hides it and shows it again later. " +
+            "A ticket still needs attention when a new ticket is still unassigned, or another ticket isn't solved or closed. " +
+            "While notifications are paused, snoozed popups wait until the pause ends.", CardWidth);
+        var snoozeGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
+        snoozeGrid.Controls.Add(Theme.Label("Show again after"), 0, 0);
+        snoozeGrid.Controls.Add(_snoozeMinutes, 1, 0);
+        snoozeGrid.Controls.Add(Theme.Label("Show it"), 0, 1);
+        snoozeGrid.Controls.Add(_snoozeBehavior, 1, 1);
+        foreach (Control control in snoozeGrid.Controls)
+            if (control is Label) control.Anchor = AnchorStyles.Left;
+        _snoozeBehavior.Width = 300;
+        snooze.Body.Controls.Add(snoozeGrid);
+        page.Controls.Add(snooze);
+
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", CardWidth);
         checking.Body.Controls.Add(Row(Theme.Label("Check Zendesk every"), _interval, Theme.Label("seconds")));
         Theme.WheelScrollsPage(_interval);
         page.Controls.Add(checking);
 
-        var general = new Card("General", null, CardWidth);
-        general.Body.Controls.Add(_startup);
-        general.Body.Controls.Add(_startSummary);
-        page.Controls.Add(general);
 
         _pages[2] = (_pages[2].Nav, page);
         return page;
@@ -466,6 +505,33 @@ public sealed class SettingsForm : Form
         page.Controls.Add(test);
 
         _pages[3] = (_pages[3].Nav, page);
+        return page;
+    }
+
+    private Control BuildGeneralPage()
+    {
+        var page = Page("General", $"Zendesk Watcher {AppVersion}, by {Author}.");
+
+        var startup = new Card("Startup", null, CardWidth);
+        startup.Body.Controls.Add(_startup);
+        startup.Body.Controls.Add(_startSummary);
+        page.Controls.Add(startup);
+
+        var updates = new Card("Updates", "New versions are downloaded automatically and installed when you restart the app.", CardWidth);
+        _checkUpdates.AutoSize = true;
+        updates.Body.Controls.Add(Row(_checkUpdates));
+        page.Controls.Add(updates);
+
+        var feedback = new Card("Feedback", $"Ideas, questions or something not working? Send feedback opens an email to {FeedbackName} " +
+            "in Outlook (or another mail app) with your app and Windows version filled in. If something went wrong, please attach the latest log from the log folder.", CardWidth);
+        feedback.Body.Controls.Add(Row(_sendFeedback, _openLogs));
+        page.Controls.Add(feedback);
+
+        _checkUpdates.Click += (_, _) => CheckForUpdatesClicked?.Invoke();
+        _sendFeedback.Click += (_, _) => SendFeedbackClicked?.Invoke();
+        _openLogs.Click += (_, _) => OpenLogFolderClicked?.Invoke();
+
+        _pages[4] = (_pages[4].Nav, page);
         return page;
     }
 
@@ -561,6 +627,8 @@ public sealed class SettingsForm : Form
         ShowHelpGroups();
         _startup.Checked = StartupRegistration.IsEnabled;
         _startSummary.Checked = settings.ShowStartSummary;
+        SelectInt(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
+        Select(_snoozeBehavior, settings.SnoozeBehavior);
         Select(_newSound, settings.NewTicketStyle.Sound);
         Select(_newDisplay, settings.NewTicketStyle.Display);
         Select(_mySound, settings.MyTicketStyle.Sound);
@@ -613,7 +681,7 @@ public sealed class SettingsForm : Form
         _help.CheckedChanged += (_, _) => { UpdateHelpOptions(); RefreshHelpPeople(); };
         _helpPeopleAll.Click += (_, _) => SetAllHelpPeople(true);
         _helpPeopleNone.Click += (_, _) => SetAllHelpPeople(false);
-        foreach (var combo in new[] { _workStart, _workEnd })
+        foreach (var combo in new[] { _workStart, _workEnd, _snoozeMinutes, _snoozeBehavior })
             combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
         foreach (var combo in new[] { _newSound, _newDisplay, _mySound, _myDisplay, _helpSound, _helpDisplay })
             combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
@@ -683,6 +751,8 @@ public sealed class SettingsForm : Form
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _helpMyHours.Checked;
         s.ShowStartSummary = _startSummary.Checked;
+        s.SnoozeMinutes = ((Option<int>)_snoozeMinutes.SelectedItem!).Value;
+        s.SnoozeBehavior = Selected<SnoozeBehavior>(_snoozeBehavior);
         s.HelpPriorities = _helpPriorities.Where(p => p.Box.Checked).Select(p => p.Priority).ToList();
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
@@ -1265,6 +1335,21 @@ public sealed class SettingsForm : Form
         return combo;
     }
 
+    private static ComboBox IntCombo(Option<int>[] options)
+    {
+        var combo = new RoomyComboBox { Width = 140, Margin = new Padding(0, 3, 10, 3) };
+        combo.Items.AddRange(options.Cast<object>().ToArray());
+        combo.SelectedIndex = 0;
+        return combo;
+    }
+
+    /// <summary>Selects the option with this value, or the fallback (e.g. a value from an edited settings file).</summary>
+    private static void SelectInt(ComboBox combo, int value, int fallback)
+    {
+        var values = combo.Items.Cast<Option<int>>().Select(o => o.Value).ToList();
+        combo.SelectedIndex = Math.Max(0, values.Contains(value) ? values.IndexOf(value) : values.IndexOf(fallback));
+    }
+
     private static void Select<T>(ComboBox combo, T value) where T : struct, Enum
     {
         var index = combo.Items.Cast<Option<T>>().ToList().FindIndex(o => o.Value.Equals(value));
@@ -1292,7 +1377,10 @@ public sealed class SettingsForm : Form
             .Concat(_helpChosen)
             .Distinct()
             .Select(id => (Id: id, Name: _helpNames.GetValueOrDefault(id, $"Group {id}")))
-            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
+            // Selected first, then monitored, then member groups; by name within each. Sorted only when the list
+            // is rebuilt, so ticking a box doesn't make it jump.
+            .OrderBy(g => _helpChosen.Contains(g.Id) ? 0 : _selectedGroups.Contains(g.Id) ? 1 : 2)
+            .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         _helpGroupList.SuspendLayout();
@@ -1325,27 +1413,27 @@ public sealed class SettingsForm : Form
     /// <summary>A group member offered under "Assignees". Zone: their IANA time zone, null if it can't be used.</summary>
     private sealed record Member(long Id, string Name, string? Zone)
     {
-        public Region Region => RegionOf(Zone);
+        public TimeRegion Region => RegionOf(Zone);
     }
 
     /// <summary>Regions the assignees are grouped by, in display order.</summary>
-    private enum Region { Americas, EuropeAfrica, AsiaPacific, Other, NoTimeZone }
+    private enum TimeRegion { Americas, EuropeAfrica, AsiaPacific, Other, NoTimeZone }
 
-    private static string RegionName(Region region) => region switch
+    private static string RegionName(TimeRegion region) => region switch
     {
-        Region.Americas => "Americas",
-        Region.EuropeAfrica => "Europe & Africa",
-        Region.AsiaPacific => "Asia & Pacific",
-        Region.Other => "Other time zones",
+        TimeRegion.Americas => "Americas",
+        TimeRegion.EuropeAfrica => "Europe & Africa",
+        TimeRegion.AsiaPacific => "Asia & Pacific",
+        TimeRegion.Other => "Other time zones",
         _ => "No time zone (always skipped)"
     };
 
-    private static Region RegionOf(string? zone) => zone is null ? Region.NoTimeZone : zone.Split('/')[0] switch
+    private static TimeRegion RegionOf(string? zone) => zone is null ? TimeRegion.NoTimeZone : zone.Split('/')[0] switch
     {
-        "America" or "US" or "Canada" or "Brazil" or "Chile" or "Mexico" => Region.Americas,
-        "Europe" or "Africa" or "Atlantic" or "Arctic" => Region.EuropeAfrica,
-        "Asia" or "Australia" or "Pacific" or "Indian" or "Antarctica" => Region.AsiaPacific,
-        _ => Region.Other
+        "America" or "US" or "Canada" or "Brazil" or "Chile" or "Mexico" => TimeRegion.Americas,
+        "Europe" or "Africa" or "Atlantic" or "Arctic" => TimeRegion.EuropeAfrica,
+        "Asia" or "Australia" or "Pacific" or "Indian" or "Antarctica" => TimeRegion.AsiaPacific,
+        _ => TimeRegion.Other
     };
 
     /// <summary>The IANA id of a profile's time zone, if it can be used (the same rule "Help colleagues" applies).</summary>
@@ -1455,8 +1543,8 @@ public sealed class SettingsForm : Form
         // Signed in: by region (from each colleague's time zone), so e.g. only other regions can be covered.
         // Otherwise just the unticked colleagues, whose time zones aren't known.
         var sections = isLoaded
-            ? _helpPeopleShown.GroupBy(m => m.Region).OrderBy(g => g.Key).Select(g => (Region: (Region?)g.Key, Members: g.ToList())).ToList()
-            : [(Region: (Region?)null, Members: _helpPeopleShown)];
+            ? _helpPeopleShown.GroupBy(m => m.Region).OrderBy(g => g.Key).Select(g => (Region: (TimeRegion?)g.Key, Members: g.ToList())).ToList()
+            : [(Region: (TimeRegion?)null, Members: _helpPeopleShown)];
         var boxesBefore = false;
         foreach (var (region, members) in sections)
         {
@@ -1602,7 +1690,7 @@ public sealed class SettingsForm : Form
                        new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
                 [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
             });
-            form._myRegion = Region.EuropeAfrica;
+            form._myRegion = TimeRegion.EuropeAfrica;
             form._client = new ZendeskClient(settings, new SignedOutSession());
             form.RefreshHelpPeople();
             form.SelectTheme(theme);

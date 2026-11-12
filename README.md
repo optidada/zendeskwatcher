@@ -98,4 +98,4 @@ vpk pack -u ZendeskWatcherApp -v 1.2.0 -r win-x64 -p publish -e ZendeskWatcher.e
 
 ## Author
 
-Author: Claude + Daniel Dahlin @ Optimizely
+Author: Claude & Daniel Dahlin @ Optimizely

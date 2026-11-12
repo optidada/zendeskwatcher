@@ -7,13 +7,18 @@ namespace ZendeskWatcher.UI.Popups;
 public sealed class PopupManager
 {
     private const int MaxVisible = 4;
-    private static readonly TimeSpan SnoozeTime = TimeSpan.FromMinutes(10);
 
     private readonly List<PopupForm> _visible = [];
     private readonly Queue<(NotificationContent Content, Settings Settings)> _pending = new();
     private readonly Action<string, long?> _onAction;
+    private readonly Action<NotificationContent> _onSnooze;
 
-    public PopupManager(Action<string, long?> onAction) => _onAction = onAction;
+    /// <param name="onSnooze">The user snoozed a popup; the caller decides when (and whether) it shows again.</param>
+    public PopupManager(Action<string, long?> onAction, Action<NotificationContent> onSnooze)
+    {
+        _onAction = onAction;
+        _onSnooze = onSnooze;
+    }
 
     public void Show(NotificationContent content, Settings settings)
     {
@@ -52,14 +57,7 @@ public sealed class PopupManager
                 _onAction(Notifier.ActionTake, popup.Content.TicketId);
                 break;
             case PopupForm.Result.Snooze:
-                var snoozed = popup.Content;
-                var timer = new System.Windows.Forms.Timer { Interval = (int)SnoozeTime.TotalMilliseconds };
-                timer.Tick += (_, _) =>
-                {
-                    timer.Dispose();
-                    Show(snoozed with { Heading = $"Snoozed · {snoozed.Heading}" }, settings);
-                };
-                timer.Start();
+                _onSnooze(popup.Content);
                 break;
         }
 

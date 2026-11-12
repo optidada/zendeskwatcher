@@ -31,6 +31,7 @@ Checks run every 60 seconds by default (the agent can choose 30 s – 1 h). Per 
 | CC / follower tickets (optional, off by default) | 3 (30 most recent CC'd and followed tickets + `show_many`) |
 | Help colleagues (optional, off by default) | 1 search per chosen group, only tickets updated since the last check |
 | Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes) |
+| Only when a snoozed popup is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned) |
 
 **Measured** on an agent's PC with 2 groups, CC tracking and Help colleagues all switched on: **3–11 requests per
 minute** (11-minute averages; the higher one includes opening the Settings window). With default settings it's about

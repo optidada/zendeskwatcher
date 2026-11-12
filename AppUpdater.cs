@@ -11,6 +11,9 @@ public sealed class AppUpdater
 {
     public const string RepoUrl = "https://github.com/optidada/zendeskwatcher";
 
+    /// <summary>Where "Send feedback…" in the tray menu sends its email.</summary>
+    public const string FeedbackEmail = "daniel.dahlin@optimizely.com";
+
     private readonly UpdateManager _manager = new(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
     private readonly SemaphoreSlim _gate = new(1, 1);
 

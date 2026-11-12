@@ -20,7 +20,7 @@ public enum NotificationKind
 /// Shows notifications as custom popups (Neon dark, Terminal, Clean light) or as Windows toasts, depending on the theme.
 /// While presenting or in full screen, Windows toasts are used so nothing pops up over the screen.
 /// </summary>
-public sealed class Notifier(Action<string, long?> onAction)
+public sealed class Notifier
 {
     public const string ActionOpenTicket = "open";
     public const string ActionOpenZendesk = "zendesk";
@@ -32,10 +32,85 @@ public sealed class Notifier(Action<string, long?> onAction)
     public const string ActionSettings = "settings";
 
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
-    private readonly PopupManager _popups = new(onAction);
+    private readonly PopupManager _popups;
 
-    /// <summary>While paused, changes are still recorded but nothing is shown.</summary>
-    public bool Paused { get; set; }
+    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze);
+
+    /// <summary>While paused, changes are still recorded but nothing is shown. Snoozed popups wait for the end of the pause.</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set
+        {
+            _paused = value;
+            if (!value)
+                ShowHeldSnoozes();
+        }
+    }
+
+    private bool _paused;
+
+    /// <summary>
+    /// For "only if still needed": whether the snoozed notification's ticket still needs attention. Set by the app;
+    /// without it (or if the check fails) a snoozed popup simply shows again.
+    /// </summary>
+    public Func<NotificationContent, Task<bool>>? StillNeeded { get; set; }
+
+    // ------------------------------------------------------------------ snooze
+
+    private readonly List<NotificationContent> _heldSnoozes = [];
+
+    /// <summary>The user snoozed a popup: show it again after the snooze time, if it still applies then.</summary>
+    private void Snooze(NotificationContent content)
+    {
+        var minutes = Math.Clamp(Settings.SnoozeMinutes, 1, 24 * 60);
+        Log.Info($"Snoozed for {minutes} min: {content.Title}");
+        var timer = new System.Windows.Forms.Timer { Interval = minutes * 60_000 };
+        timer.Tick += (_, _) =>
+        {
+            timer.Dispose();
+            if (Paused)
+                _heldSnoozes.Add(content);
+            else
+                _ = ShowSnoozedAsync(content);
+        };
+        timer.Start();
+    }
+
+    private void ShowHeldSnoozes()
+    {
+        var held = _heldSnoozes.ToList();
+        _heldSnoozes.Clear();
+        foreach (var content in held)
+            _ = ShowSnoozedAsync(content);
+    }
+
+    private async Task ShowSnoozedAsync(NotificationContent content)
+    {
+        if (Settings.SnoozeBehavior == SnoozeBehavior.IfStillNeeded && content.TicketId is not null && StillNeeded is { } check)
+        {
+            try
+            {
+                if (!await check(content))
+                {
+                    Log.Info($"Snoozed notification no longer needed, not shown again: {content.Title}");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not check a snoozed ticket; showing it again anyway", ex);
+            }
+        }
+
+        if (Paused)
+        {
+            _heldSnoozes.Add(content); // paused while checking
+            return;
+        }
+        var heading = content.Heading.StartsWith("Snoozed · ") ? content.Heading : $"Snoozed · {content.Heading}";
+        Show(content with { Heading = heading }, Settings);
+    }
 
     /// <summary>The settings that decide theme, sound, display time, logo and grouping.</summary>
     public Settings Settings { get; set; } = new();
