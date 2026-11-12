@@ -101,8 +101,34 @@ public sealed class Notifier(Action<string, long?> onAction)
               "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus pending → open (Jane Doe)",
               Priority: "normal") { Action = ActionNone }];
 
+    private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
+    private readonly Dictionary<string, DateTime> _recent = [];
+
+    /// <summary>True if the same notification was already shown within the last minute (then it's skipped).</summary>
+    private bool IsDuplicate(NotificationContent content)
+    {
+        if (content.ResolvedAction == ActionNone)
+            return false; // test samples: you may want to see the same one again right away (e.g. in another theme)
+
+        var now = DateTime.UtcNow;
+        foreach (var old in _recent.Where(kv => now - kv.Value > DuplicateWindow).Select(kv => kv.Key).ToList())
+            _recent.Remove(old);
+
+        var key = string.Join("|", content.Kind, content.ResolvedAction, content.TicketId, content.Title, content.Body);
+        if (_recent.ContainsKey(key))
+            return true;
+        _recent[key] = now;
+        return false;
+    }
+
     private void Show(NotificationContent content, Settings settings)
     {
+        if (IsDuplicate(content))
+        {
+            Log.Info($"Skipped a duplicate notification: {content.Title}");
+            return;
+        }
+
         try
         {
             if (settings.Theme != NotificationTheme.WindowsNative && PopupManager.CanShowPopups())

@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.2.1
+
+- The same notification no longer shows twice (e.g. "Update ready" when a manual and the daily update check coincide).
+- Notification buttons say what they do: **Update now**, **Sign in**, **Open Settings**.
+- **Sign out** now sticks: the app no longer signs you back in silently, and Settings opens right away. When your session expires, it also gives up waiting for a silent sign-in sooner.
+- Settings saved by a newer version (e.g. a new theme) no longer stop an older version from opening Settings.
+
 ## 1.2.0
 
 - **Take it**: new-ticket notifications have a button that assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.

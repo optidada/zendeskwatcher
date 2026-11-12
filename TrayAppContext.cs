@@ -22,6 +22,8 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly AppUpdater _updater = new();
     private readonly ToolStripMenuItem _updateItem = new("Check for updates");
     private readonly System.Windows.Forms.Timer _updateTimer = new();
+    private bool _checkingForUpdates;
+    private string? _announcedVersion; // "Update ready" is shown once per version
 
     private readonly Icon _iconOk = AppIcon.CreateIcon(AppIcon.NeonGreen);
     private readonly Icon _iconAttention = AppIcon.CreateIcon(AppIcon.NeonOrange);
@@ -316,6 +318,9 @@ public sealed class TrayAppContext : ApplicationContext
             return;
         }
 
+        if (_checkingForUpdates)
+            return; // the scheduled and a manual check can coincide; one is enough
+        _checkingForUpdates = true;
         try
         {
             _updateItem.Enabled = false;
@@ -324,7 +329,11 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 _updateItem.Text = $"Restart to update to {_updater.PendingVersion}";
                 _updateTimer.Stop();
-                _notifier.ShowUpdateReady(_updater.PendingVersion!, _updater.PendingHighlights);
+                if (_announcedVersion != _updater.PendingVersion)
+                {
+                    _announcedVersion = _updater.PendingVersion;
+                    _notifier.ShowUpdateReady(_updater.PendingVersion!, _updater.PendingHighlights);
+                }
             }
             else
             {
@@ -342,6 +351,7 @@ public sealed class TrayAppContext : ApplicationContext
         }
         finally
         {
+            _checkingForUpdates = false;
             _updateItem.Enabled = true;
         }
     }
