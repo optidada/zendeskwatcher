@@ -85,11 +85,23 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _lastRequestReport = DateTime.UtcNow;
         }
 
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var parts = new List<string>();
+        var total = 0.0;
+        void Lap(string name)
+        {
+            total += clock.Elapsed.TotalSeconds;
+            parts.Add($"{name} {clock.Elapsed.TotalSeconds:0.0}s");
+            clock.Restart();
+        }
+
         await CheckUnassignedAsync(ct);
+        Lap("unassigned");
 
         if (settings.TrackMyTickets)
         {
             await CheckMyTicketsAsync(ct);
+            Lap("my tickets");
         }
         else if (_state.MyTicketsBaselined)
         {
@@ -101,6 +113,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         try
         {
             await CheckHelpColleaguesAsync(ct);
+            Lap("help colleagues");
         }
         catch (Exception ex) when (ex is not (AuthRequiredException or OperationCanceledException))
         {
@@ -110,6 +123,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (settings.TrackCcTickets)
         {
             await CheckCcTicketsAsync(ct);
+            Lap("cc");
         }
         else if (_state.CcTicketsBaselined)
         {
@@ -118,6 +132,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
 
         _state.Save();
+
+        // Slow checks are logged with a breakdown, to see which part takes the time.
+        if (total > 5)
+            Log.Info($"Slow check ({total:0.0}s): {string.Join(", ", parts)}");
     }
 
     private async Task CheckUnassignedAsync(CancellationToken ct)
