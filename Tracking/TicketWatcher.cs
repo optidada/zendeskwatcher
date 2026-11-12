@@ -44,6 +44,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         // A group that is unchecked and checked again later gets a fresh silent baseline.
         _state.BaselinedGroups.IntersectWith(settings.WatchedGroups.Select(g => g.Id));
+        _state.HelpBaselinedGroups.IntersectWith(settings.EffectiveHelpGroups.Select(g => g.Id));
+        // Save right away: if Settings is reopened before the first check finishes, the check is cancelled, and an
+        // unticked group would otherwise still count as "already seen" when it's ticked again.
+        _state.Save();
 
         _groupNames = settings.WatchedGroups.ToDictionary(g => g.Id, g => g.Name);
         try
