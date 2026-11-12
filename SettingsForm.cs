@@ -48,8 +48,8 @@ public sealed class SettingsForm : Form
     // Notifications
     private readonly ToggleSwitch _notifyUnassigned = new("New unassigned tickets in my monitored groups");
     private readonly NumericUpDown _interval = new() { Minimum = 30, Maximum = 3600, Increment = 15, Width = 80, Font = Theme.Body, BorderStyle = BorderStyle.FixedSingle };
-    private readonly ToggleSwitch _trackMine = new("Changes on tickets assigned to me");
-    private readonly ToggleSwitch _trackCc = new("Changes on tickets where I'm CC or a follower");
+    private readonly ToggleSwitch _trackMine = new("Changes on tickets assigned to me (any group)");
+    private readonly ToggleSwitch _trackCc = new("Changes on tickets where I'm CC or a follower (any group)");
     private readonly CheckBox _replies = Check("Public replies");
     private readonly CheckBox _notes = Check("Internal notes");
     private readonly CheckBox _status = Check("Status changes");
@@ -257,7 +257,7 @@ public sealed class SettingsForm : Form
 
     private Control BuildGroupsPage()
     {
-        var page = Page("Groups", "The groups to monitor for unassigned tickets. Their count shows on the tray icon.");
+        var page = Page("Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.");
 
         var card = new Card("Monitored groups",
             $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +
