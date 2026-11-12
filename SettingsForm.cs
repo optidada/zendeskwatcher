@@ -71,6 +71,7 @@ public sealed class SettingsForm : Form
     private readonly Dictionary<long, string> _helpNames = [];
     private readonly ComboBox _workStart = HourCombo(0, 23);
     private readonly ComboBox _workEnd = HourCombo(1, 24);
+    private readonly CheckBox _helpMyHours = Check("Only notify me while I'm working myself (same hours, my local time)");
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
 
     // Appearance
@@ -348,11 +349,13 @@ public sealed class SettingsForm : Form
         helpOptions.Controls.Add(_helpSame);
         helpOptions.Controls.Add(_helpCustom);
         helpOptions.Controls.Add(_helpGroupList);
-        var hours = Row(Theme.Label("Working hours"), _workStart, Theme.Label("to"), _workEnd);
+        var hours = Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
         hours.Margin = new Padding(0, 8, 0, 0);
         helpOptions.Controls.Add(hours);
-        helpOptions.Controls.Add(Theme.Label("Monday to Friday, in each colleague's own time zone (from their Zendesk profile). " +
-            "Colleagues without a time zone are skipped.", Theme.Small, Theme.TextMuted, CardWidth - 100));
+        helpOptions.Controls.Add(Theme.Label("Monday to Friday, in the assignee's own time zone (from their Zendesk profile). " +
+            "Assignees without a time zone are skipped.", Theme.Small, Theme.TextMuted, CardWidth - 100));
+        _helpMyHours.Margin = new Padding(0, 8, 0, 0);
+        helpOptions.Controls.Add(_helpMyHours);
         help.Body.Controls.Add(helpOptions);
         page.Controls.Add(help);
 
@@ -488,6 +491,7 @@ public sealed class SettingsForm : Form
         }
         _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
         _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
+        _helpMyHours.Checked = settings.HelpOnlyDuringMyHours;
         ShowHelpGroups();
         _startup.Checked = StartupRegistration.IsEnabled;
         Select(_newSound, settings.NewTicketStyle.Sound);
@@ -548,7 +552,7 @@ public sealed class SettingsForm : Form
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
         _position.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _startup, _showLogo, _groupByType })
+        foreach (var box in new CheckBox[] { _notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _commentText, _help, _helpMyHours, _startup, _showLogo, _groupByType })
             box.CheckedChanged += (_, _) => UpdateSaveState();
 
         Shown += async (_, _) =>
@@ -603,6 +607,7 @@ public sealed class SettingsForm : Form
             .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
+        s.HelpOnlyDuringMyHours = _helpMyHours.Checked;
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
         s.ShowAppLogo = _showLogo.Checked;
@@ -1168,7 +1173,7 @@ public sealed class SettingsForm : Form
     private void UpdateHelpOptions()
     {
         var on = _help.Checked;
-        _helpSame.Enabled = _helpCustom.Enabled = _workStart.Enabled = _workEnd.Enabled = on;
+        _helpSame.Enabled = _helpCustom.Enabled = _workStart.Enabled = _workEnd.Enabled = _helpMyHours.Enabled = on;
         _helpGroupList.Enabled = on && _helpCustom.Checked;
     }
 

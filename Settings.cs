@@ -46,6 +46,9 @@ public sealed class Settings
     public int WorkdayStartHour { get; set; } = 8;
     public int WorkdayEndHour { get; set; } = 17;
 
+    /// <summary>"Help colleagues" only notifies while it's within the same working hours on this PC (your own time).</summary>
+    public bool HelpOnlyDuringMyHours { get; set; } = true;
+
     /// <summary>Show the start of the comment text in notifications, or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 

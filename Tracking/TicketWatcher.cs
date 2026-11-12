@@ -301,6 +301,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var now = DateTimeOffset.UtcNow;
         var since = (_state.HelpLastCheck == default ? now.AddHours(-1) : _state.HelpLastCheck) - HelpLookBack;
 
+        // Outside your own working hours: keep track (so nothing old pops up later) but don't notify.
+        var iAmWorking = !settings.HelpOnlyDuringMyHours || !IsOutsideHours(DateTime.Now);
+
         foreach (var group in groups)
         {
             var baseline = _state.HelpBaselinedGroups.Add(group.Id);
@@ -314,8 +317,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 if (ticket.UpdatedAt <= seen)
                     continue;
                 _state.HelpSeen[ticket.Id] = ticket.UpdatedAt;
-                if (baseline || _state.CcTickets.ContainsKey(ticket.Id))
-                    continue; // first look at this group, or already reported as a CC'd ticket
+                if (baseline || !iAmWorking || _state.CcTickets.ContainsKey(ticket.Id))
+                    continue; // first look at this group, you're off work, or already reported as a CC'd ticket
 
                 var reply = await LatestCustomerReplyAsync(ticket, seen == default ? since : seen, ct);
                 if (reply is null)
@@ -373,10 +376,13 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (zone is null)
             return (null, default);
         var local = TimeZoneInfo.ConvertTime(now, zone).DateTime;
-        var weekend = local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
-        var away = weekend || local.Hour < settings.WorkdayStartHour || local.Hour >= settings.WorkdayEndHour;
-        return (away, local);
+        return (IsOutsideHours(local), local);
     }
+
+    /// <summary>Weekend, or before/after the working hours, for a local time.</summary>
+    private bool IsOutsideHours(DateTime local) =>
+        local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
+        local.Hour < settings.WorkdayStartHour || local.Hour >= settings.WorkdayEndHour;
 
     private static TimeZoneInfo? ResolveTimeZone(string? id) =>
         !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) ? zone : null;
