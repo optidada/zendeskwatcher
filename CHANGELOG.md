@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.5
+
+- **Colleagues' tickets** get their own sound and display time (Settings → Appearance), default *Reminder* and *Long*, plus a test button.
+
 ## 1.3.4
 
 - Change notifications show priorities and statuses the way Zendesk does: "Priority Normal (P3) → Urgent (P1)", "Status Pending → Open".

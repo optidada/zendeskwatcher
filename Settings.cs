@@ -61,6 +61,14 @@ public sealed class Settings
     // Appearance of the notifications
     public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Standard };
     public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail, Display = ToastDisplay.Standard };
+    public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Reminder, Display = ToastDisplay.Long };
+
+    public NotificationStyle StyleFor(NotificationKind kind) => kind switch
+    {
+        NotificationKind.NewTicket => NewTicketStyle,
+        NotificationKind.HelpColleague => HelpStyle,
+        _ => MyTicketStyle
+    };
     public NotificationTheme Theme { get; set; } = NotificationTheme.NeonDark;
     public PopupPosition Position { get; set; } = PopupPosition.BottomRight;
     public bool ShowAppLogo { get; set; } = true;
@@ -107,6 +115,8 @@ public sealed class Settings
         if (!Enum.IsDefined(NewTicketStyle.Display)) NewTicketStyle.Display = ToastDisplay.Standard;
         if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Mail;
         if (!Enum.IsDefined(MyTicketStyle.Display)) MyTicketStyle.Display = ToastDisplay.Standard;
+        if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Reminder;
+        if (!Enum.IsDefined(HelpStyle.Display)) HelpStyle.Display = ToastDisplay.Long;
     }
 
     public void Save()

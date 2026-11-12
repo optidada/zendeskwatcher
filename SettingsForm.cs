@@ -83,11 +83,14 @@ public sealed class SettingsForm : Form
     private readonly ComboBox _newDisplay = Combo(DisplayOptions);
     private readonly ComboBox _mySound = Combo(SoundOptions);
     private readonly ComboBox _myDisplay = Combo(DisplayOptions);
+    private readonly ComboBox _helpSound = Combo(SoundOptions);
+    private readonly ComboBox _helpDisplay = Combo(DisplayOptions);
     private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
     private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
-    private readonly Button _testNew = Theme.SecondaryButton("Test new ticket");
-    private readonly Button _testMine = Theme.SecondaryButton("Test my ticket");
-    private readonly Button _testBurst = Theme.SecondaryButton("Test several");
+    private readonly Button _testNew = Theme.SecondaryButton("New ticket");
+    private readonly Button _testMine = Theme.SecondaryButton("My ticket");
+    private readonly Button _testHelp = Theme.SecondaryButton("Colleague");
+    private readonly Button _testBurst = Theme.SecondaryButton("Several");
     private readonly ThemeTile[] _themeTiles =
     [
         new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
@@ -407,6 +410,7 @@ public sealed class SettingsForm : Form
         grid.Controls.Add(Theme.Label("Display", Theme.Small, Theme.TextMuted), 2, 0);
         AddStyleRow(grid, 1, "New tickets", _newSound, _newDisplay);
         AddStyleRow(grid, 2, "My tickets", _mySound, _myDisplay);
+        AddStyleRow(grid, 3, "Colleagues' tickets", _helpSound, _helpDisplay);
         sound.Body.Controls.Add(grid);
         page.Controls.Add(sound);
 
@@ -416,7 +420,7 @@ public sealed class SettingsForm : Form
         page.Controls.Add(windows);
 
         var test = new Card("Try it", "Sends sample notifications; clicking them does nothing.", CardWidth);
-        test.Body.Controls.Add(Row(_testNew, _testMine, _testBurst));
+        test.Body.Controls.Add(Row(_testNew, _testMine, _testHelp, _testBurst));
         page.Controls.Add(test);
 
         _pages[3] = (_pages[3].Nav, page);
@@ -516,6 +520,8 @@ public sealed class SettingsForm : Form
         Select(_newDisplay, settings.NewTicketStyle.Display);
         Select(_mySound, settings.MyTicketStyle.Sound);
         Select(_myDisplay, settings.MyTicketStyle.Display);
+        Select(_helpSound, settings.HelpStyle.Sound);
+        Select(_helpDisplay, settings.HelpStyle.Display);
         _showLogo.Checked = settings.ShowAppLogo;
         SelectTheme(settings.Theme);
         Select(_position, settings.Position);
@@ -562,10 +568,11 @@ public sealed class SettingsForm : Form
         _help.CheckedChanged += (_, _) => UpdateHelpOptions();
         foreach (var combo in new[] { _workStart, _workEnd })
             combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
-        foreach (var combo in new[] { _newSound, _newDisplay, _mySound, _myDisplay })
+        foreach (var combo in new[] { _newSound, _newDisplay, _mySound, _myDisplay, _helpSound, _helpDisplay })
             combo.SelectedIndexChanged += (_, _) => UpdateSaveState();
         _testNew.Click += (_, _) => SendTest(NotificationKind.NewTicket);
         _testMine.Click += (_, _) => SendTest(NotificationKind.MyTicket);
+        _testHelp.Click += (_, _) => SendTest(NotificationKind.HelpColleague);
         _testBurst.Click += (_, _) => SendTest(null);
         foreach (var tile in _themeTiles)
             tile.Click += (_, _) => SelectTheme(tile.Value);
@@ -629,6 +636,7 @@ public sealed class SettingsForm : Form
         s.HelpPriorities = _helpPriorities.Where(p => p.Box.Checked).Select(p => p.Priority).ToList();
         s.NewTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_newSound), Display = Selected<ToastDisplay>(_newDisplay) };
         s.MyTicketStyle = new NotificationStyle { Sound = Selected<ToastSound>(_mySound), Display = Selected<ToastDisplay>(_myDisplay) };
+        s.HelpStyle = new NotificationStyle { Sound = Selected<ToastSound>(_helpSound), Display = Selected<ToastDisplay>(_helpDisplay) };
         s.ShowAppLogo = _showLogo.Checked;
         s.Theme = SelectedTheme;
         s.Position = Selected<PopupPosition>(_position);

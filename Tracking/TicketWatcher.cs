@@ -381,7 +381,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 Log.Info($"Ticket #{ticket.Id}: {customer} replied while {who} is outside working hours ({English(local, "ddd HH:mm")} their time)");
 
                 var said = settings.ShowCommentText ? $"{customer} replied: {Snippet(comment)}" : $"{customer} replied";
-                notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Customer waiting",
+                notifier.Show(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
                     $"{said}\n{who} is off work · {English(local, "ddd HH:mm")} their time",
                     ticket.Id, ticket.Priority, GroupLabel(group)));

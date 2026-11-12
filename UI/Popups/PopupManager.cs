@@ -23,7 +23,7 @@ public sealed class PopupManager
             return;
         }
 
-        var style = content.Kind == NotificationKind.NewTicket ? settings.NewTicketStyle : settings.MyTicketStyle;
+        var style = settings.StyleFor(content.Kind);
         var palette = PopupPalette.For(settings.Theme);
         var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
         var scale = DpiScale();

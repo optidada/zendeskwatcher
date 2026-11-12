@@ -9,8 +9,11 @@ public enum NotificationKind
     /// <summary>New unassigned tickets in a monitored group.</summary>
     NewTicket,
 
-    /// <summary>Changes on a ticket assigned to me.</summary>
-    MyTicket
+    /// <summary>Changes on a ticket assigned to me (or that I'm CC'd on / follow).</summary>
+    MyTicket,
+
+    /// <summary>"Help colleagues": a customer replied on a colleague's ticket while they're off work.</summary>
+    HelpColleague
 }
 
 /// <summary>
@@ -94,12 +97,20 @@ public sealed class Notifier(Action<string, long?> onAction)
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
                 Priority: "urgent", Context: "Support Tier 1") { CanTake = true });
 
-    private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind == NotificationKind.NewTicket
-        ? [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }]
-        : [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
+    private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind switch
+    {
+        NotificationKind.NewTicket =>
+          [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
+              $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }],
+        NotificationKind.HelpColleague =>
+          [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
+              "Sam Customer replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
+              Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone }],
+        _ =>
+          [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
               "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
-              Priority: "normal") { Action = ActionNone }];
+              Priority: "normal") { Action = ActionNone }]
+    };
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
     private readonly Dictionary<string, DateTime> _recent = [];
@@ -146,7 +157,7 @@ public sealed class Notifier(Action<string, long?> onAction)
 
     private static void ShowToast(NotificationContent content, Settings settings)
     {
-        var style = content.Kind == NotificationKind.NewTicket ? settings.NewTicketStyle : settings.MyTicketStyle;
+        var style = settings.StyleFor(content.Kind);
         var action = content.ResolvedAction;
 
         var heading = content.Context is null ? content.Heading : $"{content.Heading} · {content.Context}";
@@ -168,7 +179,12 @@ public sealed class Notifier(Action<string, long?> onAction)
 
         if (settings.GroupNotificationsByType)
         {
-            var (headerId, headerTitle) = content.Kind == NotificationKind.NewTicket ? ("new-tickets", "New tickets") : ("my-tickets", "My tickets");
+            var (headerId, headerTitle) = content.Kind switch
+            {
+                NotificationKind.NewTicket => ("new-tickets", "New tickets"),
+                NotificationKind.HelpColleague => ("colleagues", "Colleagues' tickets"),
+                _ => ("my-tickets", "My tickets")
+            };
             builder.AddHeader(headerId, headerTitle, new ToastArguments().Add("action", ActionOpenZendesk));
         }
 
