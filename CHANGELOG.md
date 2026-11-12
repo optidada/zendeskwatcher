@@ -11,6 +11,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - Fixed: re-ticking a group right after unticking it didn't show the "Now watching" summary.
 - Fixed: checking could hang ("Connecting…" in the tray tooltip) if a check started while the hidden browser was going to sleep. Requests now have a time limit, and an unresponsive browser is restarted.
 - The tray tooltip says "Paused while Settings is open" while Settings is open.
+- Faster checks (about half the time): ticket lists fetch the 30 most recently updated tickets instead of 100. Checks slower than 5 seconds are logged with a breakdown.
 
 ## 1.3.1
 
