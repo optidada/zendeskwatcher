@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.12
+
+- **Several popups take turns**: only the oldest one counts down; the others wait with a full bar and get their full time when it's their turn, instead of all disappearing at once.
+
 ## 1.3.11
 
 - **Copy** on ticket notifications (the icon next to ✕, or "Copy" on Windows notifications): the ticket as a clickable title with its details, ready to paste into Teams. Counted under Insights.

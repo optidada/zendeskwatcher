@@ -44,6 +44,7 @@ public sealed class PopupManager
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         _visible.Add(popup);
+        UpdateTurns();
 
         var restX = screen.WorkingArea.Right - popup.Width - (int)(16 * scale);
         Layout(settings.Position, scale);
@@ -55,6 +56,7 @@ public sealed class PopupManager
     private void OnFinished(PopupForm popup, Settings settings)
     {
         _visible.Remove(popup);
+        UpdateTurns();
         _onClosed(popup.Content, popup.Outcome);
 
         switch (popup.Outcome)
@@ -77,6 +79,17 @@ public sealed class PopupManager
             var (content, pendingSettings) = _pending.Dequeue();
             Show(content, pendingSettings);
         }
+    }
+
+    /// <summary>
+    /// One countdown at a time: the oldest popup that times out counts down; the newer ones wait (with a full bar) and
+    /// get their full time when it's their turn. So several at once don't all disappear together, unread.
+    /// </summary>
+    private void UpdateTurns()
+    {
+        var current = _visible.FirstOrDefault(p => p.TimesOut);
+        foreach (var popup in _visible)
+            popup.MyTurn = popup == current || !popup.TimesOut;
     }
 
     /// <summary>Newest popup nearest the corner; older ones are pushed away from it.</summary>
