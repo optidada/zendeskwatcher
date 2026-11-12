@@ -72,6 +72,21 @@ public class SettingsWindowTests
         Assert.Equal(expected.ToJson(), shown.ToJson());
     }
 
+    [Theory]
+    [InlineData(75, 60)]     // from an older version: the nearest step
+    [InlineData(100, 120)]
+    [InlineData(5000, 3600)]
+    [InlineData(10, 30)]
+    public void Check_interval_snaps_to_the_nearest_step(int saved, int shown)
+    {
+        var result = OnUiThread(() =>
+        {
+            using var form = new SettingsForm(new Settings { Subdomain = "acme", PollIntervalSeconds = saved }, _ => new FakeZendesk(), new Notifier((_, _) => { }));
+            return form.PagesAsSettings().PollIntervalSeconds;
+        });
+        Assert.Equal(shown, result);
+    }
+
     /// <summary>Windows Forms controls want a single-threaded apartment, like the app's UI thread.</summary>
     private static T OnUiThread<T>(Func<T> action)
     {
