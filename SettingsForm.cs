@@ -659,8 +659,7 @@ public sealed class SettingsForm : Form
             _groups.Items.Add(new ListViewItem(group.DisplayName) { Tag = group, Checked = true, Group = _monitoredSection, BackColor = Theme.AccentSoft, Font = Theme.BodyBold, ForeColor = group.Missing ? Theme.TextMuted : Theme.Text });
         foreach (var group in others)
             _groups.Items.Add(new ListViewItem(group.Name) { Tag = group, Checked = false, Group = _otherSection, BackColor = Theme.Surface, Font = Theme.Body });
-        _monitoredSection.Header = $"Monitored · {monitored.Count}";
-        _otherSection.Header = $"Other groups · {others.Count}";
+        UpdateSectionHeaders(monitored.Count, others.Count);
         _groups.EndUpdate();
         _groups.FitColumn();
         _suppressGroupEvents = false;
@@ -690,8 +689,7 @@ public sealed class SettingsForm : Form
         {
             // A group that no longer exists has nowhere to go once unticked.
             _allGroups.Remove(group);
-            _otherSection.Header = $"Other groups · {_otherSection.Items.Count}";
-            _monitoredSection.Header = $"Monitored · {_monitoredSection.Items.Count}";
+            UpdateSectionHeaders(_monitoredSection.Items.Count, _otherSection.Items.Count);
             _groups.EndUpdate();
             _suppressGroupEvents = false;
             UpdateGroupsHint();
@@ -708,12 +706,18 @@ public sealed class SettingsForm : Form
         var index = _groups.Items.Cast<ListViewItem>().ToList().FindIndex(i => i.Group == section && Order(i) > order);
         _groups.Items.Insert(index < 0 ? _groups.Items.Count : index, item);
 
-        _monitoredSection.Header = $"Monitored · {_monitoredSection.Items.Count}";
-        _otherSection.Header = $"Other groups · {_otherSection.Items.Count}";
+        UpdateSectionHeaders(_monitoredSection.Items.Count, _otherSection.Items.Count);
         _groups.EndUpdate();
         _suppressGroupEvents = false;
 
         UpdateGroupsHint();
+    }
+
+    /// <summary>"Other groups" only makes sense next to monitored ones; with none monitored it's just "Groups".</summary>
+    private void UpdateSectionHeaders(int monitored, int others)
+    {
+        _monitoredSection.Header = $"Monitored · {monitored}";
+        _otherSection.Header = monitored == 0 ? $"Groups · {others}" : $"Other groups · {others}";
     }
 
     private void SetGroupsLoading(bool loading)
