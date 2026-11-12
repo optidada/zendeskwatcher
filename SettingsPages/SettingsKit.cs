@@ -23,6 +23,25 @@ internal sealed class CompositedPanel : FlowLayoutPanel
     }
 }
 
+/// <summary>
+/// A scrolling panel that repaints what's visible after every scroll step. Windows moves the already drawn pixels
+/// when scrolling, which leaves smears behind see-through labels; a full (off-screen) repaint doesn't.
+/// </summary>
+internal sealed class RepaintOnScrollPanel : Panel
+{
+    protected override void OnScroll(ScrollEventArgs se)
+    {
+        base.OnScroll(se);
+        Invalidate(true);
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        Invalidate(true);
+    }
+}
+
 internal static class Kit
 {
     /// <summary>Width of the cards on every page.</summary>

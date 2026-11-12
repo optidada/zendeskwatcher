@@ -143,6 +143,7 @@ public static class Theme
                     var step = SystemInformation.MouseWheelScrollLines * Body.Height;
                     var y = Math.Clamp(-page.AutoScrollPosition.Y - e.Delta / 120 * step, 0, Math.Max(0, page.DisplayRectangle.Height - page.ClientSize.Height));
                     page.AutoScrollPosition = new Point(-page.AutoScrollPosition.X, y);
+                    page.Invalidate(true); // repaint fully: no smears behind see-through labels
                     break;
                 }
             }

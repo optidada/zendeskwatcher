@@ -14,7 +14,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - **Copy** on ticket notifications (the icon next to ✕, or "Copy" on Windows notifications): the ticket as a clickable title with its details, ready to paste into Teams. Counted under Statistics.
 - **Reset to defaults** under Settings → General: everything except your account and monitored groups, applied when you click Save.
 - New ticket notifications stay about 10 seconds by default (was 5).
-- Only ticket notifications have Snooze; the start summary and app messages (welcome, update ready, sign-in) have Close.
+- Every popup has a Close button (the same as ✕ and right-click). Ticket notifications also have Snooze; the start summary and app messages don't.
 - Starting Zendesk Watcher while it's already running shows a notification instead of a dialog box; click it to open Settings.
 - The Zendesk subdomain is filled in on first start.
 - Help colleagues: the first time you switch it on, colleagues in your own region start unticked. Your region is listed last, and in each region the covered colleagues come first.

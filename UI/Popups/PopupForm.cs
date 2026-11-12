@@ -30,8 +30,8 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _chipRect;
-    private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _chipLabel = "";
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _chipRect;
+    private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _chipLabel = "", _dismissLabel = "";
 
     // State
     private enum Phase { Entering, Showing, Leaving }
@@ -164,6 +164,8 @@ public sealed class PopupForm : Form
         : _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone ? Result.Snooze // tickets, and their samples
         : Result.Dismiss; // the start summary, welcome, update ready, sign-in, …
 
+    private string DismissLabel => _dismissLabel;
+
     public void Dismiss(Result outcome)
     {
         if (_phase == Phase.Leaving)
@@ -266,8 +268,9 @@ public sealed class PopupForm : Form
         _closeRect = new Rectangle(Px(BaseWidth) - pad - closeSize + Px(4), y - Px(2), closeSize, closeSize);
 
         // Copy, left of ✕: only on notifications about tickets (and their "Try it" samples, which aren't counted).
+        var copyWidth = _palette.Terminal ? TextRenderer.MeasureText("[copied]", _smallFont).Width : closeSize; // a word in Terminal
         _copyRect = _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone
-            ? new Rectangle(_closeRect.Left - closeSize - Px(2), _closeRect.Top, closeSize, closeSize)
+            ? new Rectangle(_closeRect.Left - copyWidth - Px(2), _closeRect.Top, copyWidth, closeSize)
             : Rectangle.Empty;
 
         var headingHeight = TextRenderer.MeasureText("Ag", _headingFont).Height;
@@ -316,16 +319,36 @@ public sealed class PopupForm : Form
         };
         var buttonHeight = Px(30);
         _footerRect = new Rectangle(left, y, width, buttonHeight);
-        var openWidth = TextRenderer.MeasureText(_openLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
-        var snoozeWidth = _snoozeLabel.Length == 0 ? 0 : TextRenderer.MeasureText(_snoozeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
-        _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
         _takeLabel = _palette.Terminal ? "[ take ]" : "Take it";
-        var takeWidth = _content.CanTake ? TextRenderer.MeasureText(_takeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28) : 0;
+        _dismissLabel = _palette.Terminal ? "[ close ]" : "Close";
+
+        // Right to left: Open, Take it, Snooze (or Close), and on ticket notifications also Close (the same as ✕ and
+        // right-click). If they don't fit, slimmer buttons; if still not, no extra Close (✕ is there anyway).
+        var withDismiss = SecondButton == Result.Snooze;
+        int Fit(int padding, bool dismiss) =>
+            new[] { _openLabel, _content.CanTake ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
+                .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8);
+        var padding = _palette.Terminal ? 8 : 28;
+        if (Fit(padding, withDismiss) > width && !_palette.Terminal)
+            padding = 16;
+        if (Fit(padding, withDismiss) > width && _palette.Terminal)
+            padding = 0; // the brackets already separate them
+        if (Fit(padding, withDismiss) > width)
+            withDismiss = false;
+        int WidthOf(string label) => label.Length == 0 ? 0 : TextRenderer.MeasureText(label, _smallFont).Width + Px(padding);
+
+        var openWidth = WidthOf(_openLabel);
+        var snoozeWidth = WidthOf(_snoozeLabel);
+        _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
+        var takeWidth = _content.CanTake ? WidthOf(_takeLabel) : 0;
         _takeRect = _content.CanTake ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
         var snoozeRight = _content.CanTake ? _takeRect.Left : _openRect.Left;
         _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight) : new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
+        var dismissWidth = withDismiss ? WidthOf(DismissLabel) : 0;
+        _dismissRect = dismissWidth == 0 ? new Rectangle(_snoozeRect.Left, y, 0, buttonHeight)
+            : new Rectangle(_snoozeRect.Left - Px(8) - dismissWidth, y, dismissWidth, buttonHeight);
 
-        if (!chipSize.IsEmpty && left + chipSize.Width + Px(8) > _snoozeRect.Left)
+        if (!chipSize.IsEmpty && left + chipSize.Width + Px(8) > _dismissRect.Left)
         {
             _chipRect = new Rectangle(new Point(left, y), chipSize);
             var shift = chipSize.Height + Px(8);
@@ -334,6 +357,7 @@ public sealed class PopupForm : Form
             _openRect.Offset(0, shift);
             _takeRect.Offset(0, _content.CanTake ? shift : 0);
             _snoozeRect.Offset(0, shift);
+            _dismissRect.Offset(0, shift);
         }
         else if (!chipSize.IsEmpty)
         {
@@ -397,7 +421,7 @@ public sealed class PopupForm : Form
             }
             var color = copied ? _accent : copyHover ? _palette.Text : _palette.Muted;
             if (_palette.Terminal)
-                DrawText(g, copied ? "[ok]" : "[c]", _smallFont, _copyRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                DrawText(g, copied ? "[copied]" : "[copy]", _smallFont, _copyRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             else
             {
                 // Segoe MDL2 Assets: E8C8 = copy, E73E = check mark.
@@ -478,6 +502,8 @@ public sealed class PopupForm : Form
             DrawText(g, label, _smallFont, chip, _accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
+        if (_dismissRect.Width > 0)
+            PaintButton(g, _dismissRect, DismissLabel, primary: false);
         if (_snoozeRect.Width > 0)
             PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
         if (_content.CanTake)
@@ -582,7 +608,7 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        SetHover(true, new[] { _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        SetHover(true, new[] { _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
     }
 
@@ -599,7 +625,7 @@ public sealed class PopupForm : Form
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location))
+        if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location) || _dismissRect.Contains(e.Location))
             Dismiss(Result.Dismiss);
         else if (_copyRect.Contains(e.Location))
         {

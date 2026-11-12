@@ -27,7 +27,7 @@ public sealed class SettingsForm : Form
     private readonly Button _save = Theme.PrimaryButton("Save");
     private readonly Button _close = Theme.SecondaryButton("Close");
     private readonly Label _saveState = Theme.Label("", Theme.Small, Theme.TextMuted);
-    private readonly Panel _content = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(32, 26, 20, 10), BackColor = Theme.Window };
+    private readonly Panel _content = new RepaintOnScrollPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(32, 26, 20, 10), BackColor = Theme.Window };
     private bool _loading = true;
     private string _savedSnapshot = "";
 

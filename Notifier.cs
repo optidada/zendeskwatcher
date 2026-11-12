@@ -272,13 +272,13 @@ public sealed class Notifier : INotificationSink
         ? Samples(single)
         : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                "", Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone, CanTake = true });
+                "", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone, CanTake = true });
 
     /// <summary>All samples (for the developer --render-popups helper).</summary>
     public static IEnumerable<NotificationContent> AllSamples() =>
         Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
-                Priority: "urgent", Context: "Support Tier 1") { CanTake = true }).Append(
+                TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
                 "5 unassigned tickets waiting\nSupport Tier 2: 3 · Premium Support: 2\nOldest: 2 h 10 min ago\nYour tickets: 3 open, 4 pending\n" +
                 "CC / following: 2 tickets\nHelp colleagues: Urgent, High") { MaxBodyLines = 7 }).Append(
@@ -289,15 +289,15 @@ public sealed class Notifier : INotificationSink
     {
         NotificationKind.NewTicket =>
           [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }],
+              $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
               "Sam Customer replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
-              Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone }],
+              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone }],
         _ =>
           [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
               "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
-              Priority: "normal") { Action = ActionNone }]
+              TicketId: 123457, Priority: "normal") { Action = ActionNone }]
     };
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
