@@ -6,6 +6,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.5
 
 - **Colleagues' tickets** get their own sound and display time (Settings → Appearance), default *Reminder* and *Long*, plus a test button.
+- Notifications can be clicked while Settings is open (Settings is no longer a modal window).
 
 ## 1.3.4
 

@@ -254,22 +254,20 @@ public sealed class TrayAppContext : ApplicationContext
         _loopCts = null;
         SetStatus("Paused while Settings is open");
 
-        using var form = new SettingsForm(_settings, CreateSession, _notifier, knownSignedOut);
+        // A normal (not modal) window, so notifications stay clickable while it's open.
+        var form = new SettingsForm(_settings, CreateSession, _notifier, knownSignedOut);
         _settingsForm = form;
-        try
-        {
-            form.ShowDialog();
-        }
-        finally
+        form.FormClosed += (_, _) =>
         {
             _settingsForm = null;
-            MemoryTrim.Soon(); // the window and its controls are gone; give the memory back
-        }
-
-        // Result holds the last saved settings (unchanged if nothing was saved). Restart either way:
-        // the user may have signed in or out in the window.
-        _settings = form.Result;
-        Start(openSettingsIfNeeded: false);
+            // Result holds the last saved settings (unchanged if nothing was saved). Restart either way:
+            // the user may have signed in or out in the window.
+            _settings = form.Result;
+            MemoryTrim.Soon(); // the window and its controls are gone (closed forms dispose themselves)
+            Start(openSettingsIfNeeded: false);
+        };
+        form.Show();
+        form.Activate();
     }
 
     /// <summary>"Take it": assigns the ticket to me (unless someone was faster), then opens it. Runs on the UI thread.</summary>
