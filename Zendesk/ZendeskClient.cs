@@ -77,9 +77,12 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     public Task<List<Ticket>> GetMyOpenTicketsAsync(CancellationToken ct) =>
         SearchTicketsAsync("type:ticket assignee:me status<solved", ct);
 
-    /// <summary>The most recently updated tickets assigned to a user. Exact, no search lag.</summary>
+    /// <summary>
+    /// The most recently updated tickets assigned to a user. Exact, no search lag. 30 is plenty between two checks
+    /// (only a few change per minute) and keeps the response small: every ticket includes its full description.
+    /// </summary>
     public async Task<List<Ticket>> GetRecentlyUpdatedAssignedAsync(long userId, CancellationToken ct) =>
-        (await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/assigned.json?sort_by=updated_at&sort_order=desc&per_page=100", ct)).Tickets;
+        (await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/assigned.json?sort_by=updated_at&sort_order=desc&per_page=30", ct)).Tickets;
 
     /// <summary>
     /// The most recently updated tickets where the user is CC'd, or follows. Exact, no search lag.
@@ -94,7 +97,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
                 continue;
             try
             {
-                result.AddRange((await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/{list}.json?sort_by=updated_at&sort_order=desc&per_page=100", ct)).Tickets);
+                result.AddRange((await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/{list}.json?sort_by=updated_at&sort_order=desc&per_page=30", ct)).Tickets);
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
             {
