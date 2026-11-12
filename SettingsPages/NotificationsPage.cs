@@ -25,12 +25,9 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly ComboBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
     private readonly ComboBox _snoozeBehavior = Kit.Combo(SnoozeBehaviorOptions, width: 300);
     private static readonly Option<int>[] IntervalOptions =
-    [
-        new(30, "30 seconds"), new(45, "45 seconds"), new(60, "1 minute"), new(120, "2 minutes"), new(180, "3 minutes"),
-        new(300, "5 minutes"), new(600, "10 minutes"), new(900, "15 minutes"), new(1800, "30 minutes"), new(3600, "1 hour")
-    ];
+        [new(30, "30 s"), new(60, "1 min"), new(120, "2 min"), new(180, "3 min"), new(300, "5 min")];
 
-    private readonly ComboBox _interval = Kit.Combo(IntervalOptions, width: 160);
+    private readonly ChoicePills _interval = new(IntervalOptions.Select(o => o.Label).ToArray());
     private readonly PriorityChecks _myPriorities = new(new Padding(50, 0, 0, 6));
     private readonly PriorityChecks _ccPriorities = new(new Padding(50, 0, 0, 6));
     private readonly HelpColleaguesCard _help;
@@ -78,7 +75,9 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(snooze);
 
         var checking = new Card("Checking", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", Kit.CardWidth);
-        checking.Body.Controls.Add(Kit.Row(Theme.Label("Check Zendesk every"), _interval));
+        checking.Body.Controls.Add(Theme.Label("Check Zendesk every"));
+        _interval.Margin = new Padding(0, 4, 0, 2);
+        checking.Body.Controls.Add(_interval);
         Panel.Controls.Add(checking);
 
         _trackMine.CheckedChanged += (_, _) => UpdateChangeTypes();
@@ -86,14 +85,15 @@ internal sealed class NotificationsPage : SettingsPage
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
         TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority,
-            _snoozeMinutes, _snoozeBehavior, _interval);
+            _snoozeMinutes, _snoozeBehavior);
+        _interval.SelectedIndexChanged += (_, _) => Changed();
     }
 
     public override void Load(Settings settings)
     {
         _notifyUnassigned.Checked = settings.NotifyUnassigned;
         // A value from an older version or an edited file (e.g. 75 s) gets the nearest step.
-        Kit.Select(_interval, IntervalOptions.MinBy(o => Math.Abs(o.Value - settings.PollIntervalSeconds))!.Value);
+        _interval.SelectedIndex = Array.IndexOf(IntervalOptions, IntervalOptions.MinBy(o => Math.Abs(o.Value - settings.PollIntervalSeconds)));
         _trackMine.Checked = settings.TrackMyTickets;
         _trackCc.Checked = settings.TrackCcTickets;
         _replies.Checked = settings.NotifyPublicReplies;
@@ -112,7 +112,7 @@ internal sealed class NotificationsPage : SettingsPage
     public override void Apply(Settings s)
     {
         s.NotifyUnassigned = _notifyUnassigned.Checked;
-        s.PollIntervalSeconds = Kit.Selected<int>(_interval);
+        s.PollIntervalSeconds = IntervalOptions[_interval.SelectedIndex].Value;
         s.TrackMyTickets = _trackMine.Checked;
         s.TrackCcTickets = _trackCc.Checked;
         s.NotifyPublicReplies = _replies.Checked;

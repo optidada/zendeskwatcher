@@ -75,7 +75,7 @@ public class SettingsWindowTests
     [Theory]
     [InlineData(75, 60)]     // from an older version: the nearest step
     [InlineData(100, 120)]
-    [InlineData(5000, 3600)]
+    [InlineData(600, 300)]   // longer than the longest choice: 5 min
     [InlineData(10, 30)]
     public void Check_interval_snaps_to_the_nearest_step(int saved, int shown)
     {
