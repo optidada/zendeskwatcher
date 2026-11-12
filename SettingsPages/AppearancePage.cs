@@ -53,10 +53,12 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ToolTip _tips = new();
 
     public AppearancePage(SettingsContext context)
-        : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
+        : base(context, "Look & sound", "How notifications (and this window) look, and how they sound. The test buttons use your current choices, even before saving.")
     {
-        var style = new Card("Style", "Custom popups slide in at the screen corner and stack. While you present or run a full-screen app, " +
-            "Windows notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);
+        var style = new Card("Style", "The look of the notifications, and of this Settings window and its dialogs (you see it right away; " +
+            "it's kept when you save). With Windows, the window follows Windows' light or dark mode and accent color. " +
+            "Custom popups slide in at the screen corner and stack; while you present or run a full-screen app, Windows " +
+            "notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);
         // Two rows of three tiles.
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(0, 0, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
