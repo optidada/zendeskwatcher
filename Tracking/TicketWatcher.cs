@@ -182,7 +182,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             // A newly monitored group: one summary of what's already waiting instead of a notification per ticket.
             if (isBaseline && settings.NotifyUnassigned && tickets.Count > 0)
             {
-                ShowAlreadyWaiting(group, tickets);
+                await ShowAlreadyWaitingAsync(group, tickets, ct);
                 ShowedAlreadyWaiting = true;
                 continue;
             }
@@ -205,7 +205,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             foreach (var ticket in fresh)
             {
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
+                    await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
             }
         }
 
@@ -449,6 +449,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 var (customer, comment) = reply.Value;
                 Log.Info($"Ticket #{ticket.Id}: {customer} replied while {who} is outside working hours ({English(local, "ddd HH:mm")} their time)");
 
+                if (ticket.OrganizationId is { } orgId && await zendesk.GetOrganizationNameAsync(orgId, ct) is { } org)
+                    customer = $"{customer} ({org})";
                 var said = settings.ShowCommentText ? $"{customer} replied: {Snippet(comment)}" : $"{customer} replied";
                 notifier.Show(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
@@ -533,13 +535,15 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var shown = lines.TakeLast(MaxLinesPerToast).ToList();
         if (lines.Count > shown.Count)
             shown.Insert(0, $"(+{lines.Count - shown.Count} earlier changes)");
+        if (await RequesterAsync(ticket, ct) is { } requester)
+            shown.Insert(0, requester); // who the ticket is from, then what changed
 
         notifier.Show(new NotificationContent(kind, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             string.Join("\n", shown), ticket.Id, ticket.Priority, context) { IsTicketNotification = true });
     }
 
     /// <summary>"Now watching Tier 2 · 3 unassigned tickets" when a group is added; a ticket notification if there's just one.</summary>
-    private void ShowAlreadyWaiting(WatchedGroup group, List<Ticket> tickets)
+    private async Task ShowAlreadyWaitingAsync(WatchedGroup group, List<Ticket> tickets, CancellationToken ct)
     {
         var oldestFirst = tickets.OrderBy(t => t.CreatedAt).ToList();
         Log.Info($"Now watching {GroupLabel(group)}: {tickets.Count} unassigned ticket(s) already waiting: {string.Join(",", oldestFirst.Select(t => t.Id))}");
@@ -548,7 +552,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             var ticket = oldestFirst[0];
             notifier.Show(new NotificationContent(NotificationKind.NewTicket, "Already waiting", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
+                await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
             return;
         }
 
@@ -562,6 +566,18 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// <summary>Day and month names in English, whatever the PC's language (the app's texts are English).</summary>
     private static string English(DateTime value, string format) =>
         value.ToString(format, System.Globalization.CultureInfo.GetCultureInfo("en-GB"));
+
+    /// <summary>"Jane Doe (Acme Corp)": who the ticket is from. Null if neither can be read.</summary>
+    private async Task<string?> RequesterAsync(Ticket ticket, CancellationToken ct)
+    {
+        var name = ticket.RequesterId is { } id ? (await zendesk.GetUserAsync(id, ct))?.Name : null;
+        var org = ticket.OrganizationId is { } orgId ? await zendesk.GetOrganizationNameAsync(orgId, ct) : null;
+        return TicketRules.RequesterLabel(name, org);
+    }
+
+    /// <summary>"Jane Doe (Acme Corp) · Created 14:02" (the time since is added when shown).</summary>
+    private async Task<string> CreatedLineAsync(Ticket ticket, CancellationToken ct) =>
+        await RequesterAsync(ticket, ct) is { } requester ? $"{requester} · Created {CreatedLabel(ticket)}" : $"Created {CreatedLabel(ticket)}";
 
     private static string CreatedLabel(Ticket t)
     {

@@ -120,6 +120,15 @@ public class TicketRulesTests
         => Assert.Equal("Good day", TicketRules.Greeting(new DateTime(2026, 11, 12, 12, 0, 0), null));
 
     [Theory]
+    [InlineData("Jane Doe", "Acme Corp", "Jane Doe (Acme Corp)")]
+    [InlineData("Jane Doe", null, "Jane Doe")]
+    [InlineData(null, "Acme Corp", "Acme Corp")]
+    [InlineData(null, null, null)]
+    [InlineData(" ", "", null)]
+    public void Requester_label(string? name, string? org, string? expected)
+        => Assert.Equal(expected, TicketRules.RequesterLabel(name, org));
+
+    [Theory]
     [InlineData("pending", "Pending")]
     [InlineData("hold", "On-hold")]
     [InlineData("OPEN", "Open")]

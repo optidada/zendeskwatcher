@@ -70,6 +70,21 @@ public class TicketChangeTests
     }
 
     [Fact]
+    public async Task Requester_and_organization_come_first()
+    {
+        _zendesk.Organizations[900] = "Acme Corp";
+        var ticket = _zendesk.AddAssigned(510, "high", subject: "Login broken");
+        ticket.RequesterId = Customer;
+        ticket.OrganizationId = 900;
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(510, Customer, "Still broken for us");
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal("Jane Customer (Acme Corp)\nJane Customer replied: Still broken for us", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
     public async Task My_own_changes_never_notify()
     {
         _zendesk.AddAssigned(501, "high");

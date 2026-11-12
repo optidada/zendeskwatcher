@@ -49,6 +49,16 @@ public static class TicketRules
         return firstName is null ? greeting : $"{greeting}, {firstName}";
     }
 
+    /// <summary>"Jane Doe (Acme Corp)", "Jane Doe", "Acme Corp", or null when neither is known.</summary>
+    public static string? RequesterLabel(string? name, string? organization) =>
+        (string.IsNullOrWhiteSpace(name), string.IsNullOrWhiteSpace(organization)) switch
+        {
+            (false, false) => $"{name} ({organization})",
+            (false, true) => name,
+            (true, false) => organization,
+            _ => null
+        };
+
     /// <summary>"pending" → "Pending", "hold" → "On-hold", as Zendesk shows them.</summary>
     public static string? StatusLabel(string? status) => status?.ToLowerInvariant() switch
     {

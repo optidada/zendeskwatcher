@@ -29,6 +29,7 @@ public sealed class Ticket
     public long? AssigneeId { get; set; }
     public long? GroupId { get; set; }
     public long? RequesterId { get; set; }
+    public long? OrganizationId { get; set; }
     public List<long> FollowerIds { get; set; } = [];
     public List<long> EmailCcIds { get; set; } = [];
     public List<long> CollaboratorIds { get; set; } = [];
@@ -60,6 +61,8 @@ public sealed class AuditEvent
 // ---- Response envelopes ----
 
 internal sealed class UserResponse { public User? User { get; set; } }
+internal sealed class Organization { public long Id { get; set; } public string? Name { get; set; } }
+internal sealed class OrganizationResponse { public Organization? Organization { get; set; } }
 internal sealed class UsersResponse : PagedResponse { public List<User> Users { get; set; } = []; }
 internal sealed class GroupsResponse : PagedResponse { public List<Group> Groups { get; set; } = []; }
 internal sealed class GroupMembership { public long GroupId { get; set; } }

@@ -55,6 +55,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
     public Dictionary<long, List<Audit>> Audits { get; } = [];
 
     public Dictionary<long, User> Users { get; } = [];
+    public Dictionary<long, string> Organizations { get; } = [];
 
     private DateTimeOffset _clock = DateTimeOffset.UtcNow.AddHours(-2);
 
@@ -123,6 +124,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
             _ when AuditsPath().Match(path) is { Success: true } m =>
                 new { audits = Audits.GetValueOrDefault(long.Parse(m.Groups[1].Value), []).OrderByDescending(a => a.CreatedAt).ToList() },
             _ when UserPath().Match(path) is { Success: true } m && Users.TryGetValue(long.Parse(m.Groups[1].Value), out var user) => new { user },
+            _ when OrgPath().Match(path) is { Success: true } m && Organizations.TryGetValue(long.Parse(m.Groups[1].Value), out var org) =>
+                new { organization = new { id = long.Parse(m.Groups[1].Value), name = org } },
             _ => null
         };
         return Task.FromResult(body is null
@@ -163,6 +166,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     [GeneratedRegex(@"^/api/v2/users/(\d+)\.json$")]
     private static partial Regex UserPath();
+
+    [GeneratedRegex(@"^/api/v2/organizations/(\d+)\.json$")]
+    private static partial Regex OrgPath();
 
     public Task<ApiResponse> SendAsync(string method, string url, string jsonBody, CancellationToken ct) =>
         Task.FromResult(new ApiResponse(404, "{}", null));

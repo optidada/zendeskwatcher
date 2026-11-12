@@ -181,6 +181,26 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         return result;
     }
 
+    private readonly Dictionary<long, string?> _organizations = [];
+
+    /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
+    public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct)
+    {
+        if (_organizations.TryGetValue(organizationId, out var cached))
+            return cached;
+        string? name;
+        try
+        {
+            name = (await GetAsync<OrganizationResponse>($"/api/v2/organizations/{organizationId}.json", ct)).Organization?.Name;
+        }
+        catch (HttpRequestException)
+        {
+            name = null;
+        }
+        _organizations[organizationId] = name;
+        return name;
+    }
+
     public async Task<string> GetUserNameAsync(long userId, CancellationToken ct) =>
         (await GetUserAsync(userId, ct))?.Name ?? $"User {userId}";
 

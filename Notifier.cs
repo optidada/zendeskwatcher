@@ -270,9 +270,10 @@ public sealed class Notifier : INotificationSink
     /// </summary>
     internal static IEnumerable<NotificationContent> TestSamples(NotificationKind? kind) => kind is { } single
         ? Samples(single)
-        : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
+        : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(Samples(NotificationKind.HelpColleague)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                "", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { Action = ActionNone, CanTake = true });
+                $"Robin Client (Northwind) · Created {DateTime.Now.AddMinutes(-2):HH:mm}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
+            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2) });
 
     /// <summary>All samples (for the developer --render-popups helper).</summary>
     public static IEnumerable<NotificationContent> AllSamples() =>
@@ -289,14 +290,14 @@ public sealed class Notifier : INotificationSink
     {
         NotificationKind.NewTicket =>
           [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }],
+              $"Alex Example (Contoso) · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
-              "Sam Customer replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
+              "Sam Customer (Northwind) replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
               TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone }],
         _ =>
           [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
-              "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
+              "Jane Doe (Fabrikam)\nJane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
               TicketId: 123457, Priority: "normal") { Action = ActionNone }]
     };
 
