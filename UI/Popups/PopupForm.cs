@@ -225,7 +225,7 @@ public sealed class PopupForm : Form
 
             default:
                 x = _restX;
-                if (_durationMs > 0 && !_hover && MyTurn)
+                if (_durationMs > 0 && !_hover && MyTurn && !UserAway())
                 {
                     _elapsed += dt;
                     if (_elapsed >= _durationMs)
@@ -239,7 +239,7 @@ public sealed class PopupForm : Form
         if (moved)
             Location = location;
 
-        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn;
+        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn && !UserAway();
         var typing = Typed().Typing;
         var gliding = Math.Abs(TargetY - _y) > 0.5f;
         var busy = _phase != Phase.Showing || gliding || countingDown || typing;
@@ -566,7 +566,7 @@ public sealed class PopupForm : Form
             var seconds = _durationMs <= 0 ? "--" : $"{Math.Ceiling((_durationMs - _elapsed) / 1000)}s";
             var bar = _durationMs <= 0
                 ? "[ pinned until dismissed ]"
-                : $"[{new string('█', filled)}{new string('░', cells - filled)}] {seconds}{(_hover ? " (paused)" : !MyTurn ? " (waiting)" : "")}";
+                : $"[{new string('█', filled)}{new string('░', cells - filled)}] {seconds}{(_hover ? " (paused)" : !MyTurn ? " (waiting)" : UserAway() ? " (you're away)" : "")}";
             DrawText(g, bar, _bodyFont, _barRect, _palette.Muted, TextFormatFlags.SingleLine);
             return;
         }
@@ -693,6 +693,32 @@ public sealed class PopupForm : Form
         }
         base.Dispose(disposing);
     }
+
+    /// <summary>No mouse or keyboard input for this long: the user is away, and popups don't count down.</summary>
+    internal static readonly TimeSpan AwayAfter = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// True when there's been no input for <see cref="AwayAfter"/>: countdowns pause, so notifications are still
+    /// there when the user comes back. Cheap (one Windows call), checked on each animation tick.
+    /// </summary>
+    internal static bool UserAway()
+    {
+        var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
+        if (!GetLastInputInfo(ref info))
+            return false;
+        var idleMs = unchecked((uint)Environment.TickCount - info.dwTime);
+        return idleMs >= AwayAfter.TotalMilliseconds;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);

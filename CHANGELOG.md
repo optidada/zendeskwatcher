@@ -6,6 +6,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.12
 
 - **Requester and organization** on ticket notifications: "Jane Doe (Acme Corp)" on new tickets, ticket updates and colleagues' tickets.
+- **Away from the computer?** After a minute without mouse or keyboard input, popups stop counting down, so they're still there when you come back.
 - **Several popups take turns**: only the oldest one counts down; the others wait with a full bar and get their full time when it's their turn, instead of all disappearing at once.
 
 ## 1.3.11
