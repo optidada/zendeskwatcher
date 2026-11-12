@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.3
+
+- The icon is the same plain Z everywhere (tray, taskbar, window, Start menu).
+- Settings: the Save button only shows when there are unsaved changes.
+
 ## 1.3.2
 
 - When you start monitoring a group, one notification shows what's already waiting there ("Now watching Tier 2 · 3 unassigned tickets already waiting"); new tickets after that notify one by one as before.

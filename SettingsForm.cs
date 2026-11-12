@@ -992,6 +992,7 @@ public sealed class SettingsForm : Form
 
         var dirty = HasUnsavedChanges;
         _save.Enabled = dirty;
+        _save.Visible = dirty; // only offered when there's something to save (a disabled flat button still looks clickable)
         if (dirty)
         {
             _saveState.Text = "Unsaved changes";

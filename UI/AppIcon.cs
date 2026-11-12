@@ -20,13 +20,13 @@ public static class AppIcon
     private static readonly Color BackgroundEdge = Color.FromArgb(28, 52, 36);
 
     /// <summary>
-    /// Renders the icon at the given pixel size: the Optimizely-style Z (<see cref="BrandIcon"/>), with the eye where
-    /// there's room for it (32 px and up) and a plain Z at tray size. The state color maps to lime / orange / gray.
+    /// Renders the icon at the given pixel size: the Optimizely-style Z (<see cref="BrandIcon"/>), the same plain Z at
+    /// every size (tray, taskbar, window, exe). The state color maps to lime / orange / gray.
     /// </summary>
     public static Bitmap Render(int size, Color neon)
     {
         var face = neon == NeonOrange ? BrandIcon.Orange : neon == Dim ? BrandIcon.Gray : BrandIcon.Lime;
-        return BrandIcon.Render(size, face, eye: size >= 32);
+        return BrandIcon.Render(size, face, eye: false); // the plain Z everywhere, same as in the tray
     }
 
     /// <summary>The previous neon icon (kept for reference).</summary>
