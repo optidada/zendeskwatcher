@@ -14,7 +14,8 @@ internal sealed class StatisticsPage : SettingsPage
     private static readonly (StatOutcome Outcome, string Label)[] Columns =
     [
         (StatOutcome.Shown, "Shown"), (StatOutcome.OpenedTicket, "Opened"),
-        (StatOutcome.Took, "Took it"), (StatOutcome.Snoozed, "Snoozed"), (StatOutcome.Closed, "Closed"), (StatOutcome.TimedOut, "Timed out")
+        (StatOutcome.Took, "Took it"), (StatOutcome.Snoozed, "Snoozed"), (StatOutcome.Closed, "Closed"), (StatOutcome.TimedOut, "Timed out"),
+        (StatOutcome.Copied, "Copied")
     ];
 
     private readonly Label _summary = Theme.Label("", Theme.Body, Theme.Text, Kit.CardWidth - 44);
@@ -29,7 +30,8 @@ internal sealed class StatisticsPage : SettingsPage
         card.Body.Controls.Add(_table);
         card.Body.Controls.Add(Theme.Label(
             "Opened: the ticket, or Zendesk for a notification about several tickets. Timed out: disappeared on its own, " +
-            "or went to the Windows notification center. A snoozed notification counts again for what you do when it comes back. " +
+            "or went to the Windows notification center. Copied: copied for Teams (it can be opened as well). A snoozed notification " +
+            "counts again for what you do when it comes back. " +
             "Windows notifications are only counted while Zendesk Watcher runs.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         _clear.Margin = new Padding(0, 10, 0, 0);
         card.Body.Controls.Add(_clear);
@@ -135,6 +137,8 @@ internal sealed class StatisticsPage : SettingsPage
         Add(NotificationKind.HelpColleague, StatOutcome.Shown, 3);
         Add(NotificationKind.HelpColleague, StatOutcome.OpenedTicket, 2);
         Add(NotificationKind.HelpColleague, StatOutcome.Snoozed, 1);
+        Add(NotificationKind.NewTicket, StatOutcome.Copied, 3);
+        Add(NotificationKind.HelpColleague, StatOutcome.Copied, 1);
         return stats;
     }
 }

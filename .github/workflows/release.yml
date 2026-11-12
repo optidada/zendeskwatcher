@@ -35,7 +35,10 @@ jobs:
       # Framework-dependent keeps the installer small (~17 MB instead of ~65 MB). Setup installs the
       # .NET Desktop Runtime and WebView2 when they're missing (see --framework below).
       - name: Publish
-        run: dotnet publish ZendeskWatcher.csproj -c Release -r win-x64 --self-contained false -p:Version=${{ env.VERSION }} -o publish
+        # The DEFAULT_SUBDOMAIN secret (not in the code, masked in these public logs) is pre-filled in Settings on first start.
+        env:
+          DEFAULT_SUBDOMAIN: ${{ secrets.DEFAULT_SUBDOMAIN }}
+        run: dotnet publish ZendeskWatcher.csproj -c Release -r win-x64 --self-contained false -p:Version=${{ env.VERSION }} "-p:DefaultSubdomain=$env:DEFAULT_SUBDOMAIN" -o publish
 
       - name: Install vpk
         run: dotnet tool install -g vpk --version ${{ env.VPK_VERSION }}

@@ -98,6 +98,7 @@ public sealed class SettingsForm : Form
         _general.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
         _general.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
         _general.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
+        _general.ResetRequested += ResetToDefaults;
 
         BuildLayout();
         foreach (var page in _pages)
@@ -243,6 +244,21 @@ public sealed class SettingsForm : Form
         foreach (var page in _pages)
             page.Apply(settings);
         return settings;
+    }
+
+    /// <summary>
+    /// Shows the default settings, keeping the account and monitored groups (and "Start with Windows", a Windows setting).
+    /// It's an unsaved change like any other: Save keeps it, Close offers to discard it.
+    /// </summary>
+    internal void ResetToDefaults()
+    {
+        var current = Current();
+        var defaults = new Settings { Subdomain = current.Subdomain, WatchedGroups = current.WatchedGroups };
+        foreach (var page in _pages.Where(p => p is not AccountPage and not GroupsPage and not GeneralPage))
+            page.Load(defaults);
+        _general.ResetStartSummary();
+        Log.Info("Settings: reset to defaults (not saved yet)");
+        UpdateSaveState();
     }
 
     /// <summary>For tests: what the pages show, written into fresh settings (catches a setting a page doesn't load or save).</summary>

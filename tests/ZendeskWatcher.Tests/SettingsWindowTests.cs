@@ -87,6 +87,30 @@ public class SettingsWindowTests
         Assert.Equal(shown, result);
     }
 
+    [Fact]
+    public void Reset_shows_the_defaults_but_keeps_account_and_groups()
+    {
+        var saved = NonDefaultSettings();
+
+        var shown = OnUiThread(() =>
+        {
+            using var form = new SettingsForm(saved, _ => new FakeZendesk(), new Notifier((_, _) => { }));
+            form.ResetToDefaults();
+            return form.PagesAsSettings();
+        });
+
+        var expected = new Settings { Subdomain = saved.Subdomain, WatchedGroups = saved.WatchedGroups };
+        Assert.Equal(expected.ToJson(), shown.ToJson());
+    }
+
+    [Fact]
+    public void New_tickets_show_about_10_seconds_by_default()
+        => Assert.Equal(ToastDisplay.Medium, new Settings().NewTicketStyle.Display);
+
+    [Fact]
+    public void Builds_without_a_default_subdomain_start_empty()
+        => Assert.Equal("", Settings.DefaultSubdomain); // the release build sets it from a GitHub secret
+
     /// <summary>Windows Forms controls want a single-threaded apartment, like the app's UI thread.</summary>
     private static T OnUiThread<T>(Func<T> action)
     {

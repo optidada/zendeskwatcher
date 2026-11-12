@@ -30,6 +30,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ZendeskWatcher.Tests" />
+    <!-- The subdomain pre-filled on first start; the release workflow passes it from a GitHub secret. -->
+    <AssemblyMetadata Include="DefaultSubdomain" Value="$(DefaultSubdomain)" />
   </ItemGroup>
 
   <ItemGroup>

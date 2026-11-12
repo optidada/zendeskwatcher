@@ -10,7 +10,7 @@ about changes on your own tickets.
 3. **Allow the .NET install if asked.** If your PC doesn't have the .NET 10 Desktop Runtime yet, Setup installs it,
    which asks for admin rights once. If you can't approve that, ask IT to install the
    *.NET 10 Desktop Runtime (x64)*.
-4. **Sign in.** Settings opens. Enter your company's Zendesk subdomain (the part before `.zendesk.com` in the address you use for Zendesk) and click **Sign in**. You sign in with Okta as usual.
+4. **Sign in.** Settings opens. The subdomain (the part before `.zendesk.com` in the address you use for Zendesk) is usually filled in already; otherwise enter it. Click **Sign in**. You sign in with Okta as usual.
 5. **Pick your groups** under *Groups*, look through *Notifications* and *Appearance*, and click **Save**.
 
 That's it. The app starts with Windows (you can turn that off in Settings) and updates itself: when a new version

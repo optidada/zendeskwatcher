@@ -114,6 +114,8 @@ internal sealed class HelpColleaguesCard
         _help.Checked = settings.HelpColleagues;
         _same.Checked = settings.HelpSameAsMonitored;
         _custom.Checked = !settings.HelpSameAsMonitored;
+        _chosen.Clear();
+        _excluded.Clear();
         foreach (var group in settings.HelpGroups)
         {
             _chosen.Add(group.Id);

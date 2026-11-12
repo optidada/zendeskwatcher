@@ -95,11 +95,21 @@ public sealed class TrayAppContext : ApplicationContext
     {
         args.TryGetValue("action", out var action);
         long? ticketId = args.TryGetValue("ticketId", out var id) && long.TryParse(id, out var parsed) ? parsed : null;
+        if (action == Notifier.ActionCopy)
+        {
+            // Counted by Copy. Unknown after a restart: copy at least the link.
+            if (!(args.TryGetValue("copyId", out var copyId) && _notifier.CopyFromToast(copyId)) && ticketId is { } linkId)
+                _notifier.Copy(new NotificationContent(NotificationKind.MyTicket, "", $"#{linkId}", TicketId: linkId));
+            return;
+        }
         if (args.TryGetValue(Notifier.StatArgument, out var kindName) && Enum.TryParse<NotificationKind>(kindName, out var kind) &&
             NotificationStats.ForToastAction(action ?? "") is { } outcome)
             _notifier.Stats.Record(kind, outcome);
         HandleAction(action ?? "", ticketId);
     }, null);
+
+    /// <summary>Zendesk Watcher was started again: say it's already running (from any thread).</summary>
+    public void ShowAlreadyRunning() => _ui.Post(_ => _notifier.ShowAlreadyRunning(), null);
 
     /// <summary>Shows sample notifications with the saved settings once the app is running.</summary>
     public void ShowTestPopups() => _ui.Post(_ => _notifier.ShowTestBurst(_settings), null);
@@ -150,6 +160,8 @@ public sealed class TrayAppContext : ApplicationContext
         if (!session.MightBeSignedIn)
         {
             _tray.SetStatus("Sign-in required – open Settings", TrayState.Off);
+            if (openSettingsIfNeeded && Settings.IsFirstRun)
+                _notifier.ShowWelcome(); // the subdomain came pre-filled
             if (openSettingsIfNeeded)
                 ShowSettings();
             return;

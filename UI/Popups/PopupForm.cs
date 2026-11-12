@@ -30,7 +30,7 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _openRect, _snoozeRect, _takeRect, _chipRect;
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _chipRect;
     private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _chipLabel = "";
 
     // State
@@ -71,6 +71,12 @@ public sealed class PopupForm : Form
     private long _paintedBlink = -1;
 
     public event Action<PopupForm>? Finished;
+
+    /// <summary>Copy was clicked (ticket notifications only). The popup stays open and shows a check mark for a moment.</summary>
+    public event Action<PopupForm>? CopyClicked;
+
+    private double _copiedUntil;
+    private Font? _iconFont;
 
     public PopupForm(NotificationContent content, PopupPalette palette, ToastDisplay display, float scale)
     {
@@ -151,6 +157,14 @@ public sealed class PopupForm : Form
         _phaseStart = _lastTick = _clock.Elapsed.TotalMilliseconds;
         _timer.Start();
     }
+
+    /// <summary>What the second button does: snooze tickets, close app messages; nothing for "OK" messages (OK closes).</summary>
+    private Result SecondButton => _content.ResolvedAction switch
+    {
+        Notifier.ActionInfo => Result.None,
+        Notifier.ActionSettings or Notifier.ActionSignIn or Notifier.ActionUpdate => Result.Dismiss,
+        _ => Result.Snooze
+    };
 
     public void Dismiss(Result outcome)
     {
@@ -253,8 +267,13 @@ public sealed class PopupForm : Form
         var closeSize = Px(22);
         _closeRect = new Rectangle(Px(BaseWidth) - pad - closeSize + Px(4), y - Px(2), closeSize, closeSize);
 
+        // Copy, left of ✕: only on notifications about tickets (and their "Try it" samples, which aren't counted).
+        _copyRect = _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone
+            ? new Rectangle(_closeRect.Left - closeSize - Px(2), _closeRect.Top, closeSize, closeSize)
+            : Rectangle.Empty;
+
         var headingHeight = TextRenderer.MeasureText("Ag", _headingFont).Height;
-        _headingRect = new Rectangle(left, y, width - closeSize, headingHeight);
+        _headingRect = new Rectangle(left, y, (_copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
         y += headingHeight + Px(6);
 
         var titleHeight = Measure(_content.Title, _titleFont, width, maxLines: 2);
@@ -289,17 +308,24 @@ public sealed class PopupForm : Form
             Notifier.ActionInfo => _palette.Terminal ? "[ ok ]" : "OK",
             _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
         };
-        _snoozeLabel = _palette.Terminal ? "[ snooze ]" : "Snooze";
+        // The second button: Snooze on ticket notifications, Close on app messages (welcome, update, sign-in), none
+        // on quick "OK" messages.
+        _snoozeLabel = SecondButton switch
+        {
+            Result.Snooze => _palette.Terminal ? "[ snooze ]" : "Snooze",
+            Result.Dismiss => _palette.Terminal ? "[ close ]" : "Close",
+            _ => ""
+        };
         var buttonHeight = Px(30);
         _footerRect = new Rectangle(left, y, width, buttonHeight);
         var openWidth = TextRenderer.MeasureText(_openLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
-        var snoozeWidth = TextRenderer.MeasureText(_snoozeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
+        var snoozeWidth = _snoozeLabel.Length == 0 ? 0 : TextRenderer.MeasureText(_snoozeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28);
         _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
         _takeLabel = _palette.Terminal ? "[ take ]" : "Take it";
         var takeWidth = _content.CanTake ? TextRenderer.MeasureText(_takeLabel, _smallFont).Width + Px(_palette.Terminal ? 8 : 28) : 0;
         _takeRect = _content.CanTake ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
         var snoozeRight = _content.CanTake ? _takeRect.Left : _openRect.Left;
-        _snoozeRect = new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
+        _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight) : new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
 
         if (!chipSize.IsEmpty && left + chipSize.Width + Px(8) > _snoozeRect.Left)
         {
@@ -361,6 +387,26 @@ public sealed class PopupForm : Form
             g.FillEllipse(hoverBrush, _closeRect);
         }
         DrawText(g, _closeLabel, _smallFont, _closeRect, closeHover ? _palette.Text : _palette.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        if (!_copyRect.IsEmpty)
+        {
+            var copyHover = _hoverButton == _copyRect;
+            var copied = _clock.Elapsed.TotalMilliseconds < _copiedUntil;
+            if (copyHover && !_palette.Terminal)
+            {
+                using var hoverBrush = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 18, _palette.Text));
+                g.FillEllipse(hoverBrush, _copyRect);
+            }
+            var color = copied ? _accent : copyHover ? _palette.Text : _palette.Muted;
+            if (_palette.Terminal)
+                DrawText(g, copied ? "[ok]" : "[c]", _smallFont, _copyRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else
+            {
+                // Segoe MDL2 Assets: E8C8 = copy, E73E = check mark.
+                _iconFont ??= new Font("Segoe MDL2 Assets", _smallFont.SizeInPoints);
+                DrawText(g, copied ? "\uE73E" : "\uE8C8", _iconFont, _copyRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+        }
 
         // Title and body (typed out in the terminal theme)
         var (title, body, typing) = Typed();
@@ -434,7 +480,8 @@ public sealed class PopupForm : Form
             DrawText(g, label, _smallFont, chip, _accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
-        PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
+        if (_snoozeRect.Width > 0)
+            PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
         if (_content.CanTake)
             PaintButton(g, _takeRect, _takeLabel, primary: false);
         PaintButton(g, _openRect, _openLabel, primary: true);
@@ -537,7 +584,7 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        SetHover(true, new[] { _closeRect, _openRect, _snoozeRect, _takeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        SetHover(true, new[] { _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
     }
 
@@ -556,8 +603,14 @@ public sealed class PopupForm : Form
         base.OnMouseClick(e);
         if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location))
             Dismiss(Result.Dismiss);
+        else if (_copyRect.Contains(e.Location))
+        {
+            CopyClicked?.Invoke(this);
+            _copiedUntil = _clock.Elapsed.TotalMilliseconds + 1500;
+            Invalidate();
+        }
         else if (_snoozeRect.Contains(e.Location))
-            Dismiss(Result.Snooze);
+            Dismiss(SecondButton);
         else if (_content.CanTake && _takeRect.Contains(e.Location))
             Dismiss(Result.Take);
         else

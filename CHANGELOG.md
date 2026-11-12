@@ -11,6 +11,12 @@ app's "Update ready" notification, so put the most interesting changes first.
 - "Show the comment text" moved to Settings → Appearance → Content: it applies to your tickets, CC tickets and colleagues' tickets.
 - "Check Zendesk every": five round buttons (30 s, 1, 2, 3 or 5 min) instead of a seconds box; other saved values move to the nearest one.
 - **Button shapes follow the style**: rounded in Optimizely and Clean light, fully round in Neon dark and Cozy, square in Terminal, lightly rounded in Windows. Applies to the Settings window and the popups.
+- **Copy** on ticket notifications (the icon next to ✕, or "Copy" on Windows notifications): the ticket as a clickable title with its details, ready to paste into Teams. Counted under Statistics.
+- **Reset to defaults** under Settings → General: everything except your account and monitored groups, applied when you click Save.
+- New ticket notifications stay about 10 seconds by default (was 5).
+- App messages (welcome, update ready, sign-in) have a Close button instead of Snooze.
+- Starting Zendesk Watcher while it's already running shows a notification instead of a dialog box; click it to open Settings.
+- The Zendesk subdomain is filled in on first start.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10

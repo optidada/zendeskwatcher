@@ -13,14 +13,18 @@ public sealed class PopupManager
     private readonly Action<string, long?> _onAction;
     private readonly Action<NotificationContent> _onSnooze;
     private readonly Action<NotificationContent, PopupForm.Result> _onClosed;
+    private readonly Action<NotificationContent> _onCopy;
 
     /// <param name="onSnooze">The user snoozed a popup; the caller decides when (and whether) it shows again.</param>
     /// <param name="onClosed">A popup closed, and how (for the statistics).</param>
-    public PopupManager(Action<string, long?> onAction, Action<NotificationContent> onSnooze, Action<NotificationContent, PopupForm.Result> onClosed)
+    /// <param name="onCopy">Copy was clicked on a ticket notification.</param>
+    public PopupManager(Action<string, long?> onAction, Action<NotificationContent> onSnooze,
+        Action<NotificationContent, PopupForm.Result> onClosed, Action<NotificationContent> onCopy)
     {
         _onAction = onAction;
         _onSnooze = onSnooze;
         _onClosed = onClosed;
+        _onCopy = onCopy;
     }
 
     public void Show(NotificationContent content, Settings settings)
@@ -38,6 +42,7 @@ public sealed class PopupManager
 
         var popup = new PopupForm(content, palette, style.Display, scale);
         popup.Finished += p => OnFinished(p, settings);
+        popup.CopyClicked += p => _onCopy(p.Content);
         _visible.Add(popup);
 
         var restX = screen.WorkingArea.Right - popup.Width - (int)(16 * scale);

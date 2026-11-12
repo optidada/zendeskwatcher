@@ -62,11 +62,20 @@ internal static class Program
         using var mutex = new Mutex(initiallyOwned: true, @"Local\ZendeskWatcher", out var isFirstInstance);
         if (!isFirstInstance)
         {
-            // A click on a toast is delivered to the running instance; a second manual start just exits.
+            // A click on a toast is delivered to the running instance; a second manual start asks the running one
+            // to say it's there (as a notification), then exits.
             if (!ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
-                MessageBox.Show("Zendesk Watcher is already running. Look for the icon in the system tray.", "Zendesk Watcher");
+                SignalRunningInstance();
             return;
         }
+
+        // A second start sets this event; the running app then shows "already running".
+        using var shown = new EventWaitHandle(false, EventResetMode.AutoReset, AlreadyRunningEvent);
+        new Thread(() =>
+        {
+            while (shown.WaitOne())
+                TrayAppContext.Current?.ShowAlreadyRunning();
+        }) { IsBackground = true, Name = "Second start" }.Start();
 
         ApplicationConfiguration.Initialize();
         Application.ThreadException += (_, e) => Log.Error("Unhandled UI exception", e.Exception);
@@ -82,6 +91,22 @@ internal static class Program
             app.ShowTestPopups(); // for trying the notification styles without waiting for real tickets
         Application.Run(app);
         Log.Info("Stopped");
+    }
+
+    private const string AlreadyRunningEvent = @"Local\ZendeskWatcher.AlreadyRunning";
+
+    private static void SignalRunningInstance()
+    {
+        try
+        {
+            using var shown = EventWaitHandle.OpenExisting(AlreadyRunningEvent);
+            shown.Set();
+        }
+        catch (Exception)
+        {
+            // The running copy is an older version (or just starting): fall back to the old message.
+            MessageBox.Show("Zendesk Watcher is already running. Look for the icon in the system tray.", "Zendesk Watcher");
+        }
     }
 
     private static void ExportIcons(string dir)

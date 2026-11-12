@@ -40,11 +40,50 @@ public sealed class Notifier : INotificationSink
     public const string ActionUpdate = "update";
     public const string ActionTake = "take";
     public const string ActionSettings = "settings";
+    public const string ActionCopy = "copy";
 
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups;
 
-    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze, OnPopupClosed);
+    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze, OnPopupClosed, Copy);
+
+    /// <summary>Recent ticket notifications by id, so "Copy" on a Windows notification knows what it said.</summary>
+    private readonly Dictionary<string, NotificationContent> _copyable = [];
+    private readonly Queue<string> _copyableOrder = new();
+
+    /// <summary>Copies a ticket notification for Teams and counts it. Runs on the UI thread.</summary>
+    public void Copy(NotificationContent content)
+    {
+        try
+        {
+            TicketShare.Copy(content, content.TicketId is { } id ? Settings.TicketUrl(id) : null);
+            if (content.IsTicketNotification)
+                Stats.Record(content.Kind, StatOutcome.Copied);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not copy the notification", ex);
+        }
+    }
+
+    /// <summary>"Copy" on a Windows notification; false if it's no longer known (e.g. after a restart).</summary>
+    public bool CopyFromToast(string copyId)
+    {
+        if (!_copyable.TryGetValue(copyId, out var content))
+            return false;
+        Copy(content);
+        return true;
+    }
+
+    private string RememberForCopy(NotificationContent content)
+    {
+        var id = Guid.NewGuid().ToString("N")[..12];
+        _copyable[id] = content;
+        _copyableOrder.Enqueue(id);
+        while (_copyableOrder.Count > 200)
+            _copyable.Remove(_copyableOrder.Dequeue());
+        return id;
+    }
 
     /// <summary>Where ticket notifications and what was done with them are counted.</summary>
     public NotificationStats Stats { get; set; } = NotificationStats.Shared;
@@ -161,7 +200,7 @@ public sealed class Notifier : INotificationSink
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
-        "Enter your Zendesk subdomain (the part before .zendesk.com) and sign in. Then pick the groups to watch, and make the " +
+        "Check your Zendesk subdomain (the part before .zendesk.com) and sign in. Then pick the groups to watch, and make the " +
         "notifications yours under Notifications and Appearance.")
     {
         Action = ActionSettings,
@@ -184,6 +223,15 @@ public sealed class Notifier : INotificationSink
         MaxBodyLines = 7,
         Style = Settings.SummaryStyle
     });
+
+    /// <summary>The app was started again while running. Shown even when paused; a click opens Settings.</summary>
+    public void ShowAlreadyRunning() => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Zendesk Watcher", "Zendesk Watcher is already running",
+        "It's the icon in the system tray, next to the clock. Click here to open Settings.")
+    {
+        Action = ActionSettings,
+        Style = QuietInfo
+    }, Settings);
 
     /// <summary>Feedback on something the user did (e.g. "Take it"). Shown even when paused.</summary>
     public void ShowInfo(string title, string body, long? ticketId = null) => Show(new NotificationContent(
@@ -233,7 +281,9 @@ public sealed class Notifier : INotificationSink
                 Priority: "urgent", Context: "Support Tier 1") { CanTake = true }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
                 "5 unassigned tickets waiting\nSupport Tier 2: 3 · Premium Support: 2\nOldest: 2 h 10 min ago\nYour tickets: 3 open, 4 pending\n" +
-                "CC / following: 2 tickets\nHelp colleagues: Urgent, High") { MaxBodyLines = 7 });
+                "CC / following: 2 tickets\nHelp colleagues: Urgent, High") { MaxBodyLines = 7 }).Append(
+            new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
+                "Check your Zendesk subdomain and sign in.") { Action = ActionSettings });
 
     private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind switch
     {
@@ -342,6 +392,15 @@ public sealed class Notifier : INotificationSink
             if (content.IsTicketNotification)
                 take.AddArgument(StatArgument, content.Kind.ToString());
             builder.AddButton(take);
+        }
+
+        if (content.IsTicketNotification)
+        {
+            builder.AddButton(new ToastButton()
+                .SetContent("Copy")
+                .AddArgument("action", ActionCopy)
+                .AddArgument("copyId", RememberForCopy(content))
+                .AddArgument(StatArgument, content.Kind.ToString()));
         }
 
         var button = new ToastButton()

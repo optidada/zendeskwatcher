@@ -13,11 +13,15 @@ internal sealed class GeneralPage : SettingsPage
     private readonly Button _checkUpdates = Theme.SecondaryButton("Check for updates");
     private readonly Button _sendFeedback = Theme.PrimaryButton("Send feedback…");
     private readonly Button _openLogs = Theme.SecondaryButton("Open log folder");
+    private readonly Button _reset = Theme.SecondaryButton("Reset to defaults…");
 
     /// <summary>The buttons; the tray app does the same as its menu items.</summary>
     public event Action? CheckForUpdatesClicked;
     public event Action? SendFeedbackClicked;
     public event Action? OpenLogFolderClicked;
+
+    /// <summary>Reset to defaults was confirmed: the window shows the defaults (not saved until Save).</summary>
+    public event Action? ResetRequested;
 
     public GeneralPage(SettingsContext context, string version)
         : base(context, "General", $"Zendesk Watcher {version}, by {Author}.")
@@ -37,6 +41,17 @@ internal sealed class GeneralPage : SettingsPage
         feedback.Body.Controls.Add(Kit.Row(_sendFeedback, _openLogs));
         Panel.Controls.Add(feedback);
 
+        var reset = new Card("Reset", "Puts all settings back to their defaults, except your Zendesk account and monitored groups. " +
+            "Nothing changes until you click Save.", Kit.CardWidth);
+        reset.Body.Controls.Add(Kit.Row(_reset));
+        Panel.Controls.Add(reset);
+        _reset.Click += (_, _) =>
+        {
+            if (MessageBox.Show(Context.Window, "Show the default settings? Your account and monitored groups stay as they are. " +
+                    "Nothing is saved until you click Save.", Context.Window.Text, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
+                ResetRequested?.Invoke();
+        };
+
         _checkUpdates.Click += (_, _) => CheckForUpdatesClicked?.Invoke();
         _sendFeedback.Click += (_, _) => SendFeedbackClicked?.Invoke();
         _openLogs.Click += (_, _) => OpenLogFolderClicked?.Invoke();
@@ -53,6 +68,9 @@ internal sealed class GeneralPage : SettingsPage
     }
 
     public override void Apply(Settings settings) => settings.ShowStartSummary = _startSummary.Checked;
+
+    /// <summary>Reset: the start summary goes back to its default; "Start with Windows" (a Windows setting) stays.</summary>
+    public void ResetStartSummary() => _startSummary.Checked = new Settings().ShowStartSummary;
 
     /// <summary>Mirrors the tray menu's update item ("Checking for updates…", "Restart to update to …").</summary>
     public void ShowUpdateState(string text, bool enabled)

@@ -16,7 +16,10 @@ public enum StatOutcome
     /// <summary>Closed with ✕ (or dismissed in Windows).</summary>
     Closed,
     /// <summary>Disappeared on its own: the popup timed out, or the Windows notification went to the notification center.</summary>
-    TimedOut
+    TimedOut,
+
+    /// <summary>Copied (for Teams). Not an ending: the notification stays, so it can also be opened afterwards.</summary>
+    Copied
 }
 
 /// <summary>

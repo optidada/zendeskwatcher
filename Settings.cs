@@ -84,7 +84,8 @@ public sealed class Settings
     public bool ShowCommentText { get; set; } = true;
 
     // Appearance of the notifications
-    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Standard };
+    /// <summary>New unassigned tickets: on screen about 10 seconds by default, as they're the ones to act on.</summary>
+    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Medium };
     public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail, Display = ToastDisplay.Standard };
     public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Reminder, Display = ToastDisplay.Long };
 
@@ -143,8 +144,17 @@ public sealed class Settings
         {
             Log.Error("Could not read settings, using defaults", ex);
         }
-        return new Settings();
+        return new Settings { Subdomain = DefaultSubdomain };
     }
+
+    /// <summary>
+    /// The subdomain filled in on first start: set by the release build (-p:DefaultSubdomain=…, from a GitHub secret),
+    /// so it isn't in the source code. Empty in builds without it.
+    /// </summary>
+    public static string DefaultSubdomain { get; } = NormalizeSubdomain(
+        typeof(Settings).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .Cast<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "DefaultSubdomain")?.Value ?? "");
 
     /// <summary>
     /// Replaces values this version doesn't know (e.g. a theme added in a newer version, saved before going back

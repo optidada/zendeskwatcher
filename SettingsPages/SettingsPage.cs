@@ -51,7 +51,7 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
 
     public FlowLayoutPanel Panel { get; } = Kit.Page(title, subtitle);
 
-    /// <summary>Shows the saved values. Called once, after all pages are built.</summary>
+    /// <summary>Shows these values: the saved ones after all pages are built, and the defaults on Reset.</summary>
     public abstract void Load(Settings settings);
 
     /// <summary>Writes this page's choices into <paramref name="settings"/>.</summary>
