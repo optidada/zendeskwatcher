@@ -111,7 +111,24 @@ public sealed class Settings
         NotificationKind.CcTicket => CcTicketStyle,
         _ => MyTicketStyle
     };
+    /// <summary>The notification style when <see cref="NotificationsLikeApp"/> is off. (Before 1.3.11 the only style setting.)</summary>
     public NotificationTheme Theme { get; set; } = NotificationTheme.Optimizely;
+
+    private NotificationTheme? _appTheme;
+
+    /// <summary>Colors of the Settings window and its dialogs. Until chosen, the same as <see cref="Theme"/> (they were one setting).</summary>
+    public NotificationTheme AppTheme
+    {
+        get => _appTheme ??= Theme;
+        set => _appTheme = value;
+    }
+
+    /// <summary>Notifications look like the app (default), or use their own <see cref="Theme"/>.</summary>
+    public bool NotificationsLikeApp { get; set; } = true;
+
+    /// <summary>The style notifications are shown in.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public NotificationTheme ActiveNotificationTheme => NotificationsLikeApp ? AppTheme : Theme;
     public PopupPosition Position { get; set; } = PopupPosition.BottomRight;
     public bool ShowAppLogo { get; set; } = true;
     public bool GroupNotificationsByType { get; set; } = true;
@@ -163,6 +180,7 @@ public sealed class Settings
     private void Normalize()
     {
         if (!Enum.IsDefined(Theme)) Theme = NotificationTheme.NeonDark;
+        if (!Enum.IsDefined(AppTheme)) AppTheme = Theme;
         WorkdayStartHour = Math.Clamp(WorkdayStartHour, 0, 23);
         WorkdayEndHour = Math.Clamp(WorkdayEndHour, WorkdayStartHour + 1, 24);
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;

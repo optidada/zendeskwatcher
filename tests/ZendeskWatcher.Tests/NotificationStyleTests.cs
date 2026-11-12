@@ -50,4 +50,29 @@ public class NotificationStyleTests
         var settings = new Settings { CcTicketStyle = new NotificationStyle { Sound = ToastSound.Sms } };
         Assert.Equal(expected, settings.StyleFor(kind).Sound);
     }
+
+    [Fact]
+    public void Older_settings_keep_their_style_for_app_and_notifications()
+    {
+        // Saved before the app theme existed: only Theme, which styled both.
+        var json = JsonNode.Parse(new Settings { Theme = NotificationTheme.Terminal }.ToJson())!.AsObject();
+        foreach (var key in json.Select(p => p.Key).Where(k => k.Contains("AppTheme") || k.Contains("NotificationsLikeApp")).ToList())
+            json.Remove(key);
+
+        var loaded = Settings.FromJson(json.ToJsonString());
+
+        Assert.Equal(NotificationTheme.Terminal, loaded.AppTheme);
+        Assert.True(loaded.NotificationsLikeApp);
+        Assert.Equal(NotificationTheme.Terminal, loaded.ActiveNotificationTheme);
+    }
+
+    [Fact]
+    public void Notifications_can_have_their_own_style()
+    {
+        var settings = new Settings { AppTheme = NotificationTheme.CleanLight, Theme = NotificationTheme.NeonDark };
+        Assert.Equal(NotificationTheme.CleanLight, settings.ActiveNotificationTheme); // like the app by default
+
+        settings.NotificationsLikeApp = false;
+        Assert.Equal(NotificationTheme.NeonDark, settings.ActiveNotificationTheme);
+    }
 }

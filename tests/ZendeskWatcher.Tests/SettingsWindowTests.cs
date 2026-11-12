@@ -38,6 +38,8 @@ public class SettingsWindowTests
         SummaryStyle = new NotificationStyle { Sound = ToastSound.ChipFanfare, Display = ToastDisplay.UntilDismissed },
         AppMessageStyle = new NotificationStyle { Sound = ToastSound.Sms, Display = ToastDisplay.Medium },
         Theme = NotificationTheme.CleanLight,
+        AppTheme = NotificationTheme.Terminal,
+        NotificationsLikeApp = false,
         Position = PopupPosition.TopRight,
         ShowAppLogo = false,
         GroupNotificationsByType = false

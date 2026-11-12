@@ -63,7 +63,7 @@ public sealed class SettingsForm : Form
     /// </summary>
     private static Settings UseThemeOf(Settings settings)
     {
-        Theme.Use(settings.Theme);
+        Theme.Use(settings.AppTheme);
         return settings;
     }
 
@@ -259,6 +259,7 @@ public sealed class SettingsForm : Form
         foreach (var page in _pages.Where(p => p is not AccountPage and not GroupsPage and not GeneralPage))
             page.Load(defaults);
         _general.ResetStartSummary();
+        _general.SelectAppTheme(defaults.AppTheme);
         Log.Info("Settings: reset to defaults (not saved yet)");
         UpdateSaveState();
     }
@@ -412,7 +413,7 @@ public sealed class SettingsForm : Form
                        new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
                 [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
             }, TimeRegion.EuropeAfrica);
-            form._appearance.SelectTheme(theme);
+            form._general.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)
             {
                 form.SelectPage(page);

@@ -21,6 +21,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - Questions and messages in Settings look like the rest of the app, with buttons that say what they do (Save / Don't save / Cancel).
 - Settings sidebar: Help colleagues has its own page (*Colleagues*), shown with *Look & sound* (was Appearance) under Notifications, so Notifications is shorter. Statistics is now *Insights*. No more smears when scrolling Settings pages.
 - **Suggestions** on the Insights page: whether a kind of notification is mostly ignored, closed right away, snoozed a lot or too frequent, with what to change (or that it works well).
+- **App theme** under Settings → General: the look of the Settings window and its dialogs. Notifications use the same style, or their own one (Look & sound). Your current style is kept for both.
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 
 ## 1.3.10

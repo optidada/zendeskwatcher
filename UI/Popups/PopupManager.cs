@@ -36,7 +36,7 @@ public sealed class PopupManager
         }
 
         var style = content.Style ?? settings.StyleFor(content.Kind);
-        var palette = PopupPalette.For(settings.Theme);
+        var palette = PopupPalette.For(settings.ActiveNotificationTheme);
         var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
         var scale = DpiScale();
 

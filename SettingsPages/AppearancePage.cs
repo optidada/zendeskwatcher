@@ -30,6 +30,8 @@ internal sealed class AppearancePage : SettingsPage
         new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"),
         new(NotificationTheme.WindowsNative, "Windows")
     ];
+    private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme (General page)");
+    private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
     private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right")]);
     private readonly ComboBox _newSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _newDisplay = Kit.Combo(DisplayOptions);
@@ -53,14 +55,14 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ToolTip _tips = new();
 
     public AppearancePage(SettingsContext context)
-        : base(context, "Look & sound", "How notifications (and this window) look, and how they sound. The test buttons use your current choices, even before saving.")
+        : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
     {
-        var style = new Card("Style", "The look of the notifications, and of this Settings window and its dialogs (you see it right away; " +
-            "it's kept when you save). With Windows, the window follows Windows' light or dark mode and accent color. " +
-            "Custom popups slide in at the screen corner and stack; while you present or run a full-screen app, Windows " +
-            "notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);
+        var style = new Card("Notification style", "Custom popups slide in at the screen corner and stack; Windows uses Windows " +
+            "notifications. While you present or run a full-screen app, Windows notifications are always used, so nothing pops up over your screen.", Kit.CardWidth);
+        style.Body.Controls.Add(_likeApp);
+        style.Body.Controls.Add(_ownStyle);
         // Two rows of three tiles.
-        var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(0, 0, 0, 12) };
+        var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(20, 4, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
         style.Body.Controls.Add(tiles);
         style.Body.Controls.Add(Kit.Row(Theme.Label("Popup position"), _position));
@@ -103,7 +105,9 @@ internal sealed class AppearancePage : SettingsPage
         _testHelp.Click += (_, _) => SendTest(NotificationKind.HelpColleague);
         _testBurst.Click += (_, _) => SendTest(null);
         foreach (var tile in _themeTiles)
-            tile.Click += (_, _) => SelectTheme(tile.Value);
+            tile.Click += (_, _) => { SelectNotificationTheme(tile.Value); Changed(); };
+        foreach (var radio in new[] { _likeApp, _ownStyle })
+            radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
         TrackChanges(_position, _newSound, _newDisplay, _mySound, _myDisplay, _ccSound, _ccDisplay, _helpSound, _helpDisplay,
             _summarySound, _summaryDisplay, _appSound, _appDisplay, _commentText, _showLogo, _groupByType);
     }
@@ -126,7 +130,9 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_appDisplay, settings.AppMessageStyle.Display);
         _commentText.Checked = settings.ShowCommentText;
         _showLogo.Checked = settings.ShowAppLogo;
-        SelectTheme(settings.Theme);
+        _likeApp.Checked = settings.NotificationsLikeApp;
+        _ownStyle.Checked = !settings.NotificationsLikeApp;
+        SelectNotificationTheme(settings.Theme);
         Kit.Select(_position, settings.Position);
         _groupByType.Checked = settings.GroupNotificationsByType;
     }
@@ -141,7 +147,9 @@ internal sealed class AppearancePage : SettingsPage
         s.AppMessageStyle = Style(_appSound, _appDisplay);
         s.ShowCommentText = _commentText.Checked;
         s.ShowAppLogo = _showLogo.Checked;
-        s.Theme = _themeTiles.FirstOrDefault(t => t.Selected)?.Value ?? NotificationTheme.NeonDark;
+        s.NotificationsLikeApp = _likeApp.Checked;
+        if (_themeTiles.FirstOrDefault(t => t.Selected) is { } tile)
+            s.Theme = tile.Value;
         s.Position = Kit.Selected<PopupPosition>(_position);
         s.GroupNotificationsByType = _groupByType.Checked;
     }
@@ -149,17 +157,21 @@ internal sealed class AppearancePage : SettingsPage
     private static NotificationStyle Style(ComboBox sound, ComboBox display) =>
         new() { Sound = Kit.Selected<ToastSound>(sound), Display = Kit.Selected<ToastDisplay>(display) };
 
-    /// <summary>Selects a style, and previews it on the whole window right away (only kept if saved).</summary>
-    public void SelectTheme(NotificationTheme theme)
+    public override void OnShowing() => UpdateStyleOptions(); // the app theme may have changed on the General page
+
+    private void SelectNotificationTheme(NotificationTheme theme)
     {
         foreach (var tile in _themeTiles)
             tile.Selected = tile.Value == theme;
-        _position.Enabled = theme != NotificationTheme.WindowsNative;
+        UpdateStyleOptions();
+    }
 
-        var from = Theme.Use(theme);
-        if (from != Theme.Current)
-            Theme.Recolor(Context.Window, from, Theme.Current);
-        Changed();
+    /// <summary>The tiles only count with "a different style"; the position only for popups (not Windows notifications).</summary>
+    private void UpdateStyleOptions()
+    {
+        foreach (var tile in _themeTiles)
+            tile.Enabled = _ownStyle.Checked;
+        _position.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
     }
 
     /// <summary>Sends samples of one kind, or several of both kinds when <paramref name="kind"/> is null.</summary>

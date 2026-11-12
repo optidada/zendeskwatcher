@@ -591,6 +591,7 @@ public sealed class ThemeTile : Control
         set { _selected = value; Invalidate(); }
     }
 
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
 
@@ -616,6 +617,13 @@ public sealed class ThemeTile : Control
 
         TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(70 * s), Width, (int)(26 * s)),
             Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        // Not in use (e.g. notifications follow the app theme): dimmed.
+        if (!Enabled)
+        {
+            using var veil = new SolidBrush(Color.FromArgb(150, Theme.Surface));
+            g.FillRectangle(veil, ClientRectangle);
+        }
     }
 
     private static void PaintCustom(Graphics g, RectangleF r, float s, ZendeskWatcher.UI.Popups.PopupPalette p)

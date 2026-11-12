@@ -332,7 +332,7 @@ public sealed class Notifier : INotificationSink
         {
             if (content.IsTicketNotification && !content.IsSnoozedRepeat)
                 Stats.Record(content.Kind, StatOutcome.Shown);
-            if (settings.Theme != NotificationTheme.WindowsNative && PopupManager.CanShowPopups())
+            if (settings.ActiveNotificationTheme != NotificationTheme.WindowsNative && PopupManager.CanShowPopups())
                 _popups.Show(content, settings);
             else
                 ShowToast(content, settings);
