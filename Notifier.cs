@@ -95,7 +95,7 @@ public sealed class Notifier(Action<string, long?> onAction)
 
     private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind == NotificationKind.NewTicket
         ? [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              "Requester: Alex Example · Created just now", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true }]
+              $"Requester: Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }]
         : [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
               "Jane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus pending → open (Jane Doe)",
               Priority: "normal") { Action = ActionNone }];
@@ -128,8 +128,9 @@ public sealed class Notifier(Action<string, long?> onAction)
             .AddText(heading)
             .AddText(content.Title);
 
-        if (!string.IsNullOrWhiteSpace(content.Body))
-            builder.AddText(content.Body);
+        var body = content.DisplayBody(DateTimeOffset.UtcNow);
+        if (!string.IsNullOrWhiteSpace(body))
+            builder.AddText(body);
         builder.AddAttributionText(content.PriorityLabel is { } priority ? $"Zendesk Watcher · {priority}" : "Zendesk Watcher");
 
         if (content.TicketId is { } id)

@@ -224,7 +224,7 @@ public sealed class PopupForm : Form
         _titleRect = new Rectangle(left, y, width, titleHeight);
         y += titleHeight + Px(4);
 
-        var bodyHeight = string.IsNullOrWhiteSpace(_content.Body) ? 0 : Measure(_content.Body, _bodyFont, width, maxLines: 5);
+        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : Measure(Body, _bodyFont, width, maxLines: 5);
         _bodyRect = new Rectangle(left, y, width, bodyHeight);
         y += bodyHeight + (bodyHeight > 0 ? Px(12) : Px(8));
 
@@ -457,14 +457,17 @@ public sealed class PopupForm : Form
         }
     }
 
+    /// <summary>The body as of now (e.g. "Created 14:02 · 5 min ago" keeps counting while shown).</summary>
+    private string Body => _content.DisplayBody(DateTimeOffset.UtcNow);
+
     private (string Title, string Body, bool Typing) Typed()
     {
         if (!_palette.Terminal)
-            return (_content.Title, _content.Body, false);
+            return (_content.Title, Body, false);
 
         var shown = (int)((_clock.Elapsed.TotalMilliseconds) / 1000 * TypingCharsPerSecond);
         var title = _content.Title;
-        var body = _content.Body;
+        var body = Body;
         if (shown >= title.Length + body.Length)
             return (title, body, false);
 

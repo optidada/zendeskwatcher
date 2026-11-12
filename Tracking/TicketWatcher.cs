@@ -145,7 +145,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             foreach (var ticket in fresh)
             {
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {ticket.Subject}",
-                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true });
+                    $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt });
             }
         }
 

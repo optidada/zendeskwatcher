@@ -20,6 +20,28 @@ public sealed record NotificationContent(
     /// <summary>What a click does; defaults to opening the ticket, or Zendesk when there is no ticket.</summary>
     public string? Action { get; init; }
 
+    /// <summary>When it happened (e.g. ticket creation). Shown as "· 5 min ago" after the body, kept current in popups.</summary>
+    public DateTimeOffset? EventTime { get; init; }
+
+    /// <summary>The body with the time since <see cref="EventTime"/> appended to its first line.</summary>
+    public string DisplayBody(DateTimeOffset now)
+    {
+        if (EventTime is not { } at)
+            return Body;
+        var ago = Ago(now - at);
+        var newline = Body.IndexOf('\n');
+        return newline < 0 ? $"{Body} · {ago}" : $"{Body[..newline]} · {ago}{Body[newline..]}";
+    }
+
+    public static string Ago(TimeSpan span) => span.TotalMinutes switch
+    {
+        < 1 => "just now",
+        < 60 => $"{(int)span.TotalMinutes} min ago",
+        < 180 when span.Minutes > 0 => $"{(int)span.TotalHours} h {span.Minutes} min ago",
+        < 60 * 24 => $"{(int)span.TotalHours} h ago",
+        _ => (int)span.TotalDays == 1 ? "1 day ago" : $"{(int)span.TotalDays} days ago"
+    };
+
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 
