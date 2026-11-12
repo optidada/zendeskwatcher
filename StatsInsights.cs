@@ -91,7 +91,7 @@ public static class StatsInsights
         NotificationKind.CcTicket => settings.CcTicketPriorities.Count > 1
             ? "Only Urgent for CC / following tickets (Notifications → Ticket changes) gives fewer."
             : "Turning off CC / following tickets (Notifications → Ticket changes) stops them.",
-        _ => "Fewer priorities or groups for Help colleagues (Notifications) give fewer."
+        _ => "Fewer priorities or groups (Help colleagues page) give fewer."
     };
 
     private static string Percent(double share) => $"{Math.Round(share * 100)}%";

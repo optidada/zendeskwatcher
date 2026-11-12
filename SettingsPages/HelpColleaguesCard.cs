@@ -5,7 +5,7 @@ using ZendeskWatcher.Zendesk;
 namespace ZendeskWatcher.SettingsPages;
 
 /// <summary>
-/// The "Help colleagues" card on the Notifications page: which groups and assignees to cover, priorities and hours.
+/// The "Help colleagues" card (its own page): which groups and assignees to cover, priorities and hours.
 /// Uses the monitored groups and suggestions from the Groups page, and the session to load group members.
 /// </summary>
 internal sealed class HelpColleaguesCard
@@ -69,8 +69,7 @@ internal sealed class HelpColleaguesCard
         _context = context;
         _groups = groups;
 
-        Card = new Card("Help colleagues",
-            "Get notified when a customer replies on a colleague's open ticket while the colleague is off work, so you can step in.", Kit.CardWidth);
+        Card = new Card("Who and when", "Which colleagues' tickets you cover, for which priorities, and their working hours.", Kit.CardWidth);
         Card.Body.Controls.Add(_help);
         var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(50, 2, 0, 0) };
         options.Controls.Add(Theme.Label("Groups", Theme.BodyBold));
@@ -161,7 +160,7 @@ internal sealed class HelpColleaguesCard
 
     /// <summary>
     /// The groups offered: your monitored groups, groups you're a member of, and any chosen before. Rebuilt when the
-    /// Notifications page is shown, since monitored groups can change on the Groups page.
+    /// Help colleagues page is shown, since monitored groups can change on the Groups page.
     /// </summary>
     public void ShowGroups()
     {

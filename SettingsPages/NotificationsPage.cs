@@ -2,7 +2,7 @@ using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.SettingsPages;
 
-/// <summary>Notifications: what to be notified about, Help colleagues, snooze and how often to check.</summary>
+/// <summary>Notifications: what to be notified about, snooze and how often to check.</summary>
 internal sealed class NotificationsPage : SettingsPage
 {
     private static readonly Option<int>[] SnoozeMinuteOptions =
@@ -30,9 +30,8 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly ChoicePills _interval = new(IntervalOptions.Select(o => o.Label).ToArray());
     private readonly PriorityChecks _myPriorities = new(new Padding(50, 0, 0, 6));
     private readonly PriorityChecks _ccPriorities = new(new Padding(50, 0, 0, 6));
-    private readonly HelpColleaguesCard _help;
 
-    public NotificationsPage(SettingsContext context, GroupsPage groups)
+    public NotificationsPage(SettingsContext context)
         : base(context, "Notifications", "Choose what you want to hear about and how often to check.")
     {
         var unassigned = new Card("New tickets", "A notification for each new unassigned ticket in the groups you monitor.", Kit.CardWidth);
@@ -58,8 +57,6 @@ internal sealed class NotificationsPage : SettingsPage
         which.Body.Controls.Add(options);
         Panel.Controls.Add(which);
 
-        _help = new HelpColleaguesCard(context, groups);
-        Panel.Controls.Add(_help.Card);
 
         var snooze = new Card("Snooze", "Snooze on a popup hides it and shows it again later. " +
             "A ticket still needs attention when a new ticket is still unassigned, or another ticket isn't solved or closed. " +
@@ -103,7 +100,6 @@ internal sealed class NotificationsPage : SettingsPage
         _priority.Checked = settings.NotifyPriorityChanges;
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
-        _help.Load(settings);
         Kit.Select(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
         Kit.Select(_snoozeBehavior, settings.SnoozeBehavior);
         UpdateChangeTypes();
@@ -124,14 +120,8 @@ internal sealed class NotificationsPage : SettingsPage
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);
         s.SnoozeBehavior = Kit.Selected<SnoozeBehavior>(_snoozeBehavior);
-        _help.Apply(s);
     }
 
-    /// <summary>Monitored groups may have changed on the Groups page.</summary>
-    public override void OnShowing() => _help.ShowGroups();
-
-    /// <summary>For the screenshot tool.</summary>
-    internal HelpColleaguesCard Help => _help;
 
     private void UpdateChangeTypes()
     {

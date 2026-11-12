@@ -19,7 +19,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - The Zendesk subdomain is filled in on first start.
 - Help colleagues: the first time you switch it on, colleagues in your own region start unticked. Your region is listed last, and in each region the covered colleagues come first.
 - Questions and messages in Settings look like the rest of the app, with buttons that say what they do (Save / Don't save / Cancel).
-- Smoother scrolling on long Settings pages.
+- Help colleagues has its own page in Settings, so Notifications is shorter. No more smears when scrolling Settings pages.
 - **Suggestions** under the statistics: whether a kind of notification is mostly ignored, closed right away, snoozed a lot or too frequent, with what to change (or that it works well).
 - Under the hood: unit tests for the notification rules (run before every release), and the Settings window and tray app split into smaller parts.
 

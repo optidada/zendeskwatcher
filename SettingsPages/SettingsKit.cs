@@ -9,20 +9,6 @@ internal sealed record Option<T>(T Value, string Label)
 }
 
 /// <summary>Building blocks shared by the Settings pages: page layout, rows and themed controls.</summary>
-/// <summary>A panel whose children are painted together off-screen (WS_EX_COMPOSITED), so scrolling doesn't stutter.</summary>
-internal sealed class CompositedPanel : FlowLayoutPanel
-{
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var cp = base.CreateParams;
-            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
-            return cp;
-        }
-    }
-}
-
 /// <summary>
 /// A scrolling panel that repaints what's visible after every scroll step. Windows moves the already drawn pixels
 /// when scrolling, which leaves smears behind see-through labels; a full (off-screen) repaint doesn't.
@@ -48,11 +34,10 @@ internal static class Kit
     public const int CardWidth = 556;
 
     /// <summary>A page: title, subtitle, then its cards from top to bottom.</summary>
-    /// <param name="composited">Draw the whole page off-screen, then show it at once: smooth scrolling on long pages with
-    /// many controls. Not for pages with a ListView, which doesn't paint properly that way.</param>
-    public static FlowLayoutPanel Page(string title, string subtitle, bool composited = true)
+    /// <remarks>Not drawn off-screen (WS_EX_COMPOSITED): measured, that kept an idle Appearance page at ~14% of a core.</remarks>
+    public static FlowLayoutPanel Page(string title, string subtitle)
     {
-        var page = (composited ? new CompositedPanel() : new FlowLayoutPanel());
+        var page = new FlowLayoutPanel();
         page.Dock = DockStyle.Top;
         page.FlowDirection = FlowDirection.TopDown;
         page.WrapContents = false;

@@ -59,6 +59,14 @@ internal static class Program
             return;
         }
 
+        // Developer helper: CPU use of an idle Settings page (--measure-settings <page> <seconds> <file>), then exit.
+        if (args.Length >= 4 && args[0] == "--measure-settings")
+        {
+            ApplicationConfiguration.Initialize();
+            SettingsForm.MeasureIdle(int.Parse(args[1]), int.Parse(args[2]), args[3]);
+            return;
+        }
+
         // Developer helper: draw the Settings window in every appearance to PNG files, then exit.
         if (args.Length >= 2 && args[0] == "--render-settings")
         {

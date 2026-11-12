@@ -54,7 +54,7 @@ internal sealed class GroupsPage : SettingsPage
     /// <summary>Groups loaded from Zendesk, remembered for this app session so reopening Settings is instant.</summary>
     private static (string Subdomain, DateTime At, List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions)? _cache;
 
-    /// <summary>How long loaded groups (and, on the Notifications page, group members) are reused.</summary>
+    /// <summary>How long loaded groups (and, on the Help colleagues page, group members) are reused.</summary>
     public static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(30);
 
     /// <summary>Reload was clicked: the account is checked again and everything is fetched fresh.</summary>
@@ -69,7 +69,7 @@ internal sealed class GroupsPage : SettingsPage
     public IReadOnlyList<GroupItem> AllGroups => _allGroups;
 
     public GroupsPage(SettingsContext context)
-        : base(context, "Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.", composited: false)
+        : base(context, "Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.")
     {
         var card = new Card("Monitored groups",
             $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +

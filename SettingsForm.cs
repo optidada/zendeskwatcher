@@ -18,6 +18,7 @@ public sealed class SettingsForm : Form
     private readonly AccountPage _account;
     private readonly GroupsPage _groups;
     private readonly NotificationsPage _notifications;
+    private readonly HelpColleaguesPage _help;
     private readonly AppearancePage _appearance;
     private readonly StatisticsPage _statistics;
     private readonly GeneralPage _general;
@@ -86,11 +87,12 @@ public sealed class SettingsForm : Form
         _context = new SettingsContext(this, _content, notifier, sessionFactory) { Current = Current, Changed = UpdateSaveState };
         _groups = new GroupsPage(_context);
         _account = new AccountPage(_context, _groups);
-        _notifications = new NotificationsPage(_context, _groups);
+        _notifications = new NotificationsPage(_context);
+        _help = new HelpColleaguesPage(_context, _groups);
         _appearance = new AppearancePage(_context);
         _statistics = new StatisticsPage(_context);
         _general = new GeneralPage(_context, AppVersion);
-        _pages = [_account, _groups, _notifications, _appearance, _statistics, _general];
+        _pages = [_account, _groups, _notifications, _help, _appearance, _statistics, _general];
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();
@@ -404,7 +406,7 @@ public sealed class SettingsForm : Form
 
             // Shown as if signed in, with sample group members (cached, so nothing is requested).
             form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
-            form._notifications.Help.ShowSample(new()
+            form._help.Card.ShowSample(new()
             {
                 [1] = [new(9, "Alex Example", "Europe/Stockholm"), new(10, "Maria Svensson", "Europe/Stockholm"), new(11, "Jordan Lee", "America/New_York"),
                        new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
@@ -437,6 +439,64 @@ public sealed class SettingsForm : Form
                 }
             }
             form.Hide();
+        }
+    }
+
+    /// <summary>
+    /// Developer helper: shows the window on <paramref name="page"/>, leaves it idle for <paramref name="seconds"/> and
+    /// writes the CPU time it used to <paramref name="file"/> (to catch pages that keep repainting).
+    /// </summary>
+    internal static void MeasureIdle(int page, int seconds, string file)
+    {
+        var settings = new Settings { Subdomain = "example", HelpColleagues = true, WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }] };
+        using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new Point(-5000, -5000); // off-screen: the mouse and keyboard can't reach it
+        form.ShowInTaskbar = false;
+        form.Show();
+        form.SelectPage(page);
+        var process = System.Diagnostics.Process.GetCurrentProcess();
+        var counter = new MessageCounter();
+        Application.AddMessageFilter(counter);
+        form._content.Layout += (_, e) => counter.Count($"layout:content({e.AffectedProperty}/{e.AffectedControl?.GetType().Name})");
+        form._pages[page].Panel.SizeChanged += (_, _) => counter.Count("size:page");
+        form._content.Scroll += (_, _) => counter.Count("scroll");
+        var start = DateTime.UtcNow;
+        TimeSpan? cpuStart = null;
+        while (DateTime.UtcNow - start < TimeSpan.FromSeconds(seconds + 3))
+        {
+            Application.DoEvents();
+            Thread.Sleep(10);
+            if (cpuStart is null && DateTime.UtcNow - start > TimeSpan.FromSeconds(3)) // after start-up
+            {
+                process.Refresh();
+                cpuStart = process.TotalProcessorTime;
+                counter.Counts.Clear();
+            }
+        }
+        process.Refresh();
+        var used = process.TotalProcessorTime - cpuStart!.Value;
+        File.AppendAllText(file, $"page {page}: {used.TotalMilliseconds:0} ms CPU in {seconds} s = {used.TotalMilliseconds / 10 / seconds:0.00}% of one core; " +
+            string.Join(", ", counter.Counts.OrderByDescending(c => c.Value).Take(6).Select(c => $"{c.Key} {c.Value}")) + Environment.NewLine);
+        form.Hide();
+    }
+
+    /// <summary>For <see cref="MeasureIdle"/>: counts paint and timer messages per control type.</summary>
+    private sealed class MessageCounter : IMessageFilter
+    {
+        public Dictionary<string, int> Counts { get; } = [];
+
+        public void Count(string key) => Counts[key] = Counts.GetValueOrDefault(key) + 1;
+
+        public bool PreFilterMessage(ref Message m)
+        {
+            var kind = m.Msg switch { 0x000F => "paint", 0x0113 => "timer", _ => null };
+            if (kind is not null)
+            {
+                var key = $"{kind}:{Control.FromHandle(m.HWnd)?.GetType().Name ?? "?"}";
+                Counts[key] = Counts.GetValueOrDefault(key) + 1;
+            }
+            return false;
         }
     }
 
