@@ -58,9 +58,9 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(which);
 
 
-        var snooze = new Card("Snooze", "Snooze on a popup hides it and shows it again later. " +
+        var snooze = new Card("Snooze", "Snooze on a notification hides it and shows it again later. " +
             "A ticket still needs attention when a new ticket is still unassigned, or another ticket isn't solved or closed. " +
-            "While notifications are paused, snoozed popups wait until the pause ends.", Kit.CardWidth);
+            "While notifications are paused, snoozed notifications wait until the pause ends.", Kit.CardWidth);
         var snoozeGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
         snoozeGrid.Controls.Add(Theme.Label("Show again after"), 0, 0);
         snoozeGrid.Controls.Add(_snoozeMinutes, 1, 0);

@@ -45,8 +45,8 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ComboBox _summaryDisplay = Kit.Combo(DisplayOptions);
     private readonly ComboBox _appSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _appDisplay = Kit.Combo(DisplayOptions);
-    private readonly ToggleSwitch _takeTurns = new("Several popups take turns: one counts down at a time");
-    private readonly ToggleSwitch _pauseAway = new("Pause popups while I'm away (screen locked, or no input for a minute)");
+    private readonly ToggleSwitch _takeTurns = new("Several notifications take turns: one counts down at a time");
+    private readonly ToggleSwitch _pauseAway = new("Hold the countdown while I'm away (screen locked, or no input for a minute)");
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
     private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
@@ -59,7 +59,7 @@ internal sealed class AppearancePage : SettingsPage
     public AppearancePage(SettingsContext context)
         : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
     {
-        var style = new Card("Notification style", "Custom popups slide in at the screen corner and stack; Windows uses Windows " +
+        var style = new Card("Notification style", "Zendesk Watcher's own styles slide in at the screen corner and stack; Windows uses Windows " +
             "notifications. While you present or run a full-screen app, Windows notifications are always used, so nothing pops up over your screen.", Kit.CardWidth);
         style.Body.Controls.Add(_likeApp);
         style.Body.Controls.Add(_ownStyle);
@@ -67,7 +67,7 @@ internal sealed class AppearancePage : SettingsPage
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(20, 4, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
         style.Body.Controls.Add(tiles);
-        style.Body.Controls.Add(Kit.Row(Theme.Label("Popup position"), _position));
+        style.Body.Controls.Add(Kit.Row(Theme.Label("Position on screen"), _position));
         Panel.Controls.Add(style);
 
         var sound = new Card("Sound and display", "App messages: update ready, welcome and group not found; \"Sign-in required\" uses " +
@@ -85,7 +85,7 @@ internal sealed class AppearancePage : SettingsPage
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
 
-        var timing = new Card("Popups", "How long custom popups stay. Windows notifications follow Windows' own timing.", Kit.CardWidth);
+        var timing = new Card("Timing", "How long notifications stay on screen. Not for the Windows style: it follows Windows' own timing.", Kit.CardWidth);
         timing.Body.Controls.Add(_takeTurns);
         timing.Body.Controls.Add(_pauseAway);
         Panel.Controls.Add(timing);
@@ -93,7 +93,7 @@ internal sealed class AppearancePage : SettingsPage
         var content = new Card("Content", "Replies and notes on your tickets, CC / following tickets and colleagues' tickets.", Kit.CardWidth);
         content.Body.Controls.Add(_commentText);
         var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
-            "the Windows notification center; the custom popups are never stored.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+            "the Windows notification center; notifications in Zendesk Watcher's own styles are never stored.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
         privacy.Margin = new Padding(50, 0, 0, 0);
         content.Body.Controls.Add(privacy);
         Panel.Controls.Add(content);

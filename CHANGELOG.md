@@ -6,8 +6,8 @@ app's "Update ready" notification, so put the most interesting changes first.
 ## 1.3.12
 
 - **Requester and organization** on ticket notifications: "Jane Doe (Acme Corp)" on new tickets, ticket updates and colleagues' tickets.
-- **Away from the computer?** While the screen is locked, or after a minute without mouse or keyboard input, popups stop counting down, so they're still there when you come back. Both this and taking turns can be switched off under Look & sound → Popups.
-- **Several popups take turns**: only the oldest one counts down; the others wait with a full bar and get their full time when it's their turn, instead of all disappearing at once.
+- **Away from the computer?** While the screen is locked, or after a minute without mouse or keyboard input, notifications stop counting down, so they're still there when you come back. Both this and taking turns can be switched off under Look & sound → Timing.
+- **Several notifications take turns**: only the oldest one counts down; the others wait with a full bar and get their full time when it's their turn, instead of all disappearing at once.
 
 ## 1.3.11
 
