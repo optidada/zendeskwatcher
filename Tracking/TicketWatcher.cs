@@ -137,14 +137,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             {
                 notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New tickets",
                     $"{fresh.Count} new unassigned tickets",
-                    string.Join("\n", fresh.Take(3).Select(t => $"#{t.Id} {t.Subject}")),
+                    string.Join("\n", fresh.Take(3).Select(t => $"#{t.Id} {TextCleanup.Plain(t.Subject)}")),
                     Context: GroupLabel(group)));
                 continue;
             }
 
             foreach (var ticket in fresh)
             {
-                notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {ticket.Subject}",
+                notifier.Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
                     $"Created {CreatedLabel(ticket)}", ticket.Id, ticket.Priority, GroupLabel(group)) { CanTake = true, EventTime = ticket.CreatedAt });
             }
         }
@@ -303,7 +303,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (lines.Count > shown.Count)
             shown.Insert(0, $"(+{lines.Count - shown.Count} earlier changes)");
 
-        notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Ticket updated", $"#{ticket.Id} {ticket.Subject}",
+        notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             string.Join("\n", shown), ticket.Id, ticket.Priority, context));
     }
 
@@ -359,7 +359,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     private static string Snippet(AuditEvent ev)
     {
-        var text = Whitespace().Replace(ev.PlainBody ?? ev.Body ?? "", " ").Trim();
+        var text = TextCleanup.Plain(ev.PlainBody ?? ev.Body);
         return text.Length <= 140 ? text : text[..140] + "…";
     }
 
