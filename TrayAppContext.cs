@@ -8,34 +8,23 @@ using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher;
 
-/// <summary>The tray icon, its menu and the polling loop.</summary>
+/// <summary>
+/// The app while it runs: the tray menu, the checking loop, the Settings window and what notification clicks do.
+/// The tray icon (<see cref="TrayIcon"/>), updates (<see cref="AppUpdates"/>) and feedback (<see cref="FeedbackMail"/>)
+/// are separate classes.
+/// </summary>
 public sealed class TrayAppContext : ApplicationContext
 {
     public static TrayAppContext? Current { get; private set; }
 
-    private readonly Notifier _notifier;
     private readonly SynchronizationContext _ui;
-    private readonly NotifyIcon _tray;
+    private readonly Notifier _notifier;
+    private readonly TrayIcon _tray;
+    private readonly AppUpdates _updates;
     private readonly ToolStripMenuItem _statusItem = new() { Enabled = false };
     private readonly ToolStripMenuItem _pauseItem = new("Pause notifications") { CheckOnClick = true };
-    private readonly SemaphoreSlim _wakeUp = new(0);
-    private readonly AppUpdater _updater = new();
     private readonly ToolStripMenuItem _updateItem = new("Check for updates");
-    private readonly System.Windows.Forms.Timer _updateTimer = new();
-    private bool _checkingForUpdates;
-    private string? _announcedVersion; // "Update ready" is shown once per version
-
-    private readonly Icon _iconOk = AppIcon.CreateIcon(AppIcon.NeonGreen);
-    private readonly Icon _iconAttention = AppIcon.CreateIcon(AppIcon.NeonOrange);
-    private readonly Icon _iconOff = AppIcon.CreateIcon(AppIcon.Dim);
-
-    // "Working" pulse: shown while a check runs (after a short delay, so quick checks don't flicker).
-    private readonly Dictionary<Icon, Icon[]> _pulseFrames = [];
-    private readonly System.Windows.Forms.Timer _pulseTimer = new() { Interval = 90 };
-    private readonly System.Windows.Forms.Timer _pulseDelay = new() { Interval = 600 };
-    private Icon? _stateIcon;   // the icon for the current state; the pulse animates this one
-    private int _pulseFrame;
-    private int _busy;
+    private readonly SemaphoreSlim _wakeUp = new(0);
 
     private Settings _settings = Settings.Load();
     private BrowserSession? _browser;
@@ -66,34 +55,35 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
+        _tray = new TrayIcon(menu, _statusItem, _ui);
+        _tray.DoubleClick += (_, _) => ShowSettings();
+
         _pauseItem.CheckedChanged += (_, _) =>
         {
             _notifier.Paused = _pauseItem.Checked;
-            SetStatus(_pauseItem.Checked ? "Notifications paused" : "Notifications resumed");
+            _tray.SetStatus(_pauseItem.Checked ? "Notifications paused" : "Notifications resumed");
         };
 
-        _tray = new NotifyIcon { Icon = _iconOff, Text = "Zendesk Watcher", ContextMenuStrip = menu, Visible = true };
-        _stateIcon = _iconOff;
-        _pulseDelay.Tick += (_, _) => { _pulseDelay.Stop(); _pulseTimer.Start(); };
-        _pulseTimer.Tick += (_, _) => PulseTick();
-        _tray.DoubleClick += (_, _) => ShowSettings();
-
-        _updateItem.Click += (_, _) => OnUpdateMenuClicked();
-        if (_updater.IsInstalled)
+        _updates = new AppUpdates(_notifier)
         {
-            // Keep "Start with Windows" pointing at the installed exe (e.g. after moving from a hand-copied exe).
-            if (StartupRegistration.IsEnabled)
-                StartupRegistration.Set(true);
-
-            // Once a couple of minutes after start, then once a day ("Check for updates" works any time).
-            _updateTimer.Interval = 120_000;
-            _updateTimer.Tick += async (_, _) =>
+            BeforeRestart = () =>
             {
-                _updateTimer.Interval = (int)TimeSpan.FromHours(24).TotalMilliseconds;
-                await CheckForUpdatesAsync(userInitiated: false);
-            };
-            _updateTimer.Start();
-        }
+                _loopCts?.Cancel();
+                _tray.Hide(); // the process exits right away; don't leave a ghost icon behind
+                _browser?.Dispose();
+            }
+        };
+        _updateItem.Click += (_, _) => _updates.OnClicked();
+        _updates.StateChanged += () =>
+        {
+            _updateItem.Text = _updates.Text;
+            _updateItem.Enabled = _updates.Enabled;
+            _settingsForm?.ShowUpdateState(_updates.Text, _updates.Enabled);
+        };
+
+        // Keep "Start with Windows" pointing at the installed exe (e.g. after moving from a hand-copied exe).
+        if (_updates.IsInstalled && StartupRegistration.IsEnabled)
+            StartupRegistration.Set(true);
 
         // Run once the message loop is up; this may open the Settings window on first start.
         _ui = SynchronizationContext.Current ?? _ui;
@@ -130,10 +120,12 @@ public sealed class TrayAppContext : ApplicationContext
                 _ = TakeTicketAsync(takeId);
                 break;
             case Notifier.ActionUpdate:
-                RestartToUpdate();
+                _updates.RestartToUpdate();
                 break;
         }
     }
+
+    // ------------------------------------------------------------------ checking
 
     /// <summary>(Re)starts watching with the current settings, or opens Settings if something is missing.</summary>
     private void Start(bool openSettingsIfNeeded)
@@ -143,7 +135,7 @@ public sealed class TrayAppContext : ApplicationContext
 
         if (!_settings.IsConnectionConfigured)
         {
-            SetStatus("Not configured – open Settings", _iconOff);
+            _tray.SetStatus("Not configured – open Settings", TrayState.Off);
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome();
             if (openSettingsIfNeeded)
@@ -154,7 +146,7 @@ public sealed class TrayAppContext : ApplicationContext
         var session = CreateSession(_settings);
         if (!session.MightBeSignedIn)
         {
-            SetStatus("Sign-in required – open Settings", _iconOff);
+            _tray.SetStatus("Sign-in required – open Settings", TrayState.Off);
             if (openSettingsIfNeeded)
                 ShowSettings();
             return;
@@ -165,7 +157,6 @@ public sealed class TrayAppContext : ApplicationContext
         _ = RunLoopAsync(session, _loopCts.Token);
     }
 
-    /// <summary>One shared browser session (one embedded browser profile), pointed at the configured account.</summary>
     /// <summary>
     /// The session for the Settings window. Looking at a different account (a new subdomain, not saved yet) points the
     /// shared hidden browser elsewhere, so checking pauses until it's saved or the window is closed.
@@ -181,9 +172,10 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _loopCts?.Cancel();
         _loopCts = null;
-        SetStatus(status);
+        _tray.SetStatus(status);
     }
 
+    /// <summary>One shared browser session (one embedded browser profile), pointed at the given account.</summary>
     private IZendeskSession CreateSession(Settings settings)
     {
         _browser ??= new BrowserSession();
@@ -202,19 +194,19 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 if (!initialized)
                 {
-                    SetStatus("Connecting…");
-                    BeginBusy();
+                    _tray.SetStatus("Connecting…");
+                    _tray.BeginBusy();
                     try { await watcher.InitializeAsync(ct); }
-                    finally { EndBusy(); }
+                    finally { _tray.EndBusy(); }
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
                     initialized = true;
                     // Signed in: show it right away; the first check (a few seconds) then sets green/orange.
-                    SetStatus("Signed in · checking…", _tray.Icon == _iconOff ? _iconOk : null);
+                    _tray.SetStatus("Signed in · checking…", _tray.State == TrayState.Off ? TrayState.Ok : null);
                 }
 
-                BeginBusy();
+                _tray.BeginBusy();
                 try { await watcher.PollAsync(ct); }
-                finally { EndBusy(); }
+                finally { _tray.EndBusy(); }
                 _signInPromptShown = false; // signed in again: a later failure may prompt again
 
                 if (!_summaryShown)
@@ -225,7 +217,8 @@ public sealed class TrayAppContext : ApplicationContext
                 }
 
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
-                SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary, watcher.UnassignedCount > 0 ? _iconAttention : _iconOk);
+                _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
+                    watcher.UnassignedCount > 0 ? TrayState.Attention : TrayState.Ok);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -234,14 +227,14 @@ public sealed class TrayAppContext : ApplicationContext
             catch (AuthRequiredException)
             {
                 Log.Info("Sign-in required");
-                SetStatus("Sign-in required – double-click to sign in", _iconOff);
+                _tray.SetStatus("Sign-in required – double-click to sign in", TrayState.Off);
                 PromptSignIn();
                 return; // Restarted after signing in via Settings.
             }
             catch (Exception ex)
             {
                 Log.Error("Poll failed", ex);
-                SetStatus($"Error, retrying: {ex.Message}", _iconOff);
+                _tray.SetStatus($"Error, retrying: {ex.Message}", TrayState.Off);
             }
 
             try
@@ -285,6 +278,8 @@ public sealed class TrayAppContext : ApplicationContext
         wait.Start();
     }
 
+    // ------------------------------------------------------------------ settings window
+
     /// <param name="knownSignedOut">The session was just found to be inactive; the window skips its own check.</param>
     private void ShowSettings(bool knownSignedOut = false)
     {
@@ -306,10 +301,10 @@ public sealed class TrayAppContext : ApplicationContext
         };
         form.SessionChanging += () => PauseChecking("Paused while signing in or out");
         form.SessionChanged += () => Start(openSettingsIfNeeded: false);
-        form.CheckForUpdatesClicked += OnUpdateMenuClicked;
+        form.CheckForUpdatesClicked += _updates.OnClicked;
         form.SendFeedbackClicked += SendFeedback;
         form.OpenLogFolderClicked += () => OpenUrl(AppPaths.DataDir);
-        form.ShowUpdateState(_updateItem.Text ?? "Check for updates", _updateItem.Enabled);
+        form.ShowUpdateState(_updates.Text, _updates.Enabled);
         form.FormClosed += (_, _) =>
         {
             _settingsForm = null;
@@ -321,6 +316,8 @@ public sealed class TrayAppContext : ApplicationContext
         form.Show();
         form.Activate();
     }
+
+    // ------------------------------------------------------------------ ticket actions
 
     /// <summary>"Take it": assigns the ticket to me (unless someone was faster), then opens it. Runs on the UI thread.</summary>
     private async Task TakeTicketAsync(long ticketId)
@@ -353,122 +350,6 @@ public sealed class TrayAppContext : ApplicationContext
         OpenUrl(_settings.TicketUrl(ticketId));
     }
 
-    private async void OnUpdateMenuClicked()
-    {
-        if (_updater.Pending is not null)
-            RestartToUpdate();
-        else
-            await CheckForUpdatesAsync(userInitiated: true);
-    }
-
-    /// <summary>Checks GitHub and downloads a newer version. Runs on the UI thread.</summary>
-    private async Task CheckForUpdatesAsync(bool userInitiated)
-    {
-        if (!_updater.IsInstalled)
-        {
-            if (userInitiated)
-                _notifier.ShowInfo("Updates only work in the installed app", "This copy wasn't installed with Setup.exe, so it can't update itself.");
-            return;
-        }
-
-        if (_checkingForUpdates)
-            return; // the scheduled and a manual check can coincide; one is enough
-        _checkingForUpdates = true;
-        try
-        {
-            SetUpdateState("Checking for updates…", enabled: false);
-            if (await _updater.CheckAndDownloadAsync())
-            {
-                SetUpdateState($"Restart to update to {_updater.PendingVersion}");
-                _updateTimer.Stop();
-                if (_announcedVersion != _updater.PendingVersion)
-                {
-                    _announcedVersion = _updater.PendingVersion;
-                    _notifier.ShowUpdateReady(_updater.PendingVersion!, _updater.PendingHighlights);
-                }
-            }
-            else
-            {
-                SetUpdateState("Check for updates");
-                if (userInitiated)
-                    _notifier.ShowInfo("No updates", $"You have the latest version ({_updater.CurrentVersion}).");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Update check failed", ex);
-            SetUpdateState("Check for updates");
-            if (userInitiated)
-                _notifier.ShowInfo("Couldn't check for updates", ex.Message);
-        }
-        finally
-        {
-            _checkingForUpdates = false;
-            SetUpdateState(_updateItem.Text ?? "Check for updates");
-        }
-    }
-
-    /// <summary>The update item's text and state, in the tray menu and on the Settings General page.</summary>
-    private void SetUpdateState(string text, bool enabled = true)
-    {
-        _updateItem.Text = text;
-        _updateItem.Enabled = enabled;
-        _settingsForm?.ShowUpdateState(text, enabled);
-    }
-
-    private void RestartToUpdate()
-    {
-        if (_updater.Pending is null)
-            return;
-        Log.Info($"Restarting to update to {_updater.PendingVersion}");
-        _loopCts?.Cancel();
-        _tray.Visible = false; // the process exits right away; don't leave a ghost icon behind
-        _browser?.Dispose();
-        _updater.ApplyAndRestart();
-    }
-
-    private void SetStatus(string text, Icon? icon = null) => _ui.Post(_ =>
-    {
-        _statusItem.Text = text;
-        var tooltip = $"Zendesk Watcher\n{text}";
-        _tray.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
-        if (icon is not null)
-        {
-            _stateIcon = icon;
-            if (!_pulseTimer.Enabled)
-                _tray.Icon = icon;
-        }
-    }, null);
-
-    /// <summary>Work started (a check against Zendesk): pulse the tray icon if it takes more than a moment.</summary>
-    private void BeginBusy()
-    {
-        if (_busy++ == 0)
-            _pulseDelay.Start();
-    }
-
-    private void EndBusy()
-    {
-        if (_busy == 0 || --_busy > 0)
-            return;
-        _pulseDelay.Stop();
-        _pulseTimer.Stop();
-        if (_stateIcon is not null)
-            _tray.Icon = _stateIcon;
-    }
-
-    private void PulseTick()
-    {
-        var baseIcon = _stateIcon ?? _iconOff;
-        if (!_pulseFrames.TryGetValue(baseIcon, out var frames))
-        {
-            var color = baseIcon == _iconAttention ? AppIcon.NeonOrange : baseIcon == _iconOff ? AppIcon.Dim : AppIcon.NeonGreen;
-            _pulseFrames[baseIcon] = frames = AppIcon.CreatePulseFrames(color);
-        }
-        _pulseFrame = (_pulseFrame + 1) % frames.Length;
-        _tray.Icon = frames[_pulseFrame];
-    }
-
     /// <summary>For snoozed popups (see <see cref="TicketRules.StillNeedsAttention"/>). Not signed in yet: assume it's still needed.</summary>
     private async Task<bool> StillNeededAsync(NotificationContent content)
     {
@@ -478,62 +359,7 @@ public sealed class TrayAppContext : ApplicationContext
         return TicketRules.StillNeedsAttention(content.Kind, ticket);
     }
 
-    // ------------------------------------------------------------------ feedback
-
-    /// <summary>
-    /// Opens a pre-filled feedback email, picking the app automatically: classic Outlook if it's installed (most
-    /// colleagues use it, while mailto may go to e.g. Gmail), else the default mail app. If neither opens, the
-    /// email is copied to the clipboard. A new email can't carry attachments, so the text points at the log folder.
-    /// </summary>
-    private void SendFeedback()
-    {
-        if (ClassicOutlookPath() is { } outlook)
-        {
-            try
-            {
-                Process.Start(outlook, ["/c", "ipm.note", "/m", $"{AppUpdater.FeedbackEmail}?{FeedbackQuery()}"]);
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Could not open Outlook for feedback; trying the default mail app", ex);
-            }
-        }
-
-        try
-        {
-            Process.Start(new ProcessStartInfo($"mailto:{AppUpdater.FeedbackEmail}?{FeedbackQuery()}") { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not open a mail app for feedback", ex);
-            Clipboard.SetText($"To: {AppUpdater.FeedbackEmail}\r\nSubject: {FeedbackSubject}\r\n\r\n{FeedbackBody}");
-            _notifier.ShowInfo("No mail app found", $"The feedback email is copied to the clipboard. Paste it into an email to {AppUpdater.FeedbackEmail}.");
-        }
-    }
-
-    private string FeedbackSubject => $"Zendesk Watcher feedback ({_updater.CurrentVersion})";
-
-    private string FeedbackBody => string.Join("\r\n",
-        "What happened, or what would you like?",
-        "",
-        "",
-        "",
-        "---",
-        $"Version: {_updater.CurrentVersion}",
-        $"Windows: {Environment.OSVersion.Version}",
-        $"Log folder: {AppPaths.DataDir}",
-        "(If something went wrong, please attach the latest log from that folder.)");
-
-    private string FeedbackQuery() =>
-        $"subject={Uri.EscapeDataString(FeedbackSubject)}&body={Uri.EscapeDataString(FeedbackBody)}";
-
-    /// <summary>Classic desktop Outlook (OUTLOOK.EXE), which can open a pre-filled email; null if not installed.</summary>
-    private static string? ClassicOutlookPath()
-    {
-        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE");
-        return key?.GetValue(null) is string path && File.Exists(path) ? path : null;
-    }
+    private void SendFeedback() => FeedbackMail.Send(_updates.CurrentVersion, _notifier);
 
     private static void OpenUrl(string? url)
     {
@@ -552,10 +378,7 @@ public sealed class TrayAppContext : ApplicationContext
     protected override void ExitThreadCore()
     {
         _loopCts?.Cancel();
-        _updateTimer.Dispose();
-        _pulseTimer.Dispose();
-        _pulseDelay.Dispose();
-        _tray.Visible = false;
+        _updates.Dispose();
         _tray.Dispose();
         _browser?.Dispose();
         base.ExitThreadCore();
