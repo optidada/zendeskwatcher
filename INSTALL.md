@@ -18,7 +18,7 @@ is ready, you get a notification with **Restart now**.
 
 **Tips**
 
-- Double-click the tray icon to open Settings. Right-click it for *Check now*, *Pause notifications* and more.
+- Click the tray icon to open Settings. Right-click it for *Check now*, *Pause notifications* and more.
 - Green icon: watching. Orange: there are unassigned tickets in your groups. Gray: not signed in, or a problem
   (hover for details).
 - **Take it** on a new-ticket notification assigns the ticket to you and opens it.

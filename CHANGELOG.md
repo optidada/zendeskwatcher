@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.18
+
+- **One click on the tray icon opens Settings** (it was a double-click), like Teams and OneDrive. Right-click still shows the menu.
+- The tray icon's tooltip says what to do: "Sign-in required – click this icon to sign in".
+
 ## 1.3.17
 
 - **See who's working right now**: the Colleagues list shows each colleague's local time and a dot, green while they're working, an empty circle when they're off and you'll hear about their customers' replies. It follows the working hours on the same page.

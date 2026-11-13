@@ -29,11 +29,8 @@ public sealed class TrayIcon : IDisposable
     /// <summary>The current state; the pulse animates its icon.</summary>
     public TrayState State { get; private set; } = TrayState.Off;
 
-    public event EventHandler? DoubleClick
-    {
-        add => _tray.DoubleClick += value;
-        remove => _tray.DoubleClick -= value;
-    }
+    /// <summary>A left click on the icon (like Teams or OneDrive; a double-click is two of these). Right-click shows the menu.</summary>
+    public event EventHandler? LeftClick;
 
     /// <param name="statusItem">The menu line that shows the status text.</param>
     public TrayIcon(ContextMenuStrip menu, ToolStripItem statusItem, SynchronizationContext ui)
@@ -41,6 +38,7 @@ public sealed class TrayIcon : IDisposable
         _ui = ui;
         _statusItem = statusItem;
         _tray = new NotifyIcon { Icon = _icons[TrayState.Off], Text = "Zendesk Watcher", ContextMenuStrip = menu, Visible = true };
+        _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) LeftClick?.Invoke(this, EventArgs.Empty); };
         _pulseDelay.Tick += (_, _) => { _pulseDelay.Stop(); _pulseTimer.Start(); };
         _pulseTimer.Tick += (_, _) => PulseTick();
     }

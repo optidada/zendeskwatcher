@@ -36,7 +36,7 @@ On first start the **Settings** window opens:
 
 **Save** stores your changes and applies them right away; the window stays open, so you can continue on other pages. **Close** asks before discarding unsaved changes.
 
-To reopen Settings, double-click the tray icon or right-click it and choose **Settings…**. Checking keeps running while Settings is open (with the saved settings); it only pauses while you sign in or out, or look at a different Zendesk account.
+To reopen Settings, click the tray icon or right-click it and choose **Settings…**. Checking keeps running while Settings is open (with the saved settings); it only pauses while you sign in or out, or look at a different Zendesk account.
 
 ## Tray icon
 

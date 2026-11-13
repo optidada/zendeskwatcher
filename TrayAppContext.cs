@@ -59,7 +59,7 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Opening += (_, _) => ThemedMenu.Apply(menu, UiPalette.For(_settings.AppTheme));
 
         _tray = new TrayIcon(menu, _statusItem, _ui);
-        _tray.DoubleClick += (_, _) => ShowSettings();
+        _tray.LeftClick += (_, _) => ShowSettings();
 
         _pauseItem.CheckedChanged += (_, _) =>
         {
@@ -153,7 +153,7 @@ public sealed class TrayAppContext : ApplicationContext
 
         if (!_settings.IsConnectionConfigured)
         {
-            _tray.SetStatus("Not configured – open Settings", TrayState.Off);
+            _tray.SetStatus("Not set up yet – click this icon to open Settings", TrayState.Off);
             WatchStatus.Stopped("Not checking: no Zendesk account set up yet (Account page).");
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome();
@@ -165,7 +165,7 @@ public sealed class TrayAppContext : ApplicationContext
         var session = CreateSession(_settings);
         if (!session.MightBeSignedIn)
         {
-            _tray.SetStatus("Sign-in required – open Settings", TrayState.Off);
+            _tray.SetStatus("Sign-in required – click this icon to sign in", TrayState.Off);
             WatchStatus.Stopped("Not checking: sign in on the Account page.");
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome(); // the subdomain came pre-filled
@@ -251,7 +251,7 @@ public sealed class TrayAppContext : ApplicationContext
             catch (AuthRequiredException)
             {
                 Log.Info("Sign-in required");
-                _tray.SetStatus("Sign-in required – double-click to sign in", TrayState.Off);
+                _tray.SetStatus("Sign-in required – click this icon to sign in", TrayState.Off);
                 WatchStatus.Stopped("Not checking: your Zendesk session expired. Sign in on the Account page.");
                 PromptSignIn();
                 return; // Restarted after signing in via Settings.
