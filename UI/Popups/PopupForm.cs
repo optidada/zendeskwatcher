@@ -84,7 +84,32 @@ public sealed class PopupForm : Form
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool PauseWhenAway { get; set; } = true;
 
-    private bool Away => PauseWhenAway && UserAway();
+    private bool Away => PauseWhenAway && UserAway() || _held;
+
+    private bool _held;
+
+    /// <summary>
+    /// Hidden while you present or use a full-screen app, its countdown paused; shown again (without taking the focus)
+    /// when that's over. Set by <see cref="PopupManager"/>.
+    /// </summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool Held
+    {
+        get => _held;
+        set
+        {
+            if (_held == value || IsDisposed)
+                return;
+            _held = value;
+            if (value)
+                Hide();
+            else
+            {
+                Show(); // ShowWithoutActivation: doesn't take the focus
+                RaiseWithoutActivating();
+            }
+        }
+    }
     public NotificationContent Content => _content;
 
     /// <summary>The Y position the stack wants this popup at; it glides there.</summary>

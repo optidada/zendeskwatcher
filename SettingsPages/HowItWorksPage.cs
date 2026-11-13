@@ -56,6 +56,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "Peek from the edge (Look & sound): it waits as a tab and counts down only after you've slid it out. " +
             "Urgent and important ones come out by themselves.",
             "Several take turns, and while you're away (screen locked, or no mouse or keyboard for a minute) they wait for you. " +
+            "So they do while you present or use a full-screen app, silently, and nothing pops up over your screen. " +
             "When you're back, ones that waited are checked again and dropped if they're no longer needed."
         ]),
         ("Summaries",

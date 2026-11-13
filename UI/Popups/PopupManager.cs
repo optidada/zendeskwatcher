@@ -13,6 +13,7 @@ public sealed class PopupManager
     private readonly Dictionary<PopupForm, DateTime> _shownAt = [];
     private readonly System.Windows.Forms.Timer _awayWatch = new() { Interval = 1000 };
     private bool _wasAway;
+    private bool _wasBusy;
     private bool _draining;
     private Settings _lastSettings = new();
 
@@ -54,7 +55,8 @@ public sealed class PopupManager
     private void Show(NotificationContent content, Settings settings, bool overLimit)
     {
         _lastSettings = settings;
-        if (_visible.Count >= MaxVisible && !overLimit)
+        // Presenting or full screen: wait in line, quietly, until it's over (WatchAway notices and shows them).
+        if ((_visible.Count >= MaxVisible && !overLimit) || !CanShowPopups())
         {
             _pending.Add(new Waiting(content, settings, DateTime.UtcNow));
             _awayWatch.Start();
@@ -139,7 +141,7 @@ public sealed class PopupManager
         _draining = true;
         try
         {
-            while (_visible.Count < MaxVisible && _pending.Count > 0)
+            while (_visible.Count < MaxVisible && _pending.Count > 0 && CanShowPopups())
             {
                 var next = _pending[0];
                 _pending.RemoveAt(0);
@@ -177,15 +179,30 @@ public sealed class PopupManager
     /// <summary>Once a second while notifications are on screen or waiting: notices when the user comes back.</summary>
     private void WatchAway()
     {
-        var away = PopupForm.UserAway();
+        // Presenting or full screen counts as away: the ones on screen hide (and wait), new ones wait in line, and
+        // afterwards it's like coming back (a summary instead of many, outdated ones dropped).
+        var busy = !CanShowPopups();
+        if (busy != _wasBusy)
+        {
+            _wasBusy = busy;
+            foreach (var popup in _visible)
+                popup.Held = busy;
+        }
+        var away = PopupForm.UserAway() || busy;
         if (_wasAway && !away)
-            _ = CameBackAsync(_lastSettings);
+            _ = CameBackThenDrainAsync(_lastSettings);
         _wasAway = away;
         if (_visible.Count == 0 && _pending.Count == 0)
         {
             _awayWatch.Stop();
             _wasAway = false;
         }
+    }
+
+    private async Task CameBackThenDrainAsync(Settings settings)
+    {
+        await CameBackAsync(settings);
+        await DrainAsync(); // held while presenting: their turn now
     }
 
     /// <summary>
@@ -369,8 +386,8 @@ public sealed class PopupManager
     }
 
     /// <summary>
-    /// False while the user is presenting or something runs full screen; Windows toasts are used then,
-    /// so popups never appear over a screen share.
+    /// False while the user is presenting or something runs full screen: popups wait (and make no sound) until it's
+    /// over, so nothing appears over a screen share.
     /// </summary>
     public static bool CanShowPopups()
     {

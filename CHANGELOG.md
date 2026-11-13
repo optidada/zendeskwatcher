@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.4.2
+
+- **Nothing pops up while you present**: in Zendesk Watcher's own styles, notifications now wait while you present, share your screen or use a full-screen app, and appear when you're done (several become one summary, outdated ones are dropped). Before, they turned into Windows notifications.
+- **No sounds while presenting** or in a full-screen app, in every style, so nobody in a screen share hears a jingle.
+
 ## 1.4.1
 
 - **Peek from the edge**: notifications wait as tabs at the screen edge; point at one to slide it out. Tabs wiggle when something new arrives and fill with color the longer a ticket waits; urgent and important ones come out by themselves (Look & sound → Several at once). New positions too: **Right center** and **Bottom center**.
