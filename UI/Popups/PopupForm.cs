@@ -153,7 +153,8 @@ public sealed class PopupForm : Form
         Cursor = Cursors.Hand;
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
 
-        ClientSize = new Size(Px(BaseWidth), MeasureLayout());
+        NaturalHeight = MeasureLayout();
+        ClientSize = new Size(Px(BaseWidth), NaturalHeight);
 
         _timer.Tick += (_, _) => Tick();
     }
@@ -199,6 +200,29 @@ public sealed class PopupForm : Form
     {
         get => _restX;
         set => _restX = value;
+    }
+
+    /// <summary>The height its content needs.</summary>
+    public int NaturalHeight { get; }
+
+    /// <summary>
+    /// Makes it this tall (never shorter than its content), the extra space above the buttons: cards stacked like a
+    /// deck all get the height of the tallest, so the ones behind line up instead of sticking out below.
+    /// </summary>
+    public void StretchTo(int height)
+    {
+        height = Math.Max(height, NaturalHeight);
+        var delta = height - ClientSize.Height;
+        if (delta == 0)
+            return;
+        _footerRect.Offset(0, delta);
+        _openRect.Offset(0, delta);
+        _snoozeRect.Offset(0, delta);
+        _takeRect.Offset(0, delta);
+        _dismissRect.Offset(0, delta);
+        _barRect.Offset(0, delta);
+        ClientSize = new Size(ClientSize.Width, height);
+        Invalidate();
     }
 
     /// <summary>Puts this popup above the other ones without taking the focus from what you're doing (deck stacking).</summary>

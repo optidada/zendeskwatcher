@@ -247,6 +247,11 @@ public sealed class PopupManager
         var margin = (int)(16 * scale);
         var gap = (int)(10 * scale);
 
+        // A deck: every card as tall as the tallest, so their edges line up. Otherwise each its own height.
+        var tallest = _deck && _visible.Count > 0 ? _visible.Max(p => p.NaturalHeight) : 0;
+        foreach (var popup in _visible)
+            popup.StretchTo(tallest);
+
         if (_deck)
         {
             LayoutDeck(position, area, margin, scale);
