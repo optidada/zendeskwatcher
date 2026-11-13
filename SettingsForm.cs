@@ -26,15 +26,28 @@ public sealed class SettingsForm : Form
     private readonly SettingsContext _context;
     private readonly AccountPage _account;
     private readonly GroupsPage _groups;
-    private readonly ClientsPage _clients;
-    private readonly NotificationsPage _notifications;
-    private readonly HelpColleaguesPage _help;
-    private readonly BehaviorPage _behavior;
-    private readonly AppearancePage _appearance;
-    private readonly StatisticsPage _statistics;
-    private readonly GeneralPage _general;
-    private readonly HowItWorksPage _howItWorks;
-    private readonly SettingsPage[] _pages;
+
+    /// <summary>
+    /// The pages, built the first time they're shown (Account and Groups right away: the others depend on them).
+    /// Opening the window builds only those two, which keeps it fast and small. A page that isn't built yet shows
+    /// the saved settings, so it adds nothing to <see cref="Current"/>.
+    /// </summary>
+    private readonly SettingsPage?[] _pages;
+    private readonly Func<SettingsPage>[] _makePage;
+
+    /// <summary>The sidebar, known before the pages exist.</summary>
+    private static readonly (string Title, bool Sub)[] NavItems =
+    [
+        ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
+        ("Behavior", true), ("Look & sound", true), ("Insights", false), ("General", false), ("How it works", false)
+    ];
+    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 8;
+
+    private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
+    private GeneralPage? BuiltGeneral => _pages[GeneralIndex] as GeneralPage;
+    private HelpColleaguesPage Help => (HelpColleaguesPage)Page(HelpIndex);
+    private GeneralPage General => (GeneralPage)Page(GeneralIndex);
+    private (string Text, bool Enabled)? _updateState;
     private readonly List<NavItem> _nav = [];
 
     private readonly Button _save = Theme.PrimaryButton("Save");
@@ -72,7 +85,11 @@ public sealed class SettingsForm : Form
     public event Action? OpenLogFolderClicked;
 
     /// <summary>Mirrors the tray menu's update item ("Checking for updates…", "Restart to update to …").</summary>
-    public void ShowUpdateState(string text, bool enabled) => _general.ShowUpdateState(text, enabled);
+    public void ShowUpdateState(string text, bool enabled)
+    {
+        _updateState = (text, enabled);
+        BuiltGeneral?.ShowUpdateState(text, enabled);
+    }
 
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false, User? signedInAs = null)
         : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0, signedInAs)
@@ -110,28 +127,24 @@ public sealed class SettingsForm : Form
         _context = new SettingsContext(this, _content, notifier, sessionFactory) { Current = Current, Changed = UpdateSaveState };
         _context.ShowAccount = () => SelectPage(Array.IndexOf(_pages!, _account));
         _groups = new GroupsPage(_context);
-        _clients = new ClientsPage(_context, _groups);
         _account = new AccountPage(_context, _groups);
-        _notifications = new NotificationsPage(_context);
-        _help = new HelpColleaguesPage(_context, _groups);
-        _behavior = new BehaviorPage(_context);
-        _appearance = new AppearancePage(_context);
-        _statistics = new StatisticsPage(_context);
-        _general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
-        _howItWorks = new HowItWorksPage(_context);
-        _pages = [_account, _groups, _clients, _notifications, _help, _behavior, _appearance, _statistics, _general, _howItWorks];
+        _makePage =
+        [
+            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context),
+            () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
+            () => new StatisticsPage(_context), MakeGeneralPage, () => new HowItWorksPage(_context)
+        ];
+        _pages = new SettingsPage?[_makePage.Length];
+        _pages[0] = _account;
+        _pages[1] = _groups;
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();
         _account.SignedIn += SaveConnection;
-        _general.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
-        _general.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
-        _general.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
-        _general.ResetRequested += ResetToDefaults;
 
         BuildLayout();
-        foreach (var page in _pages)
-            page.Load(settings);
+        _account.Load(settings);
+        _groups.Load(settings);
         SelectPage(0);
 
         ResumeLayout(false);
@@ -142,7 +155,7 @@ public sealed class SettingsForm : Form
             var area = Screen.FromControl(this).WorkingArea;
             if (Height > area.Height)
                 Height = area.Height;
-            foreach (var page in _pages) CreateHandles(page.Panel);
+            foreach (var page in BuiltPages) CreateHandles(page.Panel);
             Theme.ApplyWindowChrome(this, Theme.Current.Dark);
         };
         Shown += async (_, _) => await _account.OnWindowShownAsync(_knownSignedOut, _signedInAs);
@@ -160,8 +173,8 @@ public sealed class SettingsForm : Form
         var sidebar = BuildSidebar();
         var footer = BuildFooter();
 
-        // Docked to the top in reverse, so the first page ends up on top (only one is visible at a time anyway).
-        foreach (var page in _pages.Reverse())
+        // Only one page is visible at a time; the others are added when they're first shown.
+        foreach (var page in BuiltPages)
             _content.Controls.Add(page.Panel);
 
         // Docking order: the Fill control is added first so the sidebar and footer claim their space before it.
@@ -182,9 +195,9 @@ public sealed class SettingsForm : Form
         stack.Controls.Add(title);
         stack.Controls.Add(subtitle);
 
-        foreach (var page in _pages)
+        foreach (var (navTitle, sub) in NavItems)
         {
-            var nav = new NavItem(page.NavTitle) { Sub = page.IsSubPage };
+            var nav = new NavItem(navTitle) { Sub = sub };
             var index = _nav.Count;
             nav.Click += (_, _) => SelectPage(index);
             stack.Controls.Add(nav);
@@ -244,12 +257,14 @@ public sealed class SettingsForm : Form
         if (redraw)
             SendMessage(_content.Handle, WmSetRedraw, 0, 0);
 
+        var shown = Page(index); // built now if it's the first time
         for (var i = 0; i < _pages.Length; i++)
         {
             _nav[i].Selected = i == index;
-            _pages[i].Panel.Visible = i == index;
+            if (_pages[i] is { } page)
+                page.Panel.Visible = page == shown;
         }
-        _pages[index].OnShowing();
+        shown.OnShowing();
 
         if (redraw)
         {
@@ -264,7 +279,37 @@ public sealed class SettingsForm : Form
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
-    /// <summary>Creates the window handles of all pages up front, so opening a page the first time is instant.</summary>
+    private IEnumerable<SettingsPage> BuiltPages => _pages.OfType<SettingsPage>();
+
+    /// <summary>The page, built (with the saved settings) the first time it's needed.</summary>
+    private SettingsPage Page(int index)
+    {
+        if (_pages[index] is { } built)
+            return built;
+        var page = _makePage[index]();
+        _pages[index] = page;
+        var wasLoading = _loading;
+        _loading = true; // loading the saved values isn't a change
+        page.Panel.Visible = false;
+        _content.Controls.Add(page.Panel);
+        page.Load(Result);
+        _loading = wasLoading;
+        return page;
+    }
+
+    private GeneralPage MakeGeneralPage()
+    {
+        var general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
+        general.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
+        general.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
+        general.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
+        general.ResetRequested += ResetToDefaults;
+        if (_updateState is { } state)
+            general.ShowUpdateState(state.Text, state.Enabled);
+        return general;
+    }
+
+    /// <summary>Creates the window handles of the built pages up front, so showing them is instant.</summary>
     private static void CreateHandles(Control control)
     {
         _ = control.Handle;
@@ -278,7 +323,7 @@ public sealed class SettingsForm : Form
     private Settings Current()
     {
         var settings = Result.Clone();
-        foreach (var page in _pages)
+        foreach (var page in BuiltPages) // pages not built yet show the saved values: nothing to add
             page.Apply(settings);
         return settings;
     }
@@ -291,10 +336,12 @@ public sealed class SettingsForm : Form
     {
         var current = Current();
         var defaults = new Settings { Subdomain = current.Subdomain, WatchedGroups = current.WatchedGroups };
-        foreach (var page in _pages.Where(p => p is not AccountPage and not GroupsPage and not ClientsPage and not GeneralPage))
+        for (var i = 0; i < _pages.Length; i++)
+            Page(i); // all of them, to show the defaults (rare enough)
+        foreach (var page in BuiltPages.Where(p => p is not AccountPage and not GroupsPage and not ClientsPage and not GeneralPage))
             page.Load(defaults);
-        _general.ResetStartSummary();
-        _general.SelectAppTheme(defaults.AppTheme);
+        General.ResetStartSummary();
+        General.SelectAppTheme(defaults.AppTheme);
         Log.Info("Settings: reset to defaults (not saved yet)");
         UpdateSaveState();
     }
@@ -303,12 +350,12 @@ public sealed class SettingsForm : Form
     internal Settings PagesAsSettings()
     {
         var settings = new Settings();
-        foreach (var page in _pages)
-            page.Apply(settings);
+        for (var i = 0; i < _pages.Length; i++)
+            Page(i).Apply(settings);
         return settings;
     }
 
-    private string Snapshot() => $"{Current().ToJson()}|startup={_general.StartWithWindows}";
+    private string Snapshot() => $"{Current().ToJson()}|startup={BuiltGeneral?.StartWithWindows ?? StartupRegistration.IsEnabled}";
 
     private bool HasUnsavedChanges => Snapshot() != _savedSnapshot;
 
@@ -347,7 +394,8 @@ public sealed class SettingsForm : Form
         try
         {
             result.Save();
-            StartupRegistration.Set(_general.StartWithWindows);
+            if (BuiltGeneral is { } general)
+                StartupRegistration.Set(general.StartWithWindows);
         }
         catch (Exception ex)
         {
@@ -365,7 +413,7 @@ public sealed class SettingsForm : Form
         Saved?.Invoke(result);
         // A batch of choices is done: ticked groups and changed clients move to their sections now.
         _groups.Resort();
-        _clients.Resort();
+        BuiltClients?.Resort();
         return true;
     }
 
@@ -378,7 +426,7 @@ public sealed class SettingsForm : Form
         var wasDirty = HasUnsavedChanges;
         Result = Result.Clone();
         Result.SetClientChoice(choice);
-        _clients.SetChoice(choice);
+        BuiltClients?.SetChoice(choice); // not built yet: it shows Result when it is
         if (!wasDirty)
             _savedSnapshot = Snapshot();
         UpdateSaveState();
@@ -388,11 +436,11 @@ public sealed class SettingsForm : Form
     private void Discard()
     {
         _loading = true;
-        foreach (var page in _pages)
+        foreach (var page in BuiltPages)
             page.Load(Result);
         _loading = false;
         _groups.Resort();
-        _clients.Resort();
+        BuiltClients?.Resort();
         _saveState.Text = "Changes discarded";
         _saveState.ForeColor = Theme.TextMuted;
         Log.Info("Settings: unsaved changes discarded");
@@ -497,13 +545,13 @@ public sealed class SettingsForm : Form
 
             // Shown as if signed in, with sample group members (cached, so nothing is requested).
             form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
-            form._help.Card.ShowSample(new()
+            form.Help.Card.ShowSample(new()
             {
                 [1] = [new(9, "Alex Example", "Europe/Stockholm"), new(10, "Maria Svensson", "Europe/Stockholm"), new(11, "Jordan Lee", "America/New_York"),
                        new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
                 [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
             }, TimeRegion.EuropeAfrica);
-            form._general.SelectAppTheme(theme);
+            form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)
             {
                 form.SelectPage(page);
@@ -531,13 +579,13 @@ public sealed class SettingsForm : Form
             }
             // Groups, Clients and Colleagues while signed out: the strip, read-only lists.
             form._context.SetSignedOut(true);
-            foreach (var page in new SettingsPage[] { form._groups, form._clients, form._help })
+            foreach (var index in new[] { 1, ClientsIndex, HelpIndex })
             {
-                form.SelectPage(Array.IndexOf(form._pages, page));
+                form.SelectPage(index);
                 Application.DoEvents();
                 using var bitmap = new Bitmap(form.Width, form.Height);
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
-                bitmap.Save(Path.Combine(dir, $"{theme}-{Array.IndexOf(form._pages, page)}-signedout.png"));
+                bitmap.Save(Path.Combine(dir, $"{theme}-{index}-signedout.png"));
             }
             form._context.SetSignedOut(false);
             form.Hide();
@@ -560,6 +608,8 @@ public sealed class SettingsForm : Form
         form.Show();
         Application.DoEvents();
         var shown = opening.ElapsedMilliseconds;
+        static long MemoryMb() { GC.Collect(); GC.WaitForPendingFinalizers(); using var me = System.Diagnostics.Process.GetCurrentProcess(); return me.PrivateMemorySize64 / 1024 / 1024; }
+        var memoryOpen = MemoryMb();
         // How long switching to each page takes (built, laid out and painted).
         var switches = new List<string>();
         for (var i = 0; i < form._pages.Length; i++)
@@ -577,13 +627,15 @@ public sealed class SettingsForm : Form
             Application.DoEvents();
             second.Hide();
         }
-        File.AppendAllText(file, $"window built {built} ms, shown {shown} ms, again {again.ElapsedMilliseconds} ms; page switch ms {string.Join(" ", switches)}{Environment.NewLine}");
+        var memoryAll = MemoryMb();
+        File.AppendAllText(file, $"window built {built} ms, shown {shown} ms, again {again.ElapsedMilliseconds} ms; page switch ms {string.Join(" ", switches)}; " +
+            $"private memory {memoryOpen} MB open, {memoryAll} MB after every page{Environment.NewLine}");
         form.SelectPage(page);
         var process = System.Diagnostics.Process.GetCurrentProcess();
         var counter = new MessageCounter();
         Application.AddMessageFilter(counter);
         form._content.Layout += (_, e) => counter.Count($"layout:content({e.AffectedProperty}/{e.AffectedControl?.GetType().Name})");
-        form._pages[page].Panel.SizeChanged += (_, _) => counter.Count("size:page");
+        form.Page(page).Panel.SizeChanged += (_, _) => counter.Count("size:page");
         form._content.Scroll += (_, _) => counter.Count("scroll");
         var start = DateTime.UtcNow;
         TimeSpan? cpuStart = null;
