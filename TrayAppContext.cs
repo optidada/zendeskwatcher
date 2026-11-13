@@ -25,6 +25,15 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _pauseItem = new("Pause notifications") { CheckOnClick = true };
     private readonly ToolStripMenuItem _updateItem = new("Check for updates");
     private readonly SemaphoreSlim _wakeUp = new(0);
+    private readonly ToolStripMenuItem _checkNowItem = new("Check now");
+    private readonly ToolStripMenuItem _openZendeskItem = new("Open Zendesk");
+
+    /// <summary>Starts the next check now ("Check now", Catch up, after taking a ticket); at most one waits.</summary>
+    private void WakeUp()
+    {
+        if (_wakeUp.CurrentCount == 0)
+            _wakeUp.Release();
+    }
     private readonly ToolStripMenuItem _catchUpItem = new("Catch up");
 
     /// <summary>Catch up was asked for: runs right after the next check (which is started at once).</summary>
@@ -52,8 +61,10 @@ public sealed class TrayAppContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add(_statusItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Open Zendesk", null, (_, _) => OpenUrl(_settings.IsConnectionConfigured ? $"{_settings.BaseUrl}/agent" : null));
-        menu.Items.Add("Check now", null, (_, _) => _wakeUp.Release());
+        menu.Items.Add(_openZendeskItem);
+        _openZendeskItem.Click += (_, _) => OpenUrl(_settings.IsConnectionConfigured ? $"{_settings.BaseUrl}/agent" : null);
+        menu.Items.Add(_checkNowItem);
+        _checkNowItem.Click += (_, _) => WakeUp();
         menu.Items.Add(_catchUpItem);
         _catchUpItem.Click += (_, _) => _ = RequestCatchUp();
         menu.Items.Add(_pauseItem);
@@ -71,6 +82,10 @@ public sealed class TrayAppContext : ApplicationContext
             // "Catch up since yesterday 17:00": when you stopped working last time (your hours: Notifications page).
             var since = TicketRules.CatchUpStart(DateTime.Now, _settings.MyWorkdayStartHour, _settings.MyWorkdayEndHour, _settings.MyWorkDays);
             _catchUpItem.Text = "Catch up " + TicketRules.CatchUpSince(since, DateTime.Now);
+            // Only what can work right now: checking needs a signed-in session, Zendesk needs an account.
+            var checking = _loopCts is not null && _taker is not null;
+            _checkNowItem.Enabled = _catchUpItem.Enabled = checking;
+            _openZendeskItem.Enabled = _settings.IsConnectionConfigured;
             ThemedMenu.Apply(menu, UiPalette.For(_settings.AppTheme));
         };
 
@@ -183,7 +198,7 @@ public sealed class TrayAppContext : ApplicationContext
         }
         _catchUpDone ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _catchUpRequested = true;
-        _wakeUp.Release();
+        WakeUp();
         return _catchUpDone.Task;
     }
 
@@ -329,7 +344,11 @@ public sealed class TrayAppContext : ApplicationContext
 
             try
             {
-                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), ct), _wakeUp.WaitAsync(ct));
+                // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
+                using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), waiting.Token), _wakeUp.WaitAsync(waiting.Token));
+                waiting.Cancel();
+                ct.ThrowIfCancellationRequested();
             }
             catch (OperationCanceledException)
             {
@@ -445,7 +464,7 @@ public sealed class TrayAppContext : ApplicationContext
             Log.Info(result.Taken ? $"Took ticket #{ticketId}" : $"Ticket #{ticketId} was already taken by {result.TakenBy}");
             if (!result.Taken)
                 _notifier.ShowInfo($"#{ticketId} was already taken", $"{result.TakenBy} got it first. Opening the ticket.", ticketId);
-            _wakeUp.Release(); // refresh the unassigned count
+            WakeUp(); // refresh the unassigned count
         }
         catch (AuthRequiredException)
         {

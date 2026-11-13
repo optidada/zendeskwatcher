@@ -71,9 +71,8 @@ internal sealed class HelpColleaguesCard
     /// <summary>While signed out: the group choice and the people list (both from Zendesk) can't be changed.</summary>
     public void SetReadOnly(bool readOnly)
     {
-        _groupList.Enabled = !readOnly;
         _peopleList.ReadOnly = readOnly;
-        _peopleAll.ForeColor = _peopleNone.ForeColor = readOnly ? Theme.TextMuted : Theme.Accent;
+        UpdateOptions();
     }
 
     public HelpColleaguesCard(SettingsContext context, GroupsPage groups)
@@ -132,8 +131,8 @@ internal sealed class HelpColleaguesCard
         foreach (var radio in new[] { _same, _custom })
             radio.CheckedChanged += (_, _) => { UpdateOptions(); _context.Changed(); if (radio.Checked) RefreshPeople(); };
         _help.CheckedChanged += (_, _) => { UpdateOptions(); RefreshPeople(); _context.Changed(); };
-        _peopleAll.Click += (_, _) => { if (!_context.SignedOut) SetAllPeople(true); };
-        _peopleNone.Click += (_, _) => { if (!_context.SignedOut) SetAllPeople(false); };
+        _peopleAll.Click += (_, _) => SetAllPeople(true);
+        _peopleNone.Click += (_, _) => SetAllPeople(false);
         foreach (var combo in new[] { _workStart, _workEnd })
             combo.SelectedIndexChanged += (_, _) => { _peopleList.Invalidate(); _context.Changed(); };
         _myHours.CheckedChanged += (_, _) => _context.Changed();
@@ -407,7 +406,7 @@ internal sealed class HelpColleaguesCard
 
     private void SetAllPeople(bool covered)
     {
-        if (!_help.Checked)
+        if (!_help.Checked || _context.SignedOut)
             return;
         _peopleList.SetAll(covered);
     }
@@ -419,7 +418,9 @@ internal sealed class HelpColleaguesCard
         _custom.Enabled = on && (_hasGroupsToChoose || _custom.Checked); // nothing to choose: greyed out (unless it's the current choice)
         _workDays.Enabled = on;
         _priorities.Enabled = on;
-        _groupList.Enabled = on && _custom.Checked;
-        _peopleList.Enabled = _peopleAll.Enabled = _peopleNone.Enabled = on;
+        var signedIn = !_context.SignedOut; // signed out: the lists from Zendesk can't be changed
+        _groupList.Enabled = on && _custom.Checked && signedIn;
+        _peopleList.Enabled = on;
+        _peopleAll.Enabled = _peopleNone.Enabled = on && signedIn;
     }
 }

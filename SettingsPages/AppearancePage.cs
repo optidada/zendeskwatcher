@@ -202,7 +202,7 @@ internal sealed class AppearancePage : SettingsPage
     {
         foreach (var tile in _themeTiles)
             tile.Enabled = _ownStyle.Checked;
-        _position.Enabled = _size.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
+        _position.Enabled = _stacking.Enabled = _size.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
     }
 
     /// <summary>Sends samples of one kind, or several of both kinds when <paramref name="kind"/> is null.</summary>
