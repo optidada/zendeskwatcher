@@ -3,6 +3,12 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.16
+
+- **The start summary reads like a short message**: what's waiting in your groups, your own and CC'd tickets, and which colleagues' tickets you cover, one line each.
+- **A friendlier welcome** on first start: what Zendesk Watcher does, and where to sign in and pick your groups.
+- **Release date** next to the version, in the Settings sidebar and on the General page.
+
 ## 1.3.15
 
 - **Ticket notifications stay longer, by priority**: Urgent (P1) until you dismiss it, High (P2) 1 minute, Normal (P3) 30 seconds, Low (P4) 15 seconds. Change it under Notifications → Behavior → On screen. This replaces the earlier per-type display time.

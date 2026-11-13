@@ -13,6 +13,14 @@ public sealed class SettingsForm : Form
 {
     private static readonly string AppVersion = typeof(SettingsForm).Assembly.GetName().Version?.ToString(3) ?? "?";
 
+    /// <summary>"13 Nov 2026": the day this version was built (released), or null if the build didn't record it.</summary>
+    internal static readonly string? ReleaseDate =
+        typeof(SettingsForm).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .Cast<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "BuildDate")?.Value is { } value
+        && DateOnly.TryParseExact(value, "yyyy-MM-dd", out var date)
+            ? date.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
     private readonly bool _knownSignedOut;
     private readonly SettingsContext _context;
     private readonly AccountPage _account;
@@ -95,7 +103,7 @@ public sealed class SettingsForm : Form
         _behavior = new BehaviorPage(_context);
         _appearance = new AppearancePage(_context);
         _statistics = new StatisticsPage(_context);
-        _general = new GeneralPage(_context, AppVersion);
+        _general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
         _pages = [_account, _groups, _notifications, _help, _behavior, _appearance, _statistics, _general];
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
@@ -164,15 +172,15 @@ public sealed class SettingsForm : Form
             _nav.Add(nav);
         }
 
-        // Just the version; the author is on the General page.
+        // The version and its release date; the author is on the General page.
         var about = new Label
         {
-            Text = $"Version {AppVersion}",
+            Text = ReleaseDate is null ? $"Version {AppVersion}" : $"Version {AppVersion}\n{ReleaseDate}",
             Font = Theme.Small,
             ForeColor = Theme.Neutral,
             BackColor = Theme.Sidebar,
             Dock = DockStyle.Bottom,
-            Height = 48,
+            Height = 64,
             Padding = new Padding(24, 0, 12, 18),
             TextAlign = ContentAlignment.BottomLeft
         };

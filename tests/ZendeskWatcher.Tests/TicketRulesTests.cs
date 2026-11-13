@@ -5,6 +5,35 @@ public class TicketRulesTests
     private static readonly WatchedGroup Tier2 = new() { Id = 10, Name = "Tier 2" };
     private static readonly WatchedGroup NoGroup = new() { Id = WatchedGroup.NoGroupId, Name = "No group" };
 
+    private static readonly WatchedGroup Premium = new() { Id = 11, Name = "Premium" };
+    private static readonly DateTimeOffset Now = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+
+    private static WatchSnapshot Snapshot(int tier2, int premium, (int, int, int)? mine, int? cc, bool ccAtLeast = false) =>
+        new(DateTime.Now, [new(Tier2, tier2), new(Premium, premium)], tier2 + premium > 0 ? Now.AddMinutes(-130) : null, mine, cc, ccAtLeast);
+
+    [Fact]
+    public void Summary_text_says_it_in_sentences_one_line_per_topic()
+    {
+        var text = TicketRules.SummaryText(Snapshot(3, 2, (3, 4, 1), 2), [Tier2, Premium], ["urgent", "high"], Now);
+
+        Assert.Equal(
+            "**5 unassigned tickets** are waiting: 3 in Tier 2 and 2 in Premium. The oldest was created 2 h 10 min ago.\n" +
+            "You have 3 open, 4 pending and 1 on hold tickets, and you're CC'd on or following 2 more.\n" +
+            "You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues who are off work.", text);
+    }
+
+    [Fact]
+    public void Summary_text_leaves_out_what_does_not_apply()
+    {
+        Assert.Equal("No unassigned tickets are waiting in your groups.\nYou have 1 open ticket.",
+            TicketRules.SummaryText(Snapshot(0, 0, (1, 0, 0), 0), [Tier2, Premium], null, Now));
+        Assert.Equal("**2 unassigned tickets** are waiting in Premium. The oldest was created 2 h 10 min ago.\n" +
+                     "You have no open tickets, and you're CC'd on or following at least 60.",
+            TicketRules.SummaryText(Snapshot(0, 2, (0, 0, 0), 60, ccAtLeast: true), [Tier2, Premium], null, Now));
+        Assert.Equal("You're not watching any groups yet: choose them under Settings → Groups.\nYou're CC'd on or following 1 open ticket.",
+            TicketRules.SummaryText(Snapshot(0, 0, null, 1) with { Groups = [] }, [], null, Now));
+    }
+
     private static Ticket T(string status = "new", long? assignee = null, long? group = 10) =>
         new() { Id = 1, Status = status, AssigneeId = assignee, GroupId = group };
 

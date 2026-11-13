@@ -1,3 +1,5 @@
+using ZendeskWatcher.UI;
+using ZendeskWatcher.UI.Popups;
 using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher.Tracking;
@@ -8,6 +10,62 @@ namespace ZendeskWatcher.Tracking;
 /// </summary>
 public static class TicketRules
 {
+    /// <summary>
+    /// The start summary as running text, e.g. "**5 unassigned tickets** are waiting: 3 in Support Tier 2 and 2 in
+    /// Premium Support. The oldest was created 2 h ago. You have 3 open and 4 pending tickets, and you're CC'd on or
+    /// following 2 more. You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues
+    /// who are off work." One line per topic (waiting, your tickets, colleagues); parts that don't apply are left out.
+    /// </summary>
+    /// <param name="helpPriorities">Help colleagues' priorities, or null when it's off.</param>
+    public static string SummaryText(WatchSnapshot now, IReadOnlyList<WatchedGroup> groups, IReadOnlyList<string>? helpPriorities, DateTimeOffset utcNow)
+    {
+        static string Name(WatchedGroup g) => Markdown.Escape(g.IsNoGroup ? "No group" : g.Name);
+        static string List(IReadOnlyList<string> items) => items.Count <= 1 ? string.Concat(items) : $"{string.Join(", ", items.Take(items.Count - 1))} and {items[^1]}";
+        static string Plural(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")}";
+
+        var sentences = new List<string>();
+        var withTickets = now.Groups.Where(g => g.Count > 0).ToList();
+        var waiting = now.Unassigned;
+        if (groups.Count == 0)
+            sentences.Add("You're not watching any groups yet: choose them under Settings \u2192 Groups.");
+        else
+        {
+            var where = groups.Count == 1 ? $"in {Name(groups[0])}" : "in your groups";
+            if (waiting == 0)
+                sentences.Add($"No unassigned tickets are waiting {where}.");
+            else
+            {
+                var head = $"**{Plural(waiting, "unassigned ticket")}** {(waiting == 1 ? "is" : "are")} waiting";
+                sentences.Add(withTickets.Count > 1
+                    ? $"{head}: {List(withTickets.Select(g => $"{g.Count} in {Name(g.Group)}").ToList())}."
+                    : $"{head} in {(groups.Count == 1 ? Name(groups[0]) : Name(withTickets[0].Group))}.");
+                if (now.OldestUnassigned is { } oldest)
+                    sentences[^1] += $" {(waiting == 1 ? "It" : "The oldest")} was created {NotificationContent.Ago(utcNow - oldest)}.";
+            }
+        }
+
+        var cc = now.Cc is { } count && count > 0 ? (now.CcAtLeast ? $"at least {count}" : count.ToString()) : null;
+        if (now.Mine is var (open, pending, hold))
+        {
+            var parts = new[] { (open, "open"), (pending, "pending"), (hold, "on hold") }.Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
+            var total = open + pending + hold;
+            var mine = total == 0 ? "You have no open tickets" : $"You have {List(parts)} ticket{(total == 1 ? "" : "s")}";
+            sentences.Add(cc is null ? mine + "." : $"{mine}, and you're CC'd on or following {cc} {(total == 0 ? "" : "more ")}.".Replace(" .", "."));
+        }
+        else if (cc is not null)
+            sentences.Add($"You're CC'd on or following {cc} open ticket{(cc == "1" ? "" : "s")}.");
+
+        if (helpPriorities is not null)
+        {
+            var labels = Settings.AllPriorities.Where(helpPriorities.Contains).Select(p => NotificationContent.LabelForPriority(p)!).ToList();
+            sentences.Add(labels.Count is 0 or 4
+                ? "You'll also hear about customer replies on tickets of colleagues who are off work."
+                : $"You'll also hear about customer replies on {List(labels)} tickets of colleagues who are off work.");
+        }
+
+        return string.Join("\n", sentences);
+    }
+
     /// <summary>
     /// Really unassigned, re-read from the ticket itself (search can be stale for hours): no assignee, still open,
     /// and still in the group (no group at all for <see cref="WatchedGroup.NoGroupId"/>).

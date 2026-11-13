@@ -210,10 +210,10 @@ public sealed class Notifier : INotificationSink
         Style = Blocking
     }, Settings);
 
-    /// <summary>The very first start, while Settings opens: the two steps to get going.</summary>
+    /// <summary>The very first start, while Settings opens: what the app does and how to get going.</summary>
     private const string WelcomeBody =
-        "Two steps in Settings, which is open now:\n1. **Account**: click Sign in.\n2. **Groups**: tick the groups to watch.\n" +
-        "After that, Zendesk Watcher runs in the tray next to the clock.";
+        "Zendesk Watcher tells you about new unassigned tickets and changes on your tickets. To get started, sign in on " +
+        "the **Account** page of Settings, which is open now, and then choose the groups to watch on the **Groups** page.";
 
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
@@ -241,11 +241,11 @@ public sealed class Notifier : INotificationSink
         Style = ActOnIt
     }, Settings);
 
-    /// <summary>The start summary, as chosen under Appearance (silent, about 10 seconds by default). Click opens Zendesk.</summary>
+    /// <summary>The start summary, with the sound and duration chosen in Settings (silent, 10 seconds by default). Click opens Zendesk.</summary>
     public void ShowSummary(NotificationContent content) => Show(content with
     {
         Action = ActionOpenZendesk,
-        MaxBodyLines = 7,
+        MaxBodyLines = 9, // running text: a few more lines than a list
         Style = Settings.SummaryStyle
     });
 
@@ -334,9 +334,9 @@ public sealed class Notifier : INotificationSink
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
                 TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "Northwind" }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
-                "**Unassigned:** 5, oldest 2 h 10 min ago\nSupport Tier 2: 3 · Premium Support: 2\n" +
-                "**Your tickets:** 3 open, 4 pending\n**CC / following:** 2 tickets\n**Colleagues off work:** customer replies on their Urgent (P1) and High (P2) tickets")
-                { MaxBodyLines = 7 }).Append(
+                Tracking.TicketRules.SummaryText(Tracking.WatchSnapshot.Sample(),
+                    [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
+                    ["urgent", "high"], DateTimeOffset.UtcNow)) { MaxBodyLines = 9 }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
                 { Action = ActionSettings });
 

@@ -48,9 +48,8 @@ public class UnassignedTicketTests
         Assert.Null(now.Mine); // not tracked in these tests
 
         var lines = watcher.StartSummary().Body!.Split('\n');
-        Assert.StartsWith("**Unassigned:** 1, created ", lines[0]);
-        Assert.Equal("Watching Tier 2", lines[1]);
-        Assert.Equal("**Colleagues off work:** customer replies on their Urgent (P1) and High (P2) tickets", lines[^1]);
+        Assert.StartsWith("**1 unassigned ticket** is waiting in Tier 2. It was created ", lines[0]);
+        Assert.Equal("You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues who are off work.", lines[^1]);
     }
 
     [Fact]

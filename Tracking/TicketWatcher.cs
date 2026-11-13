@@ -236,57 +236,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             settings.TrackCcTickets ? _state.CcTickets.Count : null, settings.TrackCcTickets && _state.CcBaselineFull);
     }
 
-    /// <summary>
-    /// What's waiting and what's being watched, from the last check, one fact per line with its label in bold:
-    /// "**Unassigned:** 5, oldest 2 h ago", "Support Tier 2: 3 · Premium: 2", "**Your tickets:** 3 open, 4 pending",
-    /// "**CC / following:** 2 tickets", "**Colleagues off work:** customer replies on their Urgent (P1) and High (P2) tickets".
-    /// </summary>
-    public NotificationContent StartSummary()
-    {
-        var now = Snapshot();
-        var groups = settings.WatchedGroups;
-        var lines = new List<string>
-        {
-            (groups.Count, now.Unassigned) switch
-            {
-                (0, _) => "**Unassigned:** no groups chosen (Settings \u2192 Groups)",
-                (_, 0) => "**Unassigned:** none in your groups",
-                (_, var n) => $"**Unassigned:** {n}, " + (n == 1 ? "created " : "oldest ") +
-                    NotificationContent.Ago(DateTimeOffset.UtcNow - now.OldestUnassigned!.Value)
-            }
-        };
-        if (groups.Count > 0)
-        {
-            // Where: the count per group when it's spread over several, otherwise just the groups watched.
-            var withTickets = now.Groups.Where(g => g.Count > 0).ToList();
-            if (groups.Count > 1 && withTickets.Count > 0)
-                lines.Add(string.Join(" \u00b7 ", withTickets.Select(g => $"{Markdown.Escape(GroupLabel(g.Group))}: {g.Count}")));
-            else
-                lines.Add(groups.Count <= 3 ? "Watching " + string.Join(", ", groups.Select(g => Markdown.Escape(GroupLabel(g)))) : $"Watching {groups.Count} groups");
-        }
-
-        if (now.Mine is var (open, pending, hold))
-        {
-            var parts = new[] { (open, "open"), (pending, "pending"), (hold, "on hold") }
-                .Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
-            lines.Add("**Your tickets:** " + (parts.Count == 0 ? "none open" : string.Join(", ", parts)));
-        }
-
-        if (now.Cc is { } cc)
-            lines.Add("**CC / following:** " + cc switch { 0 => "none open", 1 => "1 ticket", var n => $"{n}{(now.CcAtLeast ? "+" : "")} tickets" });
-
-        if (settings.EffectiveHelpGroups.Count > 0)
-        {
-            var priorities = Settings.AllPriorities.Where(settings.HelpPriorities.Contains).Select(p => NotificationContent.LabelForPriority(p)!).ToList();
-            // What Help colleagues notifies about, in words: "customer replies on their Urgent (P1) and High (P2) tickets".
-            var which = priorities.Count is 0 or 4 ? "all their"
-                : priorities.Count == 1 ? $"their {priorities[0]}"
-                : $"their {string.Join(", ", priorities[..^1])} and {priorities[^1]}";
-            lines.Add($"**Colleagues off work:** customer replies on {which} tickets");
-        }
-
-        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", TicketRules.Greeting(DateTime.Now, Me?.Name), string.Join("\n", lines));
-    }
+    /// <summary>The start summary: a greeting, then what's waiting and what's watched as running text.</summary>
+    public NotificationContent StartSummary() => new(NotificationKind.MyTicket, "Zendesk Watcher", TicketRules.Greeting(DateTime.Now, Me?.Name),
+        TicketRules.SummaryText(Snapshot(), settings.WatchedGroups, settings.EffectiveHelpGroups.Count > 0 ? settings.HelpPriorities : null, DateTimeOffset.UtcNow));
 
     private async Task CheckMyTicketsAsync(CancellationToken ct)
     {
