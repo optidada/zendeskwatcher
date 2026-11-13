@@ -156,14 +156,28 @@ public sealed class SettingsForm : Form
             if (Height > area.Height)
                 Height = area.Height;
             foreach (var page in BuiltPages) CreateHandles(page.Panel);
-            Theme.ApplyWindowChrome(this, Theme.Current.Dark);
+            Theme.ApplyWindowChrome(this, Theme.Current.Dark); // again, now for the scroll bars and lists too
         };
-        Shown += async (_, _) => await _account.OnWindowShownAsync(_knownSignedOut, _signedInAs);
+        // Invisible until the first frame is painted: otherwise Windows shows the empty (white) window for a moment.
+        Opacity = 0;
+        Shown += async (_, _) =>
+        {
+            Update();    // paint everything once, still invisible
+            Opacity = 1;
+            await _account.OnWindowShownAsync(_knownSignedOut, _signedInAs);
+        };
         FormClosing += OnFormClosing;
 
         _savedSnapshot = Snapshot();
         _loading = false;
         UpdateSaveState();
+    }
+
+    /// <summary>The dark title bar and scroll bars before the window is first shown, so it never starts light.</summary>
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Theme.ApplyWindowChrome(this, Theme.Current.Dark);
     }
 
     // ------------------------------------------------------------------ layout
@@ -294,6 +308,11 @@ public sealed class SettingsForm : Form
         _content.Controls.Add(page.Panel);
         page.Load(Result);
         _loading = wasLoading;
+        if (IsHandleCreated)
+        {
+            CreateHandles(page.Panel);
+            Theme.ApplyWindowChrome(page.Panel, Theme.Current.Dark); // dark scroll bars and drop-down lists in dark themes
+        }
         return page;
     }
 
