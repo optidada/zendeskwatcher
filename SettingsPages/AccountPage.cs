@@ -22,6 +22,7 @@ internal sealed class AccountPage : SettingsPage
 
     private bool _signingIn;
     private string? _loadedFor;
+    private readonly Label _lockedHint = Theme.Label("To use another Zendesk account, sign out first.", Theme.Small, Theme.TextMuted);
     private readonly System.Windows.Forms.Timer _recheck = new() { Interval = 900 };
 
     /// <summary>A sign-in or sign-out is about to start (the app pauses checking).</summary>
@@ -42,6 +43,9 @@ internal sealed class AccountPage : SettingsPage
             "Your Zendesk address. You sign in as usual (Okta) in a built-in browser window; " +
             "the app reads tickets with your own permissions.", Kit.CardWidth);
         account.Body.Controls.Add(Kit.Row(_subdomain, Theme.Label(".zendesk.com", color: Theme.TextMuted)));
+        _lockedHint.Margin = new Padding(0, 6, 0, 0);
+        _lockedHint.Visible = false;
+        account.Body.Controls.Add(_lockedHint);
         Panel.Controls.Add(account);
 
         var status = new Card("Status", null, Kit.CardWidth);
@@ -162,8 +166,9 @@ internal sealed class AccountPage : SettingsPage
         }
         catch (Exception ex)
         {
+            // The details go to the log; the page says what to do (often a typo in the subdomain, or no network).
             Log.Error("Settings: could not load account", ex);
-            SetStatus($"Could not connect: {ex.Message}", AccountState.Error);
+            SetStatus($"Couldn't reach {connection.Subdomain}.zendesk.com. Check the subdomain and your connection, then try Sign in.", AccountState.Error);
             _groups.SetReloadEnabled(true);
         }
         finally
@@ -276,6 +281,13 @@ internal sealed class AccountPage : SettingsPage
             AccountState.Error => Theme.Danger,
             _ => Theme.Neutral
         };
+
+        // Signed in, the account can't change under the session: sign out first (then the field opens again).
+        var locked = state == AccountState.SignedIn;
+        _subdomain.Box.ReadOnly = locked;
+        _subdomain.Box.ForeColor = locked ? Theme.TextMuted : Theme.Text;
+        _subdomain.Box.TabStop = !locked;
+        _lockedHint.Visible = locked;
 
         // While checking it isn't known yet whether you're signed in, so neither button is offered.
         _signIn.Visible = state is AccountState.SignedOut or AccountState.Error;

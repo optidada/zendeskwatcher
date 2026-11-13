@@ -10,7 +10,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - **Clear customizations** on the Clients page puts the listed clients back to normal in one go.
 - **Check now works every time**: it could wait until the next regular check (Catch up too). Both are greyed out in the tray menu while the app isn't checking.
 - **Signed out**: Groups, Clients and Colleagues say so, show the lists as last loaded, and lock them until you sign in.
-- **Discard no longer signs you out** of Settings, and a changed subdomain is checked as soon as you stop typing.
+- **Discard no longer signs you out** of Settings. While signed in, the subdomain is locked (sign out to switch accounts); a connection problem says what to check instead of a raw error.
 - Notifications listing several tickets show up to 5, then "… and 3 more". Shorter texts throughout Settings.
 
 ## 1.4.0
