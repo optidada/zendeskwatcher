@@ -536,12 +536,15 @@ internal sealed class GroupsPage : SettingsPage
         if (_checkImagesFor == key)
             return;
         _checkImagesFor = key;
-        var images = new ImageList { ImageSize = new Size(size, size), ColorDepth = ColorDepth.Depth32Bit };
+        // A new image list each time; the previous one isn't disposed while the list may still use it (disposing it
+        // left the boxes blank after a theme change), only when the page goes.
+        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(size, size) };
         images.Images.Add(CheckImage(size, on: false, Context.SignedOut));
         images.Images.Add(CheckImage(size, on: true, Context.SignedOut));
-        var old = _list.StateImageList;
+        if (_list.StateImageList is { } previous)
+            _list.Disposed += (_, _) => previous.Dispose();
         _list.StateImageList = images;
-        old?.Dispose();
+        _list.Invalidate();
     }
 
     private static Bitmap CheckImage(int size, bool on, bool readOnly)

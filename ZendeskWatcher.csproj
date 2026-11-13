@@ -19,6 +19,9 @@
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
     <!-- Only English framework resources: keeps the installer smaller. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- A tray app that mostly waits: no background garbage-collection thread, and the collector gives memory back
+         sooner (ConserveMemory, below) instead of keeping it for speed. -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +33,10 @@
 
   <ItemGroup>
     <ProjectReference Include="Core/ZendeskWatcher.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
   </ItemGroup>
 
   <ItemGroup>
