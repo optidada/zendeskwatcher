@@ -15,12 +15,17 @@ public sealed class AppDelegate : NSApplicationDelegate
     private readonly WebSession _session = new();
     private MacNotifier _notifier = null!;
     private NSStatusItem _item = null!;
-    private readonly NSMenu _groupsMenu = new("Groups");
+    private readonly NSMenu _groupsMenu = new("Groups") { AutoEnablesItems = false };
     private readonly NSMenuItem _status = new("Starting…") { Enabled = false };
     private readonly NSMenuItem _signIn = new("Sign in…");
     private CancellationTokenSource? _loopCts;
     private readonly SemaphoreSlim _wakeUp = new(0, 1);
     private List<Group> _allGroups = [];
+    private readonly NSMenuItem _checkNow = new("Check now");
+    private readonly NSMenuItem _openZendesk = new("Open Zendesk");
+
+    /// <summary>Checking works right now: signed in and the loop running (like the Windows tray menu).</summary>
+    private bool _checking;
 
     public override void DidFinishLaunching(NSNotification notification)
     {
@@ -37,8 +42,10 @@ public sealed class AppDelegate : NSApplicationDelegate
     {
         var menu = new NSMenu { AutoEnablesItems = false };
         menu.AddItem(_status);
-        menu.AddItem(Item("Check now", () => Wake()));
-        menu.AddItem(Item("Open Zendesk", () => { if (_settings.IsConnectionConfigured) MacNotifier.Open(_settings.BaseUrl); }));
+        _checkNow.Activated += (_, _) => Wake();
+        _openZendesk.Activated += (_, _) => { if (_settings.IsConnectionConfigured) MacNotifier.Open(_settings.BaseUrl); };
+        menu.AddItem(_checkNow);
+        menu.AddItem(_openZendesk);
         menu.AddItem(NSMenuItem.SeparatorItem);
 
         var groups = new NSMenuItem("Groups to watch") { Submenu = _groupsMenu };
@@ -72,6 +79,15 @@ public sealed class AppDelegate : NSApplicationDelegate
     {
         _status.Title = text;
         SetCount(unassigned);
+        UpdateItems();
+    }
+
+    /// <summary>Only offer what works right now: checking needs a session, Zendesk an account, groups a sign-in.</summary>
+    private void UpdateItems()
+    {
+        _checkNow.Enabled = _checking;
+        _openZendesk.Enabled = _settings.IsConnectionConfigured;
+        RebuildGroupsMenu();
     }
 
     // ------------------------------------------------------------------ loop
@@ -80,6 +96,7 @@ public sealed class AppDelegate : NSApplicationDelegate
     {
         _loopCts?.Cancel();
         _loopCts = null;
+        _checking = false;
         if (!_settings.IsConnectionConfigured)
         {
             SetStatus("Not set up: choose Zendesk account…");
@@ -119,6 +136,11 @@ public sealed class AppDelegate : NSApplicationDelegate
                 }
 
                 await watcher.PollAsync(ct);
+                if (!_checking)
+                {
+                    _checking = true;
+                    UpdateItems();
+                }
                 WatchStatus.Update(watcher.Snapshot());
                 SetStatus($"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}", watcher.UnassignedCount);
             }
@@ -128,6 +150,7 @@ public sealed class AppDelegate : NSApplicationDelegate
             }
             catch (AuthRequiredException)
             {
+                _checking = false;
                 Log.Info("Sign-in required");
                 SetStatus("Sign-in required");
                 _signIn.Title = "Sign in…";
@@ -144,7 +167,11 @@ public sealed class AppDelegate : NSApplicationDelegate
 
             try
             {
-                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), ct), _wakeUp.WaitAsync(ct));
+                // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
+                using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), waiting.Token), _wakeUp.WaitAsync(waiting.Token));
+                waiting.Cancel();
+                ct.ThrowIfCancellationRequested();
             }
             catch (OperationCanceledException)
             {
@@ -159,6 +186,7 @@ public sealed class AppDelegate : NSApplicationDelegate
         {
             _loopCts?.Cancel();
             _loopCts = null;
+            _checking = false;
             _session.SignOut();
             _signIn.Title = "Sign in…";
             SetStatus("Signed out");
@@ -241,13 +269,15 @@ public sealed class AppDelegate : NSApplicationDelegate
             known.Add((watched.Id, watched.Name)); // saved, not loaded (yet)
         known.Add((WatchedGroup.NoGroupId, WatchedGroup.NoGroupName));
 
-        if (known.Count == 1 && _allGroups.Count == 0)
-            _groupsMenu.AddItem(new NSMenuItem("Sign in to load your groups") { Enabled = false });
+        // Signed out, the list may be out of date: shown, but changed only after signing in (like Settings on Windows).
+        if (!_checking)
+            _groupsMenu.AddItem(new NSMenuItem(_allGroups.Count == 0 ? "Sign in to load your groups" : "Sign in to change your groups") { Enabled = false });
 
         foreach (var (id, name) in known)
         {
             var item = Item(name, () => ToggleGroup(id, name));
             item.State = _settings.WatchedGroups.Any(g => g.Id == id) ? NSCellStateValue.On : NSCellStateValue.Off;
+            item.Enabled = _checking;
             _groupsMenu.AddItem(item);
         }
     }

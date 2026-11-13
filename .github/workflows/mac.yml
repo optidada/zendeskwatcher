@@ -44,8 +44,13 @@ jobs:
 
       - name: Zip the app
         run: |
-          app=$(find ZendeskWatcher.Mac/bin/Release -maxdepth 3 -name "ZendeskWatcher.app" -type d | head -1)
-          echo "Built: $app"
+          find ZendeskWatcher.Mac/bin -name "*.app" -type d -prune
+          app=$(find ZendeskWatcher.Mac/bin -name "*.app" -type d -prune | head -1)
+          if [ -z "$app" ]; then
+            echo "::error::No .app found under ZendeskWatcher.Mac/bin: $(find ZendeskWatcher.Mac/bin -maxdepth 4 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "::notice::Built: $app"
           mkdir -p out
           ditto "$app" "out/Zendesk Watcher.app"
           codesign --verify --verbose "out/Zendesk Watcher.app" || true
