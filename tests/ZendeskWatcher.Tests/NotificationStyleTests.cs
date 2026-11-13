@@ -9,7 +9,7 @@ public class NotificationStyleTests
     public void Cc_tickets_keep_a_customized_my_tickets_choice_from_older_settings()
     {
         // Settings saved before CC tickets had their own style: no CcTicketStyle in the file.
-        var old = new Settings { MyTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip, Display = ToastDisplay.Long } };
+        var old = new Settings { MyTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip } };
         var json = JsonNode.Parse(old.ToJson())!.AsObject();
         var ccKey = json.Select(p => p.Key).Single(k => k.Contains("CcTicketStyle", StringComparison.OrdinalIgnoreCase));
         json.Remove(ccKey);
@@ -17,7 +17,6 @@ public class NotificationStyleTests
         var loaded = Settings.FromJson(json.ToJsonString());
 
         Assert.Equal(ToastSound.ChipBlip, loaded.CcTicketStyle.Sound);
-        Assert.Equal(ToastDisplay.Long, loaded.CcTicketStyle.Display);
     }
 
     [Fact]
@@ -35,9 +34,38 @@ public class NotificationStyleTests
     {
         var settings = new Settings();
 
-        Assert.Equal((ToastSound.Mail, ToastDisplay.Standard), (settings.CcTicketStyle.Sound, settings.CcTicketStyle.Display));
+        Assert.Equal(ToastSound.Mail, settings.CcTicketStyle.Sound);
         Assert.Equal((ToastSound.Silent, ToastDisplay.Medium), (settings.SummaryStyle.Sound, settings.SummaryStyle.Display));
         Assert.Equal((ToastSound.Default, ToastDisplay.Long), (settings.AppMessageStyle.Sound, settings.AppMessageStyle.Display));
+    }
+
+    [Theory]
+    [InlineData("urgent", 0)]
+    [InlineData("high", 60)]
+    [InlineData("normal", 30)]
+    [InlineData(null, 30)]
+    [InlineData("low", 15)]
+    public void Ticket_notifications_stay_by_priority(string? priority, int seconds)
+    {
+        var content = new UI.Popups.NotificationContent(NotificationKind.MyTicket, "Ticket updated", "#1 Title", Priority: priority);
+        Assert.Equal(seconds, new Settings().DisplaySecondsFor(content));
+    }
+
+    [Fact]
+    public void App_messages_keep_their_own_display_time()
+    {
+        var settings = new Settings();
+        var content = new UI.Popups.NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Update ready", Priority: "urgent")
+            { Style = settings.AppMessageStyle };
+        Assert.Equal(25, settings.DisplaySecondsFor(content));
+    }
+
+    [Fact]
+    public void Edited_display_times_snap_to_a_choice()
+    {
+        var times = new TicketDisplayTimes { Urgent = -5, High = 45, Normal = 7, Low = 600 }; // e.g. an edited settings file
+        times.Normalize();
+        Assert.Equal((0, 30, 10, 60), (times.Urgent, times.High, times.Normal, times.Low));
     }
 
     [Theory]

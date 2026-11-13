@@ -23,7 +23,7 @@ is ready, you get a notification with **Restart now**.
   (hover for details).
 - **Take it** on a new-ticket notification assigns the ticket to you and opens it.
 
-**Problems or ideas?** Tell Daniel Dahlin on Teams. *Open log folder* in the tray menu shows `log.txt`, which helps
+**Problems or ideas?** Tell Daniel Dahlin on Teams. *Open log folder* in Settings → General shows `log.txt`, which helps
 when something doesn't work.
 
 **Uninstall:** Windows Settings → Apps → Zendesk Watcher.

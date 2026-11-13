@@ -136,6 +136,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             _state.CcTickets.Clear();
             _state.CcTicketsBaselined = false;
+            _state.CcBaselineFull = false;
         }
 
         _state.Save();
@@ -220,56 +221,68 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         _unassigned = byGroup;
     }
 
+    /// <summary>What the last check found, for the "Right now" card on Insights and the start summary.</summary>
+    public WatchSnapshot Snapshot()
+    {
+        var waiting = _unassigned.SelectMany(g => g.Tickets).ToList();
+        (int, int, int)? mine = null;
+        if (settings.TrackMyTickets)
+        {
+            var tickets = _state.MyTickets.Values;
+            mine = (tickets.Count(t => t.Status is "new" or "open"), tickets.Count(t => t.Status == "pending"), tickets.Count(t => t.Status == "hold"));
+        }
+        return new WatchSnapshot(DateTime.Now, _unassigned.Select(g => new GroupCount(g.Group, g.Tickets.Count)).ToList(),
+            waiting.Count > 0 ? waiting.Min(t => t.CreatedAt) : null, mine,
+            settings.TrackCcTickets ? _state.CcTickets.Count : null, settings.TrackCcTickets && _state.CcBaselineFull);
+    }
+
     /// <summary>
-    /// What's waiting and what's being watched, from the last check. The headline is the title ("5 unassigned tickets
-    /// waiting"); each line below is one fact: "Support Tier 2: 3 · Premium: 2", "Oldest: 2 h ago",
-    /// "Your tickets: 3 open, 4 pending", "CC / following: 2 tickets", "Help colleagues: Urgent, High".
+    /// What's waiting and what's being watched, from the last check, one fact per line with its label in bold:
+    /// "**Unassigned:** 5, oldest 2 h ago", "Support Tier 2: 3 · Premium: 2", "**Your tickets:** 3 open, 4 pending",
+    /// "**CC / following:** 2 tickets", "**Colleagues off work:** customer replies on their Urgent (P1) and High (P2) tickets".
     /// </summary>
     public NotificationContent StartSummary()
     {
+        var now = Snapshot();
         var groups = settings.WatchedGroups;
-        var waiting = _unassigned.SelectMany(g => g.Tickets).DistinctBy(t => t.Id).ToList();
-        var headline = (groups.Count, waiting.Count) switch
+        var lines = new List<string>
         {
-            (0, _) => "Not watching any groups",
-            (_, 0) => "No unassigned tickets",
-            (_, 1) => "1 unassigned ticket waiting",
-            (_, var n) => $"{n} unassigned tickets waiting"
+            (groups.Count, now.Unassigned) switch
+            {
+                (0, _) => "**Unassigned:** no groups chosen (Settings \u2192 Groups)",
+                (_, 0) => "**Unassigned:** none in your groups",
+                (_, var n) => $"**Unassigned:** {n}, " + (n == 1 ? "created " : "oldest ") +
+                    NotificationContent.Ago(DateTimeOffset.UtcNow - now.OldestUnassigned!.Value)
+            }
         };
-
-        var lines = new List<string> { headline };
         if (groups.Count > 0)
         {
             // Where: the count per group when it's spread over several, otherwise just the groups watched.
-            var withTickets = _unassigned.Where(g => g.Tickets.Count > 0).ToList();
+            var withTickets = now.Groups.Where(g => g.Count > 0).ToList();
             if (groups.Count > 1 && withTickets.Count > 0)
-                lines.Add(string.Join(" · ", withTickets.Select(g => $"{GroupLabel(g.Group)}: {g.Tickets.Count}")));
+                lines.Add(string.Join(" \u00b7 ", withTickets.Select(g => $"{Markdown.Escape(GroupLabel(g.Group))}: {g.Count}")));
             else
-                lines.Add(groups.Count <= 3 ? "In " + string.Join(", ", groups.Select(GroupLabel)) : $"In {groups.Count} groups");
-            if (waiting.Count > 0)
-                lines.Add("Oldest: " + NotificationContent.Ago(DateTimeOffset.UtcNow - waiting.Min(t => t.CreatedAt)));
+                lines.Add(groups.Count <= 3 ? "Watching " + string.Join(", ", groups.Select(g => Markdown.Escape(GroupLabel(g)))) : $"Watching {groups.Count} groups");
         }
 
-        if (settings.TrackMyTickets)
+        if (now.Mine is var (open, pending, hold))
         {
-            var mine = _state.MyTickets.Values;
-            var parts = new[]
-            {
-                (Count: mine.Count(t => t.Status is "new" or "open"), Label: "open"),
-                (Count: mine.Count(t => t.Status == "pending"), Label: "pending"),
-                (Count: mine.Count(t => t.Status == "hold"), Label: "on hold")
-            }.Where(p => p.Count > 0).Select(p => $"{p.Count} {p.Label}").ToList();
-            lines.Add("Your tickets: " + (parts.Count == 0 ? "none open" : string.Join(", ", parts)));
+            var parts = new[] { (open, "open"), (pending, "pending"), (hold, "on hold") }
+                .Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
+            lines.Add("**Your tickets:** " + (parts.Count == 0 ? "none open" : string.Join(", ", parts)));
         }
 
-        if (settings.TrackCcTickets)
-            lines.Add("CC / following: " + _state.CcTickets.Count switch { 0 => "none open", 1 => "1 ticket", var n => $"{n} tickets" });
+        if (now.Cc is { } cc)
+            lines.Add("**CC / following:** " + cc switch { 0 => "none open", 1 => "1 ticket", var n => $"{n}{(now.CcAtLeast ? "+" : "")} tickets" });
 
         if (settings.EffectiveHelpGroups.Count > 0)
         {
-            var priorities = new[] { ("urgent", "Urgent"), ("high", "High"), ("normal", "Normal"), ("low", "Low") }
-                .Where(p => settings.HelpPriorities.Contains(p.Item1)).Select(p => p.Item2).ToList();
-            lines.Add("Help colleagues: " + (priorities.Count is 0 or 4 ? "all priorities" : string.Join(", ", priorities)));
+            var priorities = Settings.AllPriorities.Where(settings.HelpPriorities.Contains).Select(p => NotificationContent.LabelForPriority(p)!).ToList();
+            // What Help colleagues notifies about, in words: "customer replies on their Urgent (P1) and High (P2) tickets".
+            var which = priorities.Count is 0 or 4 ? "all their"
+                : priorities.Count == 1 ? $"their {priorities[0]}"
+                : $"their {string.Join(", ", priorities[..^1])} and {priorities[^1]}";
+            lines.Add($"**Colleagues off work:** customer replies on {which} tickets");
         }
 
         return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", TicketRules.Greeting(DateTime.Now, Me?.Name), string.Join("\n", lines));
@@ -349,6 +362,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.CcTickets = atBaseline.Where(Relevant).ToDictionary(t => t.Id, ToTracked);
             _state.CcTicketsWatermark = atBaseline.Count > 0 ? atBaseline.Max(t => t.UpdatedAt) : DateTimeOffset.UtcNow;
             _state.CcTicketsBaselined = true;
+            _state.CcBaselineFull = zendesk.LastInvolvedListFull;
             Log.Info($"Baseline: tracking {_state.CcTickets.Count} open ticket(s) where I'm CC or follower");
             return;
         }
@@ -666,7 +680,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         return local.Date == DateTime.Today ? $"{local:HH:mm}" : English(local.DateTime, "d MMM HH:mm");
     }
 
-    private static string GroupLabel(WatchedGroup group) => group.IsNoGroup ? "No group" : group.Name;
+    internal static string GroupLabel(WatchedGroup group) => group.IsNoGroup ? "No group" : group.Name;
 
     /// <param name="withText">Include (the start of) the comment text, or only say who commented.</param>
     private async Task<string?> DescribeAsync(AuditEvent ev, string authorName, bool withText, CancellationToken ct)

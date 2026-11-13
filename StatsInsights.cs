@@ -64,9 +64,9 @@ public static class StatsInsights
 
             if (timedOut >= 0.6)
             {
-                var shortDisplay = settings.StyleFor(kind).Display is ToastDisplay.Standard or ToastDisplay.Medium;
+                var shortDisplay = settings.TicketDisplay.Normal is > 0 and < 60; // most tickets are Normal
                 insights.Add(new Insight(Tone.Warning, $"{Percent(timedOut)} of {name} notifications disappeared unread. " +
-                    (shortDisplay ? "Show them longer (Look & sound → Sound and display). " : "") + Fewer(kind, settings)));
+                    (shortDisplay ? "Show them longer (Notifications → Behavior → On screen). " : "") + Fewer(kind, settings)));
             }
             else if (closed >= 0.5)
                 insights.Add(new Insight(Tone.Warning, $"You closed {Percent(closed)} of {name} notifications without opening them: " +
@@ -89,7 +89,7 @@ public static class StatsInsights
             ? "Fewer priorities or change types (Notifications → Ticket changes) give fewer."
             : "Fewer change types (Notifications → Which changes) give fewer, e.g. without status changes.",
         NotificationKind.CcTicket => settings.CcTicketPriorities.Count > 1
-            ? "Only Urgent for CC / following tickets (Notifications → Ticket changes) gives fewer."
+            ? "Only Urgent (P1) for CC / following tickets (Notifications → Ticket changes) gives fewer."
             : "Turning off CC / following tickets (Notifications → Ticket changes) stops them.",
         _ => "Fewer priorities or groups (Help colleagues page) give fewer."
     };

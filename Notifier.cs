@@ -210,17 +210,28 @@ public sealed class Notifier : INotificationSink
         Style = Blocking
     }, Settings);
 
-    /// <summary>Monitored groups that Zendesk no longer lists. Shown even when paused; click opens Settings.</summary>
+    /// <summary>The very first start, while Settings opens: the two steps to get going.</summary>
+    private const string WelcomeBody =
+        "Two steps in Settings, which is open now:\n1. **Account**: click Sign in.\n2. **Groups**: tick the groups to watch.\n" +
+        "After that, Zendesk Watcher runs in the tray next to the clock.";
+
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
-        NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
-        "Check your Zendesk subdomain (the part before .zendesk.com) and sign in. Then pick the groups to watch, and make the " +
-        "notifications yours under Notifications and Look & sound.")
+        NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
     {
         Action = ActionSettings,
         Style = ActOnIt
     }, Settings);
 
+    /// <summary>settings.json was damaged at start (see <see cref="Settings.Load()"/>). Shown even when paused; click opens Settings.</summary>
+    public void ShowSettingsProblem(string text) => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Zendesk Watcher", "Settings file damaged", text)
+    {
+        Action = ActionSettings,
+        Style = Blocking
+    }, Settings);
+
+    /// <summary>Monitored groups that Zendesk no longer lists. Shown even when paused; click opens Settings.</summary>
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher",
         names.Count == 1 ? "A monitored group was not found" : $"{names.Count} monitored groups were not found",
@@ -323,10 +334,11 @@ public sealed class Notifier : INotificationSink
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
                 TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "Northwind" }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
-                "5 unassigned tickets waiting\nSupport Tier 2: 3 · Premium Support: 2\nOldest: 2 h 10 min ago\nYour tickets: 3 open, 4 pending\n" +
-                "CC / following: 2 tickets\nHelp colleagues: Urgent, High") { MaxBodyLines = 7 }).Append(
-            new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher",
-                "Check your Zendesk subdomain and sign in.") { Action = ActionSettings });
+                "**Unassigned:** 5, oldest 2 h 10 min ago\nSupport Tier 2: 3 · Premium Support: 2\n" +
+                "**Your tickets:** 3 open, 4 pending\n**CC / following:** 2 tickets\n**Colleagues off work:** customer replies on their Urgent (P1) and High (P2) tickets")
+                { MaxBodyLines = 7 }).Append(
+            new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
+                { Action = ActionSettings });
 
     private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind switch
     {
@@ -397,7 +409,7 @@ public sealed class Notifier : INotificationSink
 
     private void ShowToast(NotificationContent content, Settings settings)
     {
-        var style = content.Style ?? settings.StyleFor(content.Kind);
+        var sound = settings.SoundFor(content);
         var action = content.ResolvedAction;
 
         var builder = new ToastContentBuilder()
@@ -468,27 +480,28 @@ public sealed class Notifier : INotificationSink
             button.AddArgument(StatArgument, content.Kind.ToString());
         builder.AddButton(button);
 
-        switch (style.Display)
+        // Windows only has short (~5 s), long (~25 s) and until dismissed.
+        switch (settings.DisplaySecondsFor(content))
         {
-            case ToastDisplay.Long:
-                builder.SetToastDuration(ToastDuration.Long);
-                break;
-            case ToastDisplay.UntilDismissed:
+            case 0:
                 // The reminder scenario keeps the toast on screen; it needs a dismiss button.
                 builder.SetToastScenario(ToastScenario.Reminder);
                 builder.AddButton(new ToastButtonDismiss());
                 break;
+            case > 15:
+                builder.SetToastDuration(ToastDuration.Long);
+                break;
         }
 
-        if (style.Sound == ToastSound.Silent)
+        if (sound == ToastSound.Silent)
             builder.AddAudio(new ToastAudio { Silent = true });
-        else if (ChipSounds.IsChip(style.Sound))
+        else if (ChipSounds.IsChip(sound))
         {
             builder.AddAudio(new ToastAudio { Silent = true }); // Windows can't play our own sounds in a toast
-            ChipSounds.Play(style.Sound);
+            ChipSounds.Play(sound);
         }
         else
-            builder.AddAudio(new Uri(SoundUri(style.Sound)));
+            builder.AddAudio(new Uri(SoundUri(sound)));
 
         builder.Show(toast =>
         {

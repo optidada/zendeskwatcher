@@ -34,6 +34,26 @@ public class UnassignedTicketTests
     }
 
     [Fact]
+    public async Task Start_summary_says_what_is_waiting_and_what_is_watched_in_words()
+    {
+        _zendesk.AddUnassigned(101);
+        _settings.HelpColleagues = true;
+        _settings.HelpPriorities = ["urgent", "high"];
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None);
+
+        var now = watcher.Snapshot(); // Insights' "Right now" card
+        Assert.Equal(1, now.Unassigned);
+        Assert.Equal(("Tier 2", 1), (now.Groups.Single().Group.Name, now.Groups.Single().Count));
+        Assert.Null(now.Mine); // not tracked in these tests
+
+        var lines = watcher.StartSummary().Body!.Split('\n');
+        Assert.StartsWith("**Unassigned:** 1, created ", lines[0]);
+        Assert.Equal("Watching Tier 2", lines[1]);
+        Assert.Equal("**Colleagues off work:** customer replies on their Urgent (P1) and High (P2) tickets", lines[^1]);
+    }
+
+    [Fact]
     public async Task New_tickets_outside_my_hours_are_skipped_when_chosen()
     {
         var hour = DateTime.Now.Hour; // working hours that are over right now

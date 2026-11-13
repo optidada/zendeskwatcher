@@ -49,7 +49,7 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
-        menu.Items.Add("Open log folder", null, (_, _) => OpenUrl(AppPaths.DataDir));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_updateItem);
         menu.Items.Add("Send feedback…", null, (_, _) => SendFeedback());
         menu.Items.Add(new ToolStripSeparator());
@@ -91,6 +91,8 @@ public sealed class TrayAppContext : ApplicationContext
         // Run once the message loop is up; this may open the Settings window on first start.
         _ui = SynchronizationContext.Current ?? _ui;
         _ui.Post(_ => Start(openSettingsIfNeeded: true), null);
+        if (Settings.LoadProblem is { } problem)
+            _ui.Post(_ => _notifier.ShowSettingsProblem(problem), null);
     }
 
     /// <summary>Called by the toast library on a background thread when a notification is clicked.</summary>
@@ -152,6 +154,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (!_settings.IsConnectionConfigured)
         {
             _tray.SetStatus("Not configured – open Settings", TrayState.Off);
+            WatchStatus.Stopped("Not checking: no Zendesk account set up yet (Account page).");
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome();
             if (openSettingsIfNeeded)
@@ -163,6 +166,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (!session.MightBeSignedIn)
         {
             _tray.SetStatus("Sign-in required – open Settings", TrayState.Off);
+            WatchStatus.Stopped("Not checking: sign in on the Account page.");
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome(); // the subdomain came pre-filled
             if (openSettingsIfNeeded)
@@ -191,6 +195,7 @@ public sealed class TrayAppContext : ApplicationContext
         _loopCts?.Cancel();
         _loopCts = null;
         _tray.SetStatus(status);
+        WatchStatus.Stopped(status + ".");
     }
 
     /// <summary>One shared browser session (one embedded browser profile), pointed at the given account.</summary>
@@ -234,6 +239,7 @@ public sealed class TrayAppContext : ApplicationContext
                         _notifier.ShowSummary(watcher.StartSummary());
                 }
 
+                WatchStatus.Update(watcher.Snapshot());
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
                 _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
                     watcher.UnassignedCount > 0 ? TrayState.Attention : TrayState.Ok);
@@ -246,6 +252,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 Log.Info("Sign-in required");
                 _tray.SetStatus("Sign-in required – double-click to sign in", TrayState.Off);
+                WatchStatus.Stopped("Not checking: your Zendesk session expired. Sign in on the Account page.");
                 PromptSignIn();
                 return; // Restarted after signing in via Settings.
             }
@@ -253,6 +260,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 Log.Error("Poll failed", ex);
                 _tray.SetStatus($"Error, retrying: {ex.Message}", TrayState.Off);
+                WatchStatus.Failed($"The last check failed and is retried: {ex.Message}");
             }
 
             try

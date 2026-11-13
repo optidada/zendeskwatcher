@@ -420,6 +420,7 @@ public sealed class SettingsForm : Form
     internal static void RenderSamples(string dir)
     {
         Directory.CreateDirectory(dir);
+        Tracking.WatchStatus.Update(Tracking.WatchSnapshot.Sample()); // Insights' "Right now" card
         foreach (var theme in Enum.GetValues<NotificationTheme>())
         {
             var settings = new Settings

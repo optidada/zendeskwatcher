@@ -27,6 +27,9 @@ public sealed class WatchState
 
     public bool CcTicketsBaselined { get; set; }
 
+    /// <summary>The baseline hit the size of a CC'd/followed list (30): older open ones may be missing from the count.</summary>
+    public bool CcBaselineFull { get; set; }
+
     /// <summary>The newest updated_at seen in the CC'd/followed lists.</summary>
     public DateTimeOffset CcTicketsWatermark { get; set; }
 

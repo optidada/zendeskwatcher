@@ -32,7 +32,7 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(unassigned);
 
         var mine = new Card("Ticket changes", "Get notified when someone else changes these tickets, for the priorities you choose. " +
-            "It's the ticket's current priority that counts; tickets without a priority count as Normal.", Kit.CardWidth);
+            "It's the ticket's current priority that counts; tickets without a priority count as Normal (P3).", Kit.CardWidth);
         mine.Body.Controls.Add(_trackMine);
         mine.Body.Controls.Add(_myPriorities.Row);
         mine.Body.Controls.Add(_trackCc);

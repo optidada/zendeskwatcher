@@ -1,8 +1,10 @@
+using System.Diagnostics;
+using ZendeskWatcher.Tracking;
 using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.SettingsPages;
 
-/// <summary>Statistics: ticket notifications of the last 30 days, and what was done with them.</summary>
+/// <summary>Insights: what's waiting right now, ticket notifications of the last 30 days, and what was done with them.</summary>
 internal sealed class StatisticsPage : SettingsPage
 {
     private static readonly (NotificationKind Kind, string Label)[] Kinds =
@@ -18,14 +20,26 @@ internal sealed class StatisticsPage : SettingsPage
         (StatOutcome.Copied, "Copied")
     ];
 
+    private readonly Label _nowStatus = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+    private readonly TableLayoutPanel _now = new() { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 4, 0, 0) };
+    private readonly ToolTip _tips = new();
     private readonly Label _summary = Theme.Label("", Theme.Body, Theme.Text, Kit.CardWidth - 44);
     private readonly TableLayoutPanel _table = new() { AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 8) };
     private readonly Button _clear = Theme.SecondaryButton("Clear statistics");
     private readonly TableLayoutPanel _insights = new() { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
 
     public StatisticsPage(SettingsContext context)
-        : base(context, "Insights", "Ticket notifications in the last 30 days, what you did with them, and suggestions. Counted on this PC only; nothing is sent anywhere.")
+        : base(context, "Insights", "What's waiting right now, ticket notifications in the last 30 days, what you did with them, and " +
+            "suggestions. Counted on this PC only; nothing is sent anywhere.")
     {
+        var now = new Card("Right now", null, Kit.CardWidth);
+        now.Body.Controls.Add(_nowStatus);
+        now.Body.Controls.Add(_now);
+        Panel.Controls.Add(now);
+        // Updated after every check while the window is open.
+        WatchStatus.Changed += ShowNow;
+        Panel.Disposed += (_, _) => WatchStatus.Changed -= ShowNow;
+
         var card = new Card("Last 30 days", null, Kit.CardWidth);
         card.Body.Controls.Add(_summary);
         card.Body.Controls.Add(_table);
@@ -60,6 +74,7 @@ internal sealed class StatisticsPage : SettingsPage
 
     private void Refresh()
     {
+        ShowNow();
         var totals = Context.Notifier.Stats.Totals(DateOnly.FromDateTime(DateTime.Now));
         // "Opened" includes opening Zendesk from a notification about several tickets: the same reaction, no single ticket.
         int Count(NotificationKind kind, StatOutcome outcome) => outcome == StatOutcome.OpenedTicket
@@ -135,6 +150,120 @@ internal sealed class StatisticsPage : SettingsPage
             r++;
         }
         _insights.ResumeLayout();
+    }
+
+    /// <summary>The "Right now" card: the last check's numbers, each a link to that list in Zendesk.</summary>
+    private void ShowNow()
+    {
+        if (Panel.IsDisposed)
+            return;
+        var snapshot = WatchStatus.Latest;
+        var settings = Context.Current();
+        _nowStatus.Text = (snapshot, WatchStatus.Problem) switch
+        {
+            (null, { } problem) => problem,
+            (null, null) => "Waiting for the first check\u2026",
+            (_, { } problem) => $"From the check at {snapshot.CheckedAt:HH:mm}. {problem}",
+            _ => $"From the last check, at {snapshot.CheckedAt:HH:mm}. Click a number to open the list in Zendesk."
+        };
+
+        _now.SuspendLayout();
+        foreach (var old in _now.Controls.Cast<Control>().ToList())
+            old.Dispose();
+        _now.Controls.Clear();
+        _now.Visible = snapshot is not null;
+        if (snapshot is not null)
+        {
+            var row = 0;
+            void Row(string label, Control count, params Control[] details)
+            {
+                _now.Controls.Add(Cell(label, Theme.Body, Theme.Text, left: true), 0, row);
+                count.Anchor = AnchorStyles.Right; // numbers line up on the right
+                _now.Controls.Add(count, 1, row);
+                var line = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(14, 0, 0, 0) };
+                line.Controls.AddRange(details);
+                _now.Controls.Add(line, 2, row);
+                row++;
+            }
+
+            // Unassigned: the total, then per group (each a link); the total is a link when it's one group.
+            var groups = snapshot.Groups;
+            if (groups.Count == 0)
+                Row("Unassigned in your groups", Cell("\u2013", Theme.BodyBold, Theme.TextMuted), Muted("No groups chosen (Groups page)"));
+            else
+            {
+                var details = new List<Control>();
+                if (groups.Count > 1)
+                    foreach (var g in groups.Where(g => g.Count > 0))
+                    {
+                        if (details.Count > 0)
+                            details.Add(Muted("\u00b7"));
+                        details.Add(Link($"{TicketWatcher.GroupLabel(g.Group)}: {g.Count}", UnassignedQuery(g.Group), $"Unassigned tickets in {TicketWatcher.GroupLabel(g.Group)}"));
+                    }
+                var total = groups.Count == 1
+                    ? Link(snapshot.Unassigned.ToString(), UnassignedQuery(groups[0].Group), $"Unassigned tickets in {TicketWatcher.GroupLabel(groups[0].Group)}", bold: true)
+                    : Cell(snapshot.Unassigned.ToString(), Theme.BodyBold, Theme.Text);
+                Row("Unassigned in your groups", total, [.. details]);
+                if (snapshot.OldestUnassigned is { } oldest) // its own row: next to the groups it doesn't fit
+                    Row("Oldest unassigned", Cell("", Theme.Body, Theme.Text), Muted(UI.Popups.NotificationContent.Ago(DateTimeOffset.UtcNow - oldest)));
+            }
+
+            if (snapshot.Mine is var (open, pending, hold))
+            {
+                var parts = new List<Control>();
+                foreach (var (count, label, query) in new[] { (open, "open", "status<pending"), (pending, "pending", "status:pending"), (hold, "on hold", "status:hold") })
+                {
+                    if (count == 0)
+                        continue;
+                    if (parts.Count > 0)
+                        parts.Add(Muted("\u00b7"));
+                    parts.Add(Link($"{count} {label}", $"assignee:me {query}", $"Your {label} tickets"));
+                }
+                Row("Your tickets", Link((open + pending + hold).ToString(), "assignee:me status<solved", "Your unsolved tickets", bold: true), [.. parts]);
+            }
+            else
+                Row("Your tickets", Cell("\u2013", Theme.BodyBold, Theme.TextMuted), Muted("Not watched (Notifications page)"));
+
+            if (snapshot.Cc is { } cc)
+                Row("CC / following", Link(cc + (snapshot.CcAtLeast ? "+" : ""), "cc:me status<solved",
+                        "Unsolved tickets you're CC'd on (Zendesk's search can't list followed tickets)", bold: true),
+                    snapshot.CcAtLeast ? [Muted("at least: older ones may be missing")] : []);
+            else
+                Row("CC / following", Cell("\u2013", Theme.BodyBold, Theme.TextMuted), Muted("Not watched (Notifications page)"));
+        }
+        _now.ResumeLayout();
+
+        string UnassignedQuery(WatchedGroup group) => $"group:{(group.IsNoGroup ? "none" : group.Id.ToString())} assignee:none status<solved";
+
+        Label Link(string text, string query, string tip, bool bold = false)
+        {
+            var link = Kit.LinkLabel(text, bold ? Theme.BodyBold : Theme.Body);
+            link.Margin = bold ? new Padding(4, 4, 0, 4) : new Padding(0, 4, 4, 4);
+            _tips.SetToolTip(link, tip + " \u2013 opens in Zendesk");
+            link.Click += (_, _) => OpenSearch(settings.BaseUrl, query);
+            return link;
+        }
+    }
+
+    private static Label Muted(string text)
+    {
+        var label = Theme.Label(text, Theme.Body, Theme.TextMuted);
+        label.Margin = new Padding(0, 4, 4, 4);
+        return label;
+    }
+
+    /// <summary>Opens a ticket search in Zendesk's agent interface.</summary>
+    private static void OpenSearch(string baseUrl, string query)
+    {
+        var url = $"{baseUrl}/agent/search/1?type=ticket&q={Uri.EscapeDataString(query)}";
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not open {url}", ex);
+        }
     }
 
     private static string Percent(int part, int whole) => whole == 0 ? "0%" : $"{Math.Round(100.0 * part / whole)}%";

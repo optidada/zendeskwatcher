@@ -49,7 +49,7 @@ public class MarkdownTests
         var (html, text) = TicketShare.Format(content, null);
 
         Assert.Equal("<b>#1 Broken</b> · High (P2)<br>Client: <b>Contoso</b><br><b>Jane</b> replied: hi", html);
-        Assert.Equal("#1 Broken (High (P2))\r\nClient: Contoso\r\nJane replied: hi", text);
+        Assert.Equal("#1 Broken · High (P2)\r\nClient: Contoso\r\nJane replied: hi", text);
     }
 
     [Fact]

@@ -31,7 +31,7 @@ public static class TicketShare
 
         var text = new StringBuilder(content.Title);
         if (meta.Length > 0)
-            text.Append($" ({meta})");
+            text.Append($" \u00b7 {meta}");
         if (ticketUrl is not null)
             text.Append("\r\n").Append(ticketUrl);
         foreach (var line in lines)

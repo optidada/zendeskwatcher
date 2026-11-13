@@ -3,6 +3,18 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.15
+
+- **Ticket notifications stay longer, by priority**: Urgent (P1) until you dismiss it, High (P2) 1 minute, Normal (P3) 30 seconds, Low (P4) 15 seconds. Change it under Notifications → Behavior → On screen. This replaces the earlier per-type display time.
+- **Right now on Insights**: unassigned tickets per group, your tickets (open, pending, on hold) and CC / following, updated after every check. Click a number to open that list in Zendesk.
+- **A clearer start summary** ("Good morning…"): every line has a label, and the colleagues line says what you get: customer replies on their Urgent (P1) and High (P2) tickets.
+- **Safer settings**: saved through a temporary file with a backup. If the settings file is ever damaged, the backup is used and a notification tells you; the damaged file is kept.
+- Settings: how long notifications stay is now on the Behavior page (cards "On screen" and "After waiting"); Look & sound only has sounds. Priorities are written the same everywhere: "Urgent (P1)", "High (P2)", "Normal (P3)", "Low (P4)".
+- The welcome on first start lists the two steps: sign in, then pick your groups.
+- Tray menu: the text sits in the middle of the hover highlight, with even space at the top and bottom. "Open log folder" moved to Settings → General only.
+- Copied tickets read "#123 Title · High (P2)" instead of nested brackets.
+- Fixed: the note under "Show the comment text" (Look & sound) was cut off.
+
 ## 1.3.14
 
 - **Three new chiptune songs** with an Amiga feel: Quest, Turbo and Starfield (6–8 seconds). Sounds are now grouped: Silent first, then Normal, Retro (short blips) and Nostalgic (songs).

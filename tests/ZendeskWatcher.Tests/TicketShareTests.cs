@@ -24,7 +24,7 @@ public class TicketShareTests
         var (_, text) = TicketShare.Format(Update, "https://acme.zendesk.com/agent/tickets/123456");
 
         Assert.Equal(
-            "#123456 Login <broken> & slow (High (P2) · You're CC)\r\nhttps://acme.zendesk.com/agent/tickets/123456\r\n" +
+            "#123456 Login <broken> & slow · High (P2) · You're CC\r\nhttps://acme.zendesk.com/agent/tickets/123456\r\n" +
             "Jane Customer replied: Still broken\r\nStatus Pending (P) → Open (Jane)", text);
     }
 
@@ -36,7 +36,7 @@ public class TicketShareTests
         var (html, text) = TicketShare.Format(summary, null);
 
         Assert.DoesNotContain("<a ", html);
-        Assert.Equal("6 new unassigned tickets (Tier 2)\r\n#1 A\r\n#2 B", text);
+        Assert.Equal("6 new unassigned tickets · Tier 2\r\n#1 A\r\n#2 B", text);
     }
 
     [Fact]

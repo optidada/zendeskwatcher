@@ -35,14 +35,14 @@ public class StatsInsightsTests
         var insight = Assert.Single(Analyze());
         Assert.Equal(StatsInsights.Tone.Warning, insight.Tone);
         Assert.Contains("75% of new ticket notifications disappeared unread", insight.Text);
-        Assert.Contains("Show them longer", insight.Text); // new tickets show ~10 s by default
+        Assert.Contains("Show them longer", insight.Text); // normal tickets show 30 s by default
         Assert.Contains("fewer groups", insight.Text);
     }
 
     [Fact]
     public void Already_long_display_only_suggests_fewer()
     {
-        var settings = new Settings { NewTicketStyle = new NotificationStyle { Display = ToastDisplay.Long } };
+        var settings = new Settings { TicketDisplay = new TicketDisplayTimes { Normal = 60 } };
         Add(NotificationKind.NewTicket, StatOutcome.Shown, 40).Add(NotificationKind.NewTicket, StatOutcome.TimedOut, 30);
 
         Assert.DoesNotContain("Show them longer", Assert.Single(Analyze(settings: settings)).Text);
@@ -55,7 +55,7 @@ public class StatsInsightsTests
 
         var text = Assert.Single(Analyze()).Text;
         Assert.Contains("closed 60% of CC / following notifications", text);
-        Assert.Contains("Only Urgent", text); // default is Urgent and High
+        Assert.Contains("Only Urgent (P1)", text); // default is Urgent and High
     }
 
     [Fact]

@@ -108,17 +108,17 @@ public sealed class Settings
     public bool ShowCommentText { get; set; } = true;
 
     // Appearance of the notifications
-    /// <summary>New unassigned tickets: on screen about 10 seconds by default, as they're the ones to act on.</summary>
-    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Medium };
-    public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail, Display = ToastDisplay.Standard };
-    public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Reminder, Display = ToastDisplay.Long };
+    // Ticket notifications: the sound by type; how long they stay is by priority (TicketDisplay), so their Display isn't used.
+    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default };
+    public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail };
+    public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Reminder };
 
     private NotificationStyle? _ccTicketStyle;
 
     /// <summary>CC / following tickets. Until chosen, the same as My tickets (they shared that setting before 1.3.11).</summary>
     public NotificationStyle CcTicketStyle
     {
-        get => _ccTicketStyle ??= new NotificationStyle { Sound = MyTicketStyle.Sound, Display = MyTicketStyle.Display };
+        get => _ccTicketStyle ??= new NotificationStyle { Sound = MyTicketStyle.Sound };
         set => _ccTicketStyle = value;
     }
 
@@ -127,6 +127,16 @@ public sealed class Settings
 
     /// <summary>Update ready, welcome, monitored group not found, and the sound of "Sign-in required".</summary>
     public NotificationStyle AppMessageStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Long };
+
+    /// <summary>The sound: app messages and the summary by their style, ticket notifications by type.</summary>
+    public ToastSound SoundFor(UI.Popups.NotificationContent content) => (content.Style ?? StyleFor(content.Kind)).Sound;
+
+    /// <summary>How long ticket notifications stay on screen, by the ticket's priority (all ticket types).</summary>
+    public TicketDisplayTimes TicketDisplay { get; set; } = new();
+
+    /// <summary>Seconds on screen, 0 = until dismissed: app messages and the summary by their style, ticket notifications by priority.</summary>
+    public int DisplaySecondsFor(UI.Popups.NotificationContent content) =>
+        content.Style is { } style ? style.Display.Seconds() : TicketDisplay.For(content.Priority);
 
     public NotificationStyle StyleFor(NotificationKind kind) => kind switch
     {
@@ -194,23 +204,53 @@ public sealed class Settings
     /// <summary>True when no settings file existed at start: the very first start (shows the welcome).</summary>
     public static bool IsFirstRun { get; private set; }
 
-    public static Settings Load()
+    /// <summary>Set when settings.json couldn't be read at start: what happened, for a notification. Null when all is well.</summary>
+    public static string? LoadProblem { get; private set; }
+
+    public static Settings Load() => Load(FilePath);
+
+    /// <summary>
+    /// Reads the settings. A damaged file is never silently lost: it's kept as settings.json.bad, and the copy from
+    /// before the last save (settings.json.bak) is used instead; only if that fails too do the defaults apply.
+    /// </summary>
+    internal static Settings Load(string path)
     {
-        IsFirstRun = !File.Exists(FilePath);
+        LoadProblem = null;
+        IsFirstRun = !File.Exists(path) && !File.Exists(path + ".bak");
+        if (!File.Exists(path))
+            return new Settings { Subdomain = DefaultSubdomain };
+        if (TryRead(path) is { } settings)
+            return settings;
+
+        try { File.Copy(path, path + ".bad", overwrite: true); }
+        catch (Exception ex) { Log.Error("Could not keep the damaged settings file", ex); }
+        if (TryRead(path + ".bak") is { } backup)
+        {
+            Log.Info("Settings: using settings.json.bak");
+            LoadProblem = "Your settings file was damaged, so the copy from before your last change is used. Check that " +
+                "everything is as you want it. The damaged file is kept as settings.json.bad.";
+            return backup;
+        }
+        LoadProblem = "Your settings file couldn't be read, so the defaults are used: choose your groups and options again " +
+            "in Settings. The damaged file is kept as settings.json.bad.";
+        return new Settings { Subdomain = DefaultSubdomain };
+    }
+
+    private static Settings? TryRead(string path)
+    {
         try
         {
-            if (File.Exists(FilePath))
-            {
-                var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), JsonOptions) ?? new Settings();
-                settings.Normalize();
-                return settings;
-            }
+            if (!File.Exists(path))
+                return null;
+            var settings = JsonSerializer.Deserialize<Settings>(File.ReadAllText(path), JsonOptions);
+            settings?.Normalize();
+            return settings;
         }
         catch (Exception ex)
         {
-            Log.Error("Could not read settings, using defaults", ex);
+            Log.Error($"Could not read {Path.GetFileName(path)}", ex);
+            return null;
         }
-        return new Settings { Subdomain = DefaultSubdomain };
     }
 
     /// <summary>
@@ -237,17 +277,27 @@ public sealed class Settings
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
         NotificationSize = Math.Clamp(NotificationSize, 100, 200);
         if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Default;
-        if (!Enum.IsDefined(NewTicketStyle.Display)) NewTicketStyle.Display = ToastDisplay.Standard;
         if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Mail;
-        if (!Enum.IsDefined(MyTicketStyle.Display)) MyTicketStyle.Display = ToastDisplay.Standard;
         if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Reminder;
-        if (!Enum.IsDefined(HelpStyle.Display)) HelpStyle.Display = ToastDisplay.Long;
+        TicketDisplay ??= new TicketDisplayTimes();
+        TicketDisplay.Normalize();
     }
 
-    public void Save()
+    public void Save() => Save(FilePath);
+
+    /// <summary>
+    /// Writes a temp file first and then swaps it in, keeping the previous file as settings.json.bak: a crash or a
+    /// full disk while saving never leaves a half-written settings.json.
+    /// </summary>
+    internal void Save(string path)
     {
         PollIntervalSeconds = Math.Clamp(PollIntervalSeconds, 30, 3600);
-        File.WriteAllText(FilePath, ToJson());
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, ToJson());
+        if (File.Exists(path))
+            File.Replace(temp, path, path + ".bak");
+        else
+            File.Move(temp, path);
     }
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOptions);
@@ -320,6 +370,49 @@ public enum ToastDisplay
 
     /// <summary>About 10 seconds (added last, so saved values keep their meaning).</summary>
     Medium
+}
+
+public static class ToastDisplayExtensions
+{
+    /// <summary>Seconds on screen; 0 = until dismissed.</summary>
+    public static int Seconds(this ToastDisplay display) => display switch
+    {
+        ToastDisplay.Medium => 10,
+        ToastDisplay.Long => 25,
+        ToastDisplay.UntilDismissed => 0,
+        _ => 5
+    };
+}
+
+/// <summary>Seconds a ticket notification stays on screen, by priority; 0 = until dismissed.</summary>
+public sealed class TicketDisplayTimes
+{
+    /// <summary>The choices in Settings; other values (an edited file) snap to the nearest.</summary>
+    public static readonly int[] Choices = [10, 15, 30, 60, 0];
+
+    public int Urgent { get; set; }
+    public int High { get; set; } = 60;
+    public int Normal { get; set; } = 30;
+    public int Low { get; set; } = 15;
+
+    /// <summary>Tickets without a priority count as normal.</summary>
+    public int For(string? priority) => priority?.ToLowerInvariant() switch
+    {
+        "urgent" => Urgent,
+        "high" => High,
+        "low" => Low,
+        _ => Normal
+    };
+
+    internal void Normalize()
+    {
+        Urgent = Snap(Urgent);
+        High = Snap(High);
+        Normal = Snap(Normal);
+        Low = Snap(Low);
+    }
+
+    private static int Snap(int seconds) => seconds <= 0 ? 0 : Choices.Where(c => c > 0).MinBy(c => Math.Abs(c - seconds));
 }
 
 public enum NotificationTheme

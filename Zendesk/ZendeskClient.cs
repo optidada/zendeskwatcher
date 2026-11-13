@@ -88,12 +88,16 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     public async Task<List<Ticket>> GetRecentlyUpdatedAssignedAsync(long userId, CancellationToken ct) =>
         (await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/assigned.json?sort_by=updated_at&sort_order=desc&per_page=30", ct)).Tickets;
 
+    /// <summary>The last <see cref="GetRecentlyUpdatedInvolvedAsync"/> got a full page of a list: there may be more.</summary>
+    public bool LastInvolvedListFull { get; private set; }
+
     /// <summary>
     /// The most recently updated tickets where the user is CC'd, or follows. Exact, no search lag.
     /// Returns an empty list if the account doesn't support the list (logged once).
     /// </summary>
     public async Task<List<Ticket>> GetRecentlyUpdatedInvolvedAsync(long userId, CancellationToken ct)
     {
+        LastInvolvedListFull = false;
         var result = new List<Ticket>();
         foreach (var list in new[] { "ccd", "followed" })
         {
@@ -101,7 +105,9 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
                 continue;
             try
             {
-                result.AddRange((await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/{list}.json?sort_by=updated_at&sort_order=desc&per_page=30", ct)).Tickets);
+                var tickets = (await GetAsync<TicketsResponse>($"/api/v2/users/{userId}/tickets/{list}.json?sort_by=updated_at&sort_order=desc&per_page=30", ct)).Tickets;
+                LastInvolvedListFull |= tickets.Count >= 30;
+                result.AddRange(tickets);
             }
             catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
             {

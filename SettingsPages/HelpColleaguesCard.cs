@@ -93,7 +93,7 @@ internal sealed class HelpColleaguesCard
         _peopleHint.Margin = new Padding(20, 2, 0, 4);
         options.Controls.Add(_peopleHint);
         options.Controls.Add(_priorities.Row);
-        options.Controls.Add(Theme.Label("Tickets without a priority count as Normal.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
+        options.Controls.Add(Theme.Label("Tickets without a priority count as Normal (P3).", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
 
         var hours = Kit.Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
         hours.Margin = new Padding(0, 8, 0, 0);

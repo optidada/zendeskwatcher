@@ -31,10 +31,11 @@ public class SettingsWindowTests
         ShowCommentText = false,
         MyTicketPriorities = ["urgent"],
         CcTicketPriorities = ["high", "low"],
-        NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip, Display = ToastDisplay.Long },
-        MyTicketStyle = new NotificationStyle { Sound = ToastSound.Silent, Display = ToastDisplay.UntilDismissed },
-        HelpStyle = new NotificationStyle { Sound = ToastSound.SongGroove, Display = ToastDisplay.Standard },
-        CcTicketStyle = new NotificationStyle { Sound = ToastSound.ChipAlert, Display = ToastDisplay.Long },
+        NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip },
+        MyTicketStyle = new NotificationStyle { Sound = ToastSound.Silent },
+        HelpStyle = new NotificationStyle { Sound = ToastSound.SongGroove },
+        CcTicketStyle = new NotificationStyle { Sound = ToastSound.ChipAlert },
+        TicketDisplay = new TicketDisplayTimes { Urgent = 60, High = 30, Normal = 15, Low = 0 },
         SummaryStyle = new NotificationStyle { Sound = ToastSound.ChipFanfare, Display = ToastDisplay.UntilDismissed },
         AppMessageStyle = new NotificationStyle { Sound = ToastSound.Sms, Display = ToastDisplay.Medium },
         Theme = NotificationTheme.CleanLight,
@@ -117,8 +118,12 @@ public class SettingsWindowTests
     }
 
     [Fact]
-    public void New_tickets_show_about_10_seconds_by_default()
-        => Assert.Equal(ToastDisplay.Medium, new Settings().NewTicketStyle.Display);
+    public void Ticket_notifications_stay_longer_the_higher_the_priority_by_default()
+    {
+        var times = new Settings().TicketDisplay;
+        Assert.Equal((0, 60, 30, 15), (times.Urgent, times.High, times.Normal, times.Low)); // 0: until dismissed
+        Assert.Equal(30, times.For(null)); // no priority counts as normal
+    }
 
     [Fact]
     public void Builds_without_a_default_subdomain_start_empty()

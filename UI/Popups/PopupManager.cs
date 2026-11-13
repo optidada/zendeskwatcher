@@ -58,13 +58,12 @@ public sealed class PopupManager
             return;
         }
 
-        var style = content.Style ?? settings.StyleFor(content.Kind);
         var palette = PopupPalette.For(settings.ActiveNotificationTheme);
         var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
         var size = Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
         var scale = DpiScale() * size; // margins and gaps grow with the notifications
 
-        var popup = new PopupForm(content, palette, style.Display, DpiScale(), size);
+        var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size);
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
@@ -79,7 +78,7 @@ public sealed class PopupManager
         popup.Present(restX);
         Shown?.Invoke(content);
 
-        PlaySound(style.Sound);
+        PlaySound(settings.SoundFor(content));
     }
 
     private void OnFinished(PopupForm popup, Settings settings)

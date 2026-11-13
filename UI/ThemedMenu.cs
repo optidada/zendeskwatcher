@@ -15,8 +15,7 @@ internal static class ThemedMenu
         var s = menu.DeviceDpi / 96f;
         foreach (ToolStripItem item in menu.Items)
         {
-            // The menu ignores its own padding; Windows leaves room below the last line, so the first line gets the same above.
-            item.Margin = item == menu.Items[0] ? new Padding(0, (int)(10 * s), 0, 0) : Padding.Empty;
+            item.Margin = Padding.Empty; // text centered in each row: the same space above the first line as below the last
             item.BackColor = palette.Surface;
             item.ForeColor = palette.Text;
             if (item is ToolStripMenuItem)
@@ -46,6 +45,7 @@ internal static class ThemedMenu
             menu.Items.Add("Exit");
             Apply(menu, UiPalette.For(theme));
             menu.Show(-3000, -3000); // off-screen: lays out the items
+            menu.Items[3].Select(); // "Check now" as if hovered: shows the selection
             using var bitmap = new Bitmap(menu.Width, menu.Height);
             menu.DrawToBitmap(bitmap, new Rectangle(Point.Empty, menu.Size));
             menu.Close();
@@ -58,6 +58,11 @@ internal static class ThemedMenu
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
             e.TextColor = e.Item.Enabled ? p.Text : p.TextMuted; // the status line is disabled: muted, readable
+            // The drop-down layout puts the text near the top when items have extra padding: center it in the row,
+            // so it sits in the middle of the hover highlight.
+            var r = e.TextRectangle;
+            e.TextRectangle = new Rectangle(r.X, 0, r.Width, e.Item.Height);
+            e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) | TextFormatFlags.VerticalCenter;
             base.OnRenderItemText(e);
         }
 
@@ -83,6 +88,7 @@ internal static class ThemedMenu
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var r = e.ImageRectangle;
+            r.Y = (e.Item.Height - r.Height) / 2; // centered in the row, like the text
             var s = r.Height / 16f;
             using var pen = new Pen(p.Accent, 2f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
             g.DrawLines(pen, [

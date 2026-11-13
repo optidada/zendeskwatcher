@@ -99,18 +99,12 @@ public sealed class PopupForm : Form
 
     /// <param name="scale">Screen DPI scale.</param>
     /// <param name="size">The user's notification size (1 = 100%): text, buttons and spacing grow together.</param>
-    public PopupForm(NotificationContent content, PopupPalette palette, ToastDisplay display, float scale, float size = 1f)
+    public PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f)
     {
         _content = content;
         _palette = palette;
         _s = scale * size;
-        _durationMs = display switch
-        {
-            ToastDisplay.Long => 25_000,
-            ToastDisplay.Medium => 10_000,
-            ToastDisplay.UntilDismissed => 0,
-            _ => 7_000
-        };
+        _durationMs = Math.Max(0, seconds) * 1000; // 0: until dismissed
         _accent = palette.Accent(content.Priority, content.Kind);
 
         var family = FontExists(palette.FontFamily) ? palette.FontFamily : (palette.Terminal ? "Consolas" : "Segoe UI");
@@ -681,7 +675,7 @@ public sealed class PopupForm : Form
             var i = 0;
             foreach (var content in Notifier.AllSamples())
             {
-                using var form = new PopupForm(content, PopupPalette.For(theme), ToastDisplay.UntilDismissed, 1f) { _phase = Phase.Showing };
+                using var form = new PopupForm(content, PopupPalette.For(theme), 0, 1f) { _phase = Phase.Showing };
                 using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(dir, $"{theme}-{i++}.png"));
