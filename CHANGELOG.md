@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.17
+
+- **See who's working right now**: the Colleagues list shows each colleague's local time and a dot, green while they're working, an empty circle when they're off and you'll hear about their customers' replies. It follows the working hours on the same page.
+
 ## 1.3.16
 
 - **The start summary reads like a short message**: what's waiting in your groups, your own and CC'd tickets, and which colleagues' tickets you cover, one line each.

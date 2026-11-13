@@ -6,15 +6,17 @@ namespace ZendeskWatcher.SettingsPages;
 /// <summary>
 /// The "Help colleagues" assignees: headings with All / None, then the people in two columns with a check box each.
 /// Drawn as one control instead of a check box window per person, so long lists scroll smoothly (no smears).
+/// People with a time zone show their local time and a dot: filled when they're working now, empty when they're off.
 /// </summary>
 internal sealed class AssigneeList : Control
 {
-    public sealed record Person(long Id, string Name, string? Tip);
+    /// <param name="Zone">Their time zone (from Zendesk), for "working now"; null when unknown.</param>
+    public sealed record Person(long Id, string Name, string? Tip, TimeZoneInfo? Zone = null);
 
     /// <param name="Title">A heading (a region), or null for no heading.</param>
     public sealed record Group(string? Title, IReadOnlyList<Person> People);
 
-    private enum ItemKind { Heading, All, None, Person }
+    private enum ItemKind { Heading, All, None, Person, Legend }
 
     private sealed record Item(ItemKind Kind, RectangleF Rect, string Text, Group Group, Person? Person = null);
 
@@ -24,6 +26,11 @@ internal sealed class AssigneeList : Control
     private List<Group> _groups = [];
     private List<Item> _items = [];
     private Item? _hover;
+    private readonly System.Windows.Forms.Timer _clock = new() { Interval = 30_000 }; // the local times move on
+
+    /// <summary>Whether someone is working at this local time of theirs (the working hours on the page).</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<DateTime, bool> IsWorkingAt { get; set; } = _ => true;
 
     /// <summary>Someone was ticked or unticked (after <c>setCovered</c>).</summary>
     public event Action? Changed;
@@ -39,11 +46,13 @@ internal sealed class AssigneeList : Control
         BackColor = Theme.Surface;
         Font = Theme.Body;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        _clock.Tick += (_, _) => { if (Visible) Invalidate(); };
     }
 
     public void SetGroups(List<Group> groups)
     {
         _groups = groups;
+        _clock.Enabled = groups.Any(g => g.People.Any(p => p.Zone is not null));
         _hover = null;
         _tips.SetToolTip(this, null);
         LayoutItems();
@@ -85,6 +94,12 @@ internal sealed class AssigneeList : Control
                     y += rowHeight;
             }
             first = false;
+        }
+        if (_groups.Any(g => g.People.Any(p => p.Zone is not null)))
+        {
+            y += 6 * s;
+            items.Add(new Item(ItemKind.Legend, new RectangleF(0, y, Width, 22 * s), "", _groups[0]));
+            y += 22 * s;
         }
         _items = items;
         Height = Math.Max(1, (int)Math.Ceiling(y + 2 * s));
@@ -148,14 +163,58 @@ internal sealed class AssigneeList : Control
                         }
                     }
                     var text = new Rectangle((int)(box.Right + 8 * s), rect.Y, rect.Width - (int)(24 * s), rect.Height);
+                    if (item.Person.Zone is { } zone)
+                    {
+                        // Right-aligned: their local time, with a dot that says whether they're working now.
+                        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone);
+                        var time = local.ToString("HH:mm");
+                        var timeWidth = TextRenderer.MeasureText(time, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+                        var right = rect.Right - (int)(10 * s);
+                        TextRenderer.DrawText(g, time, Theme.Small, new Rectangle(right - timeWidth, rect.Y, timeWidth, rect.Height), Theme.TextMuted,
+                            TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                        var dotX = right - timeWidth - 12 * s;
+                        DrawDot(g, dotX, item.Rect.Y + item.Rect.Height / 2, IsWorkingAt(local), s);
+                        text.Width = (int)(dotX - 8 * s) - text.X;
+                    }
                     TextRenderer.DrawText(g, item.Text, Font, text, Enabled ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    break;
+
+                case ItemKind.Legend:
+                    // "● working now   ○ off work: you hear about their customers' replies", with the same dots.
+                    var x = item.Rect.X + 6 * s;
+                    var middle = item.Rect.Y + item.Rect.Height / 2;
+                    foreach (var (working, label) in new[] { (true, "working now"), (false, "off work: you hear about their customers' replies") })
+                    {
+                        DrawDot(g, x, middle, working, s);
+                        var width = TextRenderer.MeasureText(label, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+                        TextRenderer.DrawText(g, label, Theme.Small, new Rectangle((int)(x + 10 * s), rect.Y, width + 2, rect.Height), Theme.TextMuted,
+                            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                        x += 10 * s + width + 18 * s;
+                    }
                     break;
             }
         }
     }
 
-    private Item? HitTest(Point p) => _items.FirstOrDefault(i => i.Kind != ItemKind.Heading && i.Rect.Contains(p));
+    /// <summary>A small dot centered at (x, y): filled in the success color when working, an empty ring when off.</summary>
+    private void DrawDot(Graphics g, float x, float y, bool working, float s)
+    {
+        var r = 3.5f * s;
+        var dot = new RectangleF(x - r, y - r, 2 * r, 2 * r);
+        if (working)
+        {
+            using var fill = new SolidBrush(Enabled ? Theme.Success : Theme.Neutral);
+            g.FillEllipse(fill, dot);
+        }
+        else
+        {
+            using var ring = new Pen(Theme.Neutral, 1.2f * s);
+            g.DrawEllipse(ring, dot);
+        }
+    }
+
+    private Item? HitTest(Point p) => _items.FirstOrDefault(i => i.Kind is not (ItemKind.Heading or ItemKind.Legend) && i.Rect.Contains(p));
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
@@ -213,7 +272,10 @@ internal sealed class AssigneeList : Control
     protected override void Dispose(bool disposing)
     {
         if (disposing)
+        {
             _tips.Dispose();
+            _clock.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

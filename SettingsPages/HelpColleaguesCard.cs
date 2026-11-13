@@ -72,7 +72,12 @@ internal sealed class HelpColleaguesCard
             {
                 if (covered) _excluded.Remove(person.Id); else _excluded[person.Id] = person.Name;
             })
-        { Margin = new Padding(20, 0, 0, 0) };
+        {
+            Margin = new Padding(20, 0, 0, 0),
+            // "Working now" uses the hours and days below, as chosen right now (even before saving).
+            IsWorkingAt = local => !TicketRules.IsOutsideHours(local, _workStart.SelectedIndex,
+                Math.Max(_workEnd.SelectedIndex + 1, _workStart.SelectedIndex + 1), _workDays.Selected)
+        };
         _peopleList.Changed += () =>
         {
             UpdatePeopleHint(_peopleLoaded, _peopleFailed);
@@ -111,9 +116,9 @@ internal sealed class HelpColleaguesCard
         _peopleAll.Click += (_, _) => SetAllPeople(true);
         _peopleNone.Click += (_, _) => SetAllPeople(false);
         foreach (var combo in new[] { _workStart, _workEnd })
-            combo.SelectedIndexChanged += (_, _) => _context.Changed();
+            combo.SelectedIndexChanged += (_, _) => { _peopleList.Invalidate(); _context.Changed(); };
         _myHours.CheckedChanged += (_, _) => _context.Changed();
-        _workDays.Changed += () => _context.Changed();
+        _workDays.Changed += () => { _peopleList.Invalidate(); _context.Changed(); };
         _priorities.Changed += () => _context.Changed();
 
         _context.SessionUpdated += reload =>
@@ -334,7 +339,8 @@ internal sealed class HelpColleaguesCard
         _peopleList.SetGroups(sections.Select(section => new AssigneeList.Group(
             section.Region is { } r ? TimeRegions.Name(r) + (r == _myRegion ? "  ·  your region" : "") : null,
             section.Members.Select(m => new AssigneeList.Person(m.Id, m.Name, !isLoaded ? null
-                : m.Zone is { } zone ? $"{m.Name} · {zone.Replace('_', ' ')}" : $"{m.Name} · no time zone in their Zendesk profile")).ToList())).ToList());
+                : m.Zone is { } zone ? $"{m.Name} · {zone.Replace('_', ' ')}" : $"{m.Name} · no time zone in their Zendesk profile",
+                isLoaded ? TicketRules.ResolveTimeZone(m.Zone) : null)).ToList())).ToList());
         UpdatePeopleHint(isLoaded, failed);
         UpdateOptions();
     }
