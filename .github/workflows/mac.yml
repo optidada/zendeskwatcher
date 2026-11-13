@@ -25,7 +25,13 @@ jobs:
       - name: Build
         env:
           DEFAULT_SUBDOMAIN: ${{ secrets.DEFAULT_SUBDOMAIN }}
-        run: dotnet build ZendeskWatcher.Mac/ZendeskWatcher.Mac.csproj -c Release "-p:DefaultSubdomain=$DEFAULT_SUBDOMAIN"
+        # Errors are repeated as annotations: those can be read without signing in to GitHub (the logs can't).
+        run: |
+          set -o pipefail
+          dotnet build ZendeskWatcher.Mac/ZendeskWatcher.Mac.csproj -c Release "-p:DefaultSubdomain=$DEFAULT_SUBDOMAIN" 2>&1 | tee build.log || {
+            grep -E "error|Error|ILLink|IL[0-9]{4}|MT[0-9]{4}" build.log | grep -v "warning" | sort -u | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          }
 
       - name: Zip the app
         run: |

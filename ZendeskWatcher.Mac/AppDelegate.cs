@@ -204,7 +204,7 @@ public sealed class AppDelegate : NSApplicationDelegate
         };
         alert.AddButton("Save");
         alert.AddButton("Cancel");
-        NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+        AppInfo.BringToFront();
         alert.Window.InitialFirstResponder = input;
         if (alert.RunModal() != (nint)(long)NSAlertButtonReturn.First)
             return;

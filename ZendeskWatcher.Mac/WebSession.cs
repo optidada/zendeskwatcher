@@ -36,9 +36,9 @@ public sealed class WebSession : NSObject, IZendeskSession, IWKNavigationDelegat
             NSWindowStyle.Titled | NSWindowStyle.Closable | NSWindowStyle.Resizable, NSBackingStore.Buffered, false)
         {
             Title = "Sign in to Zendesk",
-            ContentView = _web,
-            ReleasedWhenClosed = false
+            ContentView = _web
         };
+        _window.ReleaseWhenClosed(false); // closing only hides it; the web view and its login stay
         _window.Center();
     }
 
@@ -116,7 +116,7 @@ public sealed class WebSession : NSObject, IZendeskSession, IWKNavigationDelegat
         {
             Load(LoginUrl);
             _window.MakeKeyAndOrderFront(null);
-            NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+            AppInfo.BringToFront();
 
             while (true)
             {

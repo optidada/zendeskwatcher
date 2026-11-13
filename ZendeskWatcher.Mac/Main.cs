@@ -39,6 +39,15 @@ internal sealed class MainThreadContext : SynchronizationContext
 
 internal static class AppInfo
 {
+    /// <summary>A menu bar app must come to the front to show its windows above others.</summary>
+    public static void BringToFront()
+    {
+        if (OperatingSystem.IsMacOSVersionAtLeast(14))
+            NSApplication.SharedApplication.Activate();
+        else
+            NSApplication.SharedApplication.ActivateIgnoringOtherApps(true);
+    }
+
     public static string Version =>
         NSBundle.MainBundle.ObjectForInfoDictionary("CFBundleShortVersionString")?.ToString() ?? "0.0.0";
 
