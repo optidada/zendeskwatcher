@@ -240,9 +240,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             if (fresh.Count > MaxSeparateUnassignedToasts)
             {
                 Show(new NotificationContent(NotificationKind.NewTicket, "New tickets",
-                    $"{fresh.Count} new unassigned tickets",
-                    string.Join("\n", fresh.Take(3).Select(t => $"#{t.Id} {Markdown.Escape(TextCleanup.Plain(t.Subject))}")),
-                    Context: GroupLabel(group)) { IsTicketNotification = true, TicketCount = fresh.Count }, fresh.Select(t => t.Id));
+                    $"{fresh.Count} new unassigned tickets", TicketList(fresh),
+                    Context: GroupLabel(group)) { IsTicketNotification = true, TicketCount = fresh.Count, MaxBodyLines = ListLines }, fresh.Select(t => t.Id));
                 continue;
             }
 
@@ -713,12 +712,25 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             return;
         }
 
-        var lines = oldestFirst.Take(3).Select(t => $"#{t.Id} {Markdown.Escape(TextCleanup.Plain(t.Subject))}").ToList();
-        if (oldestFirst.Count > 3)
-            lines.Add($"… and {oldestFirst.Count - 3} more");
         Show(new NotificationContent(NotificationKind.NewTicket, "Now watching",
-            $"{tickets.Count} unassigned tickets already waiting", string.Join("\n", lines), Context: GroupLabel(group)) { IsTicketNotification = true, TicketCount = tickets.Count },
+            $"{tickets.Count} unassigned tickets already waiting", TicketList(oldestFirst), Context: GroupLabel(group))
+            { IsTicketNotification = true, TicketCount = tickets.Count, MaxBodyLines = ListLines },
             tickets.Select(t => t.Id));
+    }
+
+    /// <summary>Tickets listed in one notification; more become "… and 4 more".</summary>
+    private const int ListedTickets = 5;
+
+    /// <summary>Room for the listed tickets and the "… and N more" line: the notification grows to fit them.</summary>
+    internal const int ListLines = ListedTickets + 1;
+
+    /// <summary>"#123 Subject" per line, up to <see cref="ListedTickets"/>, then "… and N more".</summary>
+    internal static string TicketList(IReadOnlyList<Ticket> tickets)
+    {
+        var lines = tickets.Take(ListedTickets).Select(t => $"#{t.Id} {Markdown.Escape(TextCleanup.Plain(t.Subject))}").ToList();
+        if (tickets.Count > ListedTickets)
+            lines.Add($"\u2026 and {tickets.Count - ListedTickets} more");
+        return string.Join("\n", lines);
     }
 
     /// <summary>Day and month names in English, whatever the PC's language (the app's texts are English).</summary>

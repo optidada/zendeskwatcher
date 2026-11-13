@@ -32,8 +32,8 @@ internal sealed class GeneralPage : SettingsPage
     public GeneralPage(SettingsContext context, string version)
         : base(context, "General", $"Zendesk Watcher {version}, by {Author}.")
     {
-        var theme = new Card("App theme", "The look of this Settings window and its dialogs, and of the notifications unless you choose " +
-            "another style for them (Notifications → Look & sound). With Windows, the window follows Windows' light or dark mode and accent color.", Kit.CardWidth);
+        var theme = new Card("App theme", "The look of this window and its dialogs, and of notifications unless they have their own style " +
+            "(Notifications → Look & sound). The Windows theme follows Windows' light or dark mode and accent color.", Kit.CardWidth);
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface };
         tiles.Controls.AddRange(_appThemeTiles);
         theme.Body.Controls.Add(tiles);
@@ -52,7 +52,7 @@ internal sealed class GeneralPage : SettingsPage
         Panel.Controls.Add(updates);
 
         var feedback = new Card("Feedback", $"Ideas, questions or something not working? Send feedback opens an email to {FeedbackName} " +
-            "with a zip of your log and settings attached (in classic Outlook; other mail apps show the zip to attach). You see everything before sending.", Kit.CardWidth);
+            "with your log and settings in a zip: classic Outlook attaches it, other mail apps show it to attach. Nothing is sent without you.", Kit.CardWidth);
         feedback.Body.Controls.Add(Kit.Row(_sendFeedback, _openLogs));
         Panel.Controls.Add(feedback);
 

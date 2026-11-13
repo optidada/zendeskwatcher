@@ -44,11 +44,11 @@ internal sealed class BehaviorPage : SettingsPage
     private readonly ComboBox _snoozeBehavior = Kit.Combo(SnoozeBehaviorOptions, width: 300);
 
     public BehaviorPage(SettingsContext context)
-        : base(context, "Behavior", "How long notifications stay on screen, what happens to ones that waited, and what Snooze does.")
+        : base(context, "Behavior", "How long notifications stay, what happens to ones that waited, and Snooze.")
     {
-        var screen = new Card("On screen", "How long a notification stays before it closes on its own; hovering it pauses the countdown. " +
-            "Windows notifications can only stay about 5 s (for up to 15 s here), about 25 s (for longer) or until dismissed.", Kit.CardWidth);
-        AddTimeSection(screen, "Ticket notifications, by the ticket's priority (no priority counts as Normal (P3))",
+        var screen = new Card("On screen", "How long a notification stays before it closes by itself; hovering pauses the countdown. " +
+            "Windows notifications can only stay about 5 s (15 s or less here), about 25 s (longer) or until dismissed.", Kit.CardWidth);
+        AddTimeSection(screen, "Ticket notifications, by priority (none counts as Normal)",
             ("Urgent (P1)", _urgentTime), ("High (P2)", _highTime), ("Normal (P3)", _normalTime), ("Low (P4)", _lowTime));
         AddTimeSection(screen, "Other notifications (\"Sign-in required\" always stays until dismissed)",
             ("Start summary", _summaryTime), ("App messages", _appTime));
@@ -58,8 +58,8 @@ internal sealed class BehaviorPage : SettingsPage
             "Taking turns and holding: not for the Windows style.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(screen);
 
-        var back = new Card("After waiting", "Notifications that waited a while (behind others, or while you were away) are checked " +
-            "again first: dropped when a new ticket has been taken, or the ticket is solved or closed. Not for the Windows style.", Kit.CardWidth);
+        var back = new Card("After waiting", "Notifications that waited (behind others, or while you were away) are checked first and " +
+            "dropped if the ticket was taken, solved or closed meanwhile. Not for the Windows style.", Kit.CardWidth);
         var backGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
         backGrid.Controls.Add(Theme.Label("Check again after"), 0, 0);
         backGrid.Controls.Add(_recheck, 1, 0);
@@ -74,9 +74,8 @@ internal sealed class BehaviorPage : SettingsPage
             Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(back);
 
-        var snooze = new Card("Snooze", "Snooze on a notification hides it and shows it again later. " +
-            "A ticket still needs attention when a new ticket is still unassigned, or another ticket isn't solved or closed. " +
-            "While notifications are paused, snoozed notifications wait until the pause ends.", Kit.CardWidth);
+        var snooze = new Card("Snooze", "Snooze hides a notification and shows it again later, if the ticket still needs you: a new ticket " +
+            "still unassigned, others not solved or closed. While notifications are paused, snoozed ones wait.", Kit.CardWidth);
         var snoozeGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
         snoozeGrid.Controls.Add(Theme.Label("Show again after"), 0, 0);
         snoozeGrid.Controls.Add(_snoozeMinutes, 1, 0);

@@ -30,7 +30,8 @@ internal sealed class AppearancePage : SettingsPage
     private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme (General page)");
     private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
     private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
-        new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.LeftCenter, "Left, middle"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
+        new(PopupPosition.RightCenter, "Right center"), new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.BottomCenter, "Bottom center"),
+        new(PopupPosition.LeftCenter, "Left center"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
     private readonly ComboBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge")], width: PlacementWidth);
     private readonly Label _peekNote = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 60);
 
@@ -53,10 +54,10 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ToolTip _tips = new();
 
     public AppearancePage(SettingsContext context)
-        : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
+        : base(context, "Look & sound", "How notifications look and sound. Try it uses your choices, even before saving.")
     {
-        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below; Windows uses Windows " +
-            "notifications. While you present or run a full-screen app, Windows notifications are always used, so nothing pops up over your screen.", Kit.CardWidth);
+        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below. While you present or use a full-screen app, " +
+            "Windows notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);
         style.Body.Controls.Add(_likeApp);
         style.Body.Controls.Add(_ownStyle);
         // Two rows of three tiles.
@@ -86,8 +87,8 @@ internal sealed class AppearancePage : SettingsPage
         _position.SelectedIndexChanged += (_, _) => UpdatePeekNote(userChoice: false);
         Panel.Controls.Add(style);
 
-        var sound = new Card("Sound", "App messages: update ready, welcome, group not found and \"Sign-in required\". Replies to " +
-            "your own clicks (e.g. \"No updates\") stay quiet. How long notifications stay: Notifications \u2192 Behavior.", Kit.CardWidth);
+        var sound = new Card("Sound", "App messages: update ready, welcome, group not found, sign-in required. " +
+            "Answers to your own clicks (e.g. \"No updates\") stay quiet.", Kit.CardWidth);
         var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface };
         AddSoundRow(grid, 0, "New tickets", _newSound);
         AddSoundRow(grid, 1, "My tickets", _mySound);
@@ -100,8 +101,8 @@ internal sealed class AppearancePage : SettingsPage
 
         var content = new Card("Content", "Replies and notes on your tickets, CC / following tickets and colleagues' tickets.", Kit.CardWidth);
         content.Body.Controls.Add(_commentText);
-        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
-            "the Windows notification center; notifications in Zendesk Watcher's own styles are never stored.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50); // minus the indent below
+        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows keeps its notifications in " +
+            "the notification center; Zendesk Watcher's own styles store nothing.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50); // minus the indent below
         privacy.Margin = new Padding(50, 0, 0, 0);
         content.Body.Controls.Add(privacy);
         Panel.Controls.Add(content);
@@ -162,8 +163,8 @@ internal sealed class AppearancePage : SettingsPage
             moved = userChoice;
         }
         _peekNote.Text = !peek ? ""
-            : moved ? "Peek needs a screen edge, so the position moved to Top center."
-            : "Notifications wait at the screen edge with a tab showing; point at it to slide one out. Center isn't available with Peek.";
+            : moved ? "Peek needs a screen edge: the position is now Top center."
+            : "Notifications wait as tabs at the screen edge; point at one to slide it out. Not with Center.";
         _peekNote.Visible = peek;
         _position.Invalidate();
     }

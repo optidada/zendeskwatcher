@@ -109,6 +109,7 @@ internal static class Program
             TrayAppContext.Current?.OnToastActivated(ToastArguments.Parse(e.Argument));
 
         Log.DropOldLogsOnce();
+        FeedbackPackage.CleanUp(TimeSpan.FromDays(1)); // a feedback zip from an earlier day: the email has its own copy
         Log.Info("Started");
         var app = new TrayAppContext();
         if (args.Contains("--test-popups"))

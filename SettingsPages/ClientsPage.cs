@@ -19,12 +19,12 @@ internal sealed class ClientsPage : SettingsPage
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
 
     public ClientsPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Clients", "Click a client to make it important, hear only its urgent tickets, mute it (for a while) or give it its own sound. " +
-            "Untick to mute. Everyone is normal by default, new clients too.")
+        : base(context, "Clients", "Click a client to make it important, hear only its urgent tickets, mute it for a while or give it its own sound. " +
+            "Untick to mute. New clients are normal.")
     {
         _groups = groups;
         var card = new Card("Clients of your monitored groups",
-            $"From each group's tickets of the last {ZendeskClient.ClientLookBackDays} days. Muted and \u201conly urgent\u201d apply to new tickets " +
+            $"From the last {ZendeskClient.ClientLookBackDays} days of each group's tickets. Muted and \u201conly urgent\u201d apply to new " +
             "and colleagues' tickets; your own and CC'd tickets always notify. Important ones always notify and stay until closed.", Kit.CardWidth);
         _clients.Host.Size = new Size(ListWidth, 280);
         _clients.Host.Margin = new Padding(0, 10, 0, 10);
@@ -71,8 +71,8 @@ internal sealed class ClientsPage : SettingsPage
         {
             var count = _clients.CustomizedCount;
             if (count > 0 && ThemedDialog.Confirm(Context.Window, "Clear customizations?",
-                    $"{count} client{(count == 1 ? "" : "s")} go back to normal: no mutes, no important clients, no own sounds. " +
-                    "Discard brings them back until you save.", "Clear"))
+                    $"{count} client{(count == 1 ? "" : "s")} go back to normal (no mutes, important or own sounds). " +
+                    "Discard undoes it until you save.", "Clear"))
                 _clients.ClearAll();
         };
         _reload.Click += (_, _) =>

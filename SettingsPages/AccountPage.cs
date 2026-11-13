@@ -22,6 +22,8 @@ internal sealed class AccountPage : SettingsPage
 
     private bool _signingIn;
     private string? _loadedFor;
+    private readonly Label _lockedHint = Theme.Label("To use another Zendesk account, sign out first.", Theme.Small, Theme.TextMuted);
+    private readonly System.Windows.Forms.Timer _recheck = new() { Interval = 900 };
 
     /// <summary>A sign-in or sign-out is about to start (the app pauses checking).</summary>
     public event Action? SessionChanging;
@@ -38,9 +40,12 @@ internal sealed class AccountPage : SettingsPage
         _groups = groups;
 
         var account = new Card("Zendesk account",
-            "The address you use to open Zendesk. You sign in as usual (Okta) in a built-in browser window; " +
-            "the app then reads tickets with your own agent permissions.", Kit.CardWidth);
+            "Your Zendesk address. You sign in as usual (Okta) in a built-in browser window; " +
+            "the app reads tickets with your own permissions.", Kit.CardWidth);
         account.Body.Controls.Add(Kit.Row(_subdomain, Theme.Label(".zendesk.com", color: Theme.TextMuted)));
+        _lockedHint.Margin = new Padding(0, 6, 0, 0);
+        _lockedHint.Visible = false;
+        account.Body.Controls.Add(_lockedHint);
         Panel.Controls.Add(account);
 
         var status = new Card("Status", null, Kit.CardWidth);
@@ -52,13 +57,25 @@ internal sealed class AccountPage : SettingsPage
 
         // Its own card, shown once signed in (it needs the app to be checking with this account).
         _catchUpCard = new Card("Catch up",
-            "What still needs you since you stopped working last time: unassigned tickets in your groups and customers " +
-            "waiting for an answer. Also in the tray menu, and by itself when your working day starts.", Kit.CardWidth);
+            "What still needs you since you last stopped working: unassigned tickets and waiting customers. " +
+            "Also in the tray menu, and by itself when your day starts.", Kit.CardWidth);
         _catchUpCard.Body.Controls.Add(_catchUp);
         _catchUpCard.Visible = false;
         Panel.Controls.Add(_catchUpCard);
 
         _subdomain.Leave += async (_, _) => await RefreshAsync();
+        // A changed subdomain is checked shortly after typing stops, so the status never names the old account.
+        _recheck.Tick += async (_, _) =>
+        {
+            _recheck.Stop();
+            await RefreshAsync();
+        };
+        _subdomain.TextChanged += (_, _) =>
+        {
+            _recheck.Stop();
+            if (Subdomain != _loadedFor && _loadedFor is not null)
+                _recheck.Start();
+        };
         _signIn.Click += async (_, _) => await SignInAsync();
         _signOut.Click += (_, _) => SignOut();
         _catchUp.Click += async (_, _) => await CatchUpAsync();
@@ -87,8 +104,16 @@ internal sealed class AccountPage : SettingsPage
     public override void Apply(Settings settings) => settings.Subdomain = Subdomain;
 
     /// <summary>The window was shown: check the session (or, when the app just found none, say so right away).</summary>
-    public async Task OnWindowShownAsync(bool knownSignedOut)
+    /// <param name="signedInAs">Who the app is checking as right now: shown at once, without asking Zendesk again.</param>
+    public async Task OnWindowShownAsync(bool knownSignedOut, User? signedInAs = null)
     {
+        if (signedInAs is { } me && Context.Current() is { IsConnectionConfigured: true } current)
+        {
+            Context.Window.ActiveControl = null;
+            await ShowSignedInAsync(current, me);
+            return;
+        }
+
         if (knownSignedOut && Context.Current() is { IsConnectionConfigured: true } connection)
         {
             // The app just found no active session; don't make the user wait for another check.
@@ -106,6 +131,36 @@ internal sealed class AccountPage : SettingsPage
             Context.Window.ActiveControl = null;
 
         await RefreshAsync();
+    }
+
+    private static string SignedInText(Settings connection, User me) =>
+        $"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}";
+
+    /// <summary>The app is checking with this account right now: signed in, groups from the saved list when it's recent.</summary>
+    private async Task ShowSignedInAsync(Settings connection, User me)
+    {
+        var key = connection.Subdomain;
+        _loadedFor = key;
+        var client = new ZendeskClient(connection, Context.SessionFactory(connection));
+        SetStatus(SignedInText(connection, me), AccountState.SignedIn);
+        Context.SetSession(client, me);
+        try
+        {
+            await _groups.LoadAsync(client, me.Id, key, force: false, stale: () => key != _loadedFor);
+        }
+        catch (AuthRequiredException)
+        {
+            SetStatus($"Not signed in to {key}.zendesk.com. Click Sign in.", AccountState.SignedOut);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Settings: could not load the groups", ex);
+            _groups.SetReloadEnabled(true);
+        }
+        finally
+        {
+            _groups.SetLoading(false);
+        }
     }
 
     /// <summary>Checks the session for the subdomain and loads the groups. Skipped if nothing changed, unless forced.</summary>
@@ -137,7 +192,7 @@ internal sealed class AccountPage : SettingsPage
             if (key != _loadedFor)
                 return; // the subdomain changed meanwhile
 
-            SetStatus($"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}", AccountState.SignedIn);
+            SetStatus(SignedInText(connection, me), AccountState.SignedIn);
             Context.SetSession(client, me, reload: force);
             Log.Info($"Settings: session {clock.ElapsedMilliseconds} ms");
 
@@ -149,8 +204,9 @@ internal sealed class AccountPage : SettingsPage
         }
         catch (Exception ex)
         {
+            // The details go to the log; the page says what to do (often a typo in the subdomain, or no network).
             Log.Error("Settings: could not load account", ex);
-            SetStatus($"Could not connect: {ex.Message}", AccountState.Error);
+            SetStatus($"Couldn't reach {connection.Subdomain}.zendesk.com. Check the subdomain and your connection, then try Sign in.", AccountState.Error);
             _groups.SetReloadEnabled(true);
         }
         finally
@@ -263,6 +319,13 @@ internal sealed class AccountPage : SettingsPage
             AccountState.Error => Theme.Danger,
             _ => Theme.Neutral
         };
+
+        // Signed in, the account can't change under the session: sign out first (then the field opens again).
+        var locked = state == AccountState.SignedIn;
+        _subdomain.Box.ReadOnly = locked;
+        _subdomain.Box.ForeColor = locked ? Theme.TextMuted : Theme.Text;
+        _subdomain.Box.TabStop = !locked;
+        _lockedHint.Visible = locked;
 
         // While checking it isn't known yet whether you're signed in, so neither button is offered.
         _signIn.Visible = state is AccountState.SignedOut or AccountState.Error;

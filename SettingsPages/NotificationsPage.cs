@@ -32,8 +32,8 @@ internal sealed class NotificationsPage : SettingsPage
         unassigned.Body.Controls.Add(_notifyUnassigned);
         Panel.Controls.Add(unassigned);
 
-        var mine = new Card("Ticket changes", "Get notified when someone else changes these tickets, for the priorities you choose. " +
-            "It's the ticket's current priority that counts; tickets without a priority count as Normal (P3).", Kit.CardWidth);
+        var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose " +
+            "(the ticket's current priority; none counts as Normal).", Kit.CardWidth);
         mine.Body.Controls.Add(_trackMine);
         mine.Body.Controls.Add(_myPriorities.Row);
         mine.Body.Controls.Add(_trackCc);
@@ -41,8 +41,8 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(mine);
 
         // Its own card: the change types apply to both kinds of tickets above, not to one of the switches.
-        var which = new Card("Which changes", "Applies to your tickets and to tickets you're CC'd on or follow. Changes you make yourself never trigger a notification. " +
-            "Status changes include your own statuses (e.g. In progress → Escalated), but not New → Open or Solved → Closed.", Kit.CardWidth);
+        var which = new Card("Which changes", "For your tickets and ones you're CC'd on or follow. Your own changes never notify. " +
+            "Status changes include custom statuses (e.g. In progress → Escalated), but not New → Open or Solved → Closed.", Kit.CardWidth);
         var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
         options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (Kit.CardWidth - 44) / 2));
         options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -53,10 +53,9 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(which);
 
         // The hours are used by two switches: this one, and "only while I'm working myself" on the Colleagues page.
-        var working = new Card("Working hours", "When you're working, in this PC's time. Only notify: new tickets and changes on " +
-            "your tickets are skipped outside your hours (colleagues' tickets have their own switch on the Colleagues page). " +
-            "Catch up: when your day starts, you get what came in while you were off and still needs you: tickets still " +
-            "unassigned, customers still waiting (also from the tray menu).", Kit.CardWidth);
+        var working = new Card("Working hours", "When you work, in this PC's time. Outside your hours, new tickets and changes on your tickets can stay quiet " +
+            "(colleagues' tickets: Colleagues page). Catch up at the start of your day brings what came in meanwhile and " +
+            "still needs you.", Kit.CardWidth);
         var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
         grid.Controls.Add(Theme.Label("My hours"), 0, 0);
         grid.Controls.Add(Kit.Row(_myStart, Theme.Label("to"), _myEnd), 1, 0);

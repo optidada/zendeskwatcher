@@ -28,7 +28,7 @@ is ready, you get a notification with **Restart now**.
 - Wondering why you got a notification, or didn't? Settings → **How it works** explains the rules.
 - Sounds are off to begin with; pick one per kind under Notifications → Look & sound.
 
-**Problems or ideas?** Tell Daniel Dahlin on Teams. *Open log folder* in Settings → General shows `log.txt`, which helps
-when something doesn't work.
+**Problems or ideas?** *Send feedback* (tray menu, or Settings → General) opens an email to Daniel Dahlin with your log
+attached, which helps when something doesn't work. Or tell him on Teams.
 
 **Uninstall:** Windows Settings → Apps → Zendesk Watcher.

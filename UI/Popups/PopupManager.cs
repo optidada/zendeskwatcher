@@ -88,12 +88,13 @@ public sealed class PopupManager
         {
             PopupPosition.LeftCenter => (area.Left + margin, PopupForm.Entry.FromLeft),
             PopupPosition.TopCenter => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.FromTop),
+            PopupPosition.BottomCenter => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.FromBottom),
             PopupPosition.Center => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.Fade),
             _ => (area.Right - popup.Width - margin, PopupForm.Entry.FromRight)
         };
         _deck = settings.Stacking == PopupStacking.Deck;
         Layout(position, scale);
-        popup.Present(_peek == PopupForm.PeekEdge.Top ? popup.RestX : restX, entry); // top tabs sit side by side
+        popup.Present(_peek is PopupForm.PeekEdge.Top or PopupForm.PeekEdge.Bottom ? popup.RestX : restX, entry); // top/bottom tabs sit side by side
         if (_deck)
             Layout(position, scale); // now that it has a place: the fan, newest card on top
         Shown?.Invoke(content);
@@ -230,8 +231,9 @@ public sealed class PopupManager
     /// </summary>
     private void UpdateTurns()
     {
-        // In a deck only the front card (the newest) can be read, so it counts down first.
-        var current = _deck ? _visible.LastOrDefault(p => p.TimesOut) : _visible.FirstOrDefault(p => p.TimesOut);
+        // In a deck only the front card (the newest) can be read: only it counts down. One behind it never does, so
+        // nothing disappears unseen; a front card that stays until closed holds the others until then.
+        var current = _deck ? (_visible.LastOrDefault() is { TimesOut: true } front ? front : null) : _visible.FirstOrDefault(p => p.TimesOut);
         // Peek: each one counts down only after it was slid out (and read), so none waits for a tab nobody opened.
         foreach (var popup in _visible)
             popup.MyTurn = !_takeTurns || _peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut;
@@ -247,15 +249,20 @@ public sealed class PopupManager
         var margin = (int)(16 * scale);
         var gap = (int)(10 * scale);
 
+        // A deck: every card as tall as the tallest, so their edges line up. Otherwise each its own height.
+        var tallest = _deck && _visible.Count > 0 ? _visible.Max(p => p.NaturalHeight) : 0;
+        foreach (var popup in _visible)
+            popup.StretchTo(tallest);
+
         if (_deck)
         {
             LayoutDeck(position, area, margin, scale);
             return;
         }
 
-        if (_peek == PopupForm.PeekEdge.Top)
+        if (_peek is PopupForm.PeekEdge.Top or PopupForm.PeekEdge.Bottom)
         {
-            // Tabs along the top edge, side by side and centered, oldest on the left. When they don't fit (large
+            // Tabs along the top or bottom edge, side by side and centered, oldest on the left. When they don't fit (large
             // notifications on a small screen) they overlap evenly; the one under the mouse comes to the front.
             var width = _visible.Sum(p => p.Width) + gap * Math.Max(0, _visible.Count - 1);
             var x = area.Left + Math.Max(0, (area.Width - width) / 2);
@@ -265,7 +272,7 @@ public sealed class PopupManager
             foreach (var popup in _visible)
             {
                 popup.RestX = x;
-                popup.TargetY = area.Top;
+                popup.TargetY = _peek == PopupForm.PeekEdge.Top ? area.Top : area.Bottom - popup.Height;
                 x += popup.Width + gap - (int)Math.Ceiling(squeeze);
             }
             return;
@@ -273,7 +280,7 @@ public sealed class PopupManager
         if (_peek != PopupForm.PeekEdge.None)
             margin = gap; // tabs at the side edge: only a small gap from the top or bottom
 
-        if (position is PopupPosition.LeftCenter or PopupPosition.Center)
+        if (position is PopupPosition.LeftCenter or PopupPosition.RightCenter or PopupPosition.Center)
         {
             // Centered vertically as a group, oldest at the top.
             var total = _visible.Sum(p => p.Height) + gap * Math.Max(0, _visible.Count - 1);
@@ -322,6 +329,7 @@ public sealed class PopupManager
         {
             PopupPosition.LeftCenter => PopupForm.PeekEdge.Left,
             PopupPosition.TopCenter => PopupForm.PeekEdge.Top,
+            PopupPosition.BottomCenter => PopupForm.PeekEdge.Bottom,
             _ => PopupForm.PeekEdge.Right
         };
 
@@ -340,13 +348,13 @@ public sealed class PopupManager
         var frontX = position switch
         {
             PopupPosition.LeftCenter => area.Left + margin,
-            PopupPosition.TopCenter or PopupPosition.Center => area.Left + (area.Width - front.Width - spread) / 2,
+            PopupPosition.TopCenter or PopupPosition.BottomCenter or PopupPosition.Center => area.Left + (area.Width - front.Width - spread) / 2,
             _ => area.Right - margin - front.Width - spread
         };
         var frontTop = position switch
         {
             PopupPosition.TopRight or PopupPosition.TopCenter => area.Top + margin + spread,
-            PopupPosition.LeftCenter or PopupPosition.Center => area.Top + (area.Height - front.Height + spread) / 2,
+            PopupPosition.LeftCenter or PopupPosition.RightCenter or PopupPosition.Center => area.Top + (area.Height - front.Height + spread) / 2,
             _ => area.Bottom - margin - front.Height
         };
         for (var i = 0; i < _visible.Count; i++)

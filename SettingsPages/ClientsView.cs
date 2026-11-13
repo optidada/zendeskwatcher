@@ -268,6 +268,14 @@ internal sealed class ClientsView
                 return; // the groups, filter or session changed meanwhile
             loaded = cached;
         }
+        else if (client is null && groups.Count > 0)
+        {
+            // Signed out: the clients as last loaded (any age; the page says they may be out of date), read-only.
+            if (_cache is null && ListCache.Load<Dictionary<long, List<Client>>>(CacheName, subdomain) is { } saved)
+                _cache = (subdomain, saved.At, saved.Value);
+            if (_cache is { } cache && cache.Subdomain == subdomain)
+                loaded = cache.Groups;
+        }
         else if (version != _version)
             return;
 

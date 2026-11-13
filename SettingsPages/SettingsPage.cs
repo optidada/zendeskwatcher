@@ -94,12 +94,13 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// </summary>
     protected void UseSignedOutStrip(Action<bool> setReadOnly)
     {
-        var text = Theme.Label("Not signed in: your saved choices below still apply, but the lists may be out of date and can't be changed until you sign in.",
-            Theme.Small, Theme.Warning);
+        var text = Theme.Label("Not signed in: your choices still apply, but the lists may be out of date and are locked until you sign in.",
+            Theme.Small, Theme.Warning, Kit.CardWidth - 70); // wraps, with "Sign in" next to it
         var link = Kit.LinkLabel("Sign in", Theme.Small);
         text.Margin = new Padding(0, 0, 10, 0);
         link.Margin = Padding.Empty;
-        text.Anchor = link.Anchor = AnchorStyles.Left;
+        text.Anchor = AnchorStyles.Left;
+        link.Anchor = AnchorStyles.Left | AnchorStyles.Top;
         var strip = new TableLayoutPanel
         {
             ColumnCount = 2, RowCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,

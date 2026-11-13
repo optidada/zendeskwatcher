@@ -52,15 +52,9 @@ public static class FeedbackPackage
     /// </summary>
     public static string CreateZip(string version, string system, string? folder = null)
     {
-        folder ??= Path.Combine(Path.GetTempPath(), "ZendeskWatcher-feedback");
+        folder ??= DefaultFolder;
         Directory.CreateDirectory(folder);
-        // Older zips go (a mail app may still hold one open: then it stays), and each new one gets its own name.
-        foreach (var old in Directory.GetFiles(folder, "ZendeskWatcher-feedback*.zip"))
-        {
-            try { File.Delete(old); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
+        CleanUp(TimeSpan.Zero, folder); // each new zip gets its own name; older ones go
         var zipPath = Path.Combine(folder, $"ZendeskWatcher-feedback-{DateTime.Now:yyyy-MM-dd-HHmmss}.zip");
 
         using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
@@ -70,6 +64,29 @@ public static class FeedbackPackage
         using (var writer = new StreamWriter(about.Open(), new UTF8Encoding(false)))
             writer.Write(About(version, system, DateTime.Now));
         return zipPath;
+    }
+
+    private static string DefaultFolder => Path.Combine(Path.GetTempPath(), "ZendeskWatcher-feedback");
+
+    /// <summary>
+    /// Removes feedback zips older than <paramref name="age"/>: the email has its own copy once it's attached, so the
+    /// file isn't needed afterwards. A zip a mail app still holds open stays until next time. The app calls this at start.
+    /// </summary>
+    public static void CleanUp(TimeSpan age, string? folder = null)
+    {
+        folder ??= DefaultFolder;
+        if (!Directory.Exists(folder))
+            return;
+        foreach (var file in Directory.GetFiles(folder, "ZendeskWatcher-feedback*.zip"))
+        {
+            try
+            {
+                if (DateTime.Now - File.GetLastWriteTime(file) >= age)
+                    File.Delete(file);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     private static void AddFile(ZipArchive zip, string path, string name)
