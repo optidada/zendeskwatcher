@@ -321,9 +321,17 @@ internal sealed class AssigneeList : Control
     }
 
     /// <summary>Arrows (and Home/End) move between rows, Space ticks or unticks (All/None for a group), Enter opens the menu.</summary>
+    /// <summary>The keyboard is being used (Tab or a key): show the outline.</summary>
+    private bool _keyboard = true;
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (!_keyboard)
+        {
+            _keyboard = true;
+            Invalidate();
+        }
         var rows = _items.Where(IsInteractive).ToList();
         if (rows.Count == 0)
             return;
@@ -379,13 +387,20 @@ internal sealed class AssigneeList : Control
     /// <summary>A rounded outline around the keyboard's row, only while the list has the focus.</summary>
     private void PaintFocus(Graphics g)
     {
-        if (!Focused || FocusItem is not { } item)
+        if (!Focused || !_keyboard || FocusItem is not { } item)
             return;
         var s = DpiScale;
         var r = item.Rect;
         using var path = Theme.RoundedRect(new RectangleF(r.X - 3 * s, r.Y + 1, r.Width + 3 * s, r.Height - 2), 4 * s);
         using var pen = new Pen(Theme.Accent, 1.5f * s);
         g.DrawPath(pen, path);
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        _keyboard = false; // no outline for mouse users, until a key is used
+        Focus(); // after a click the keys work too (the page doesn't jump: RepaintOnScrollPanel)
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
