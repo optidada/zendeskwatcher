@@ -52,7 +52,7 @@ internal sealed class GeneralPage : SettingsPage
         Panel.Controls.Add(updates);
 
         var feedback = new Card("Feedback", $"Ideas, questions or something not working? Send feedback opens an email to {FeedbackName} " +
-            "with a zip of your log and settings attached (in classic Outlook; other mail apps show the zip to attach). You see everything before sending.", Kit.CardWidth);
+            "with your log and settings in a zip: classic Outlook attaches it, other mail apps show it to attach. Nothing is sent without you.", Kit.CardWidth);
         feedback.Body.Controls.Add(Kit.Row(_sendFeedback, _openLogs));
         Panel.Controls.Add(feedback);
 

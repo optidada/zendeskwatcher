@@ -5,12 +5,12 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.4.1
 
-- **Peek from the edge**: a new choice under Several at once (Look & sound). Notifications wait at the screen edge with only a tab showing; point at a tab to slide the notification out. The tab gives a little wiggle when something new arrives, and fills with color the longer a ticket waits. Urgent and important ones come out by themselves once.
-- **Send feedback attaches your log**: one zip with the log, settings and app details. Classic Outlook attaches it for you; with other mail apps the zip is shown, ready to drag into the email. Nothing is sent without you seeing it.
-- **Clear customizations** on the Clients page puts every client back to normal in one go.
-- **Check now works every time**: it could be swallowed and only happen at the next regular check (Catch up too). Check now and Catch up are greyed out in the tray menu while the app isn't checking.
-- **Discard no longer signs you out** of Settings: the Account page said "Not signed in" afterwards and Groups and Clients couldn't reload until the window was reopened.
-- **While signed out**, Groups, Clients and Colleagues say so, with a Sign in link, and their lists can't be changed until your session works again (they may be out of date).
+- **Peek from the edge**: notifications wait as tabs at the screen edge; point at one to slide it out. Tabs wiggle when something new arrives and fill with color the longer a ticket waits; urgent and important ones come out by themselves (Look & sound → Several at once).
+- **Send feedback attaches your log**: a zip with the log, settings and app details. Classic Outlook attaches it; other mail apps show it, ready to drag in. Nothing is sent without you.
+- **Clear customizations** on the Clients page puts the listed clients back to normal in one go.
+- **Check now works every time**: it could wait until the next regular check (Catch up too). Both are greyed out in the tray menu while the app isn't checking.
+- **Signed out**: Groups, Clients and Colleagues say so, show the lists as last loaded, and lock them until you sign in.
+- **Discard no longer signs you out** of Settings.
 
 ## 1.4.0
 

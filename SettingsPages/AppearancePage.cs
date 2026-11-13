@@ -162,8 +162,8 @@ internal sealed class AppearancePage : SettingsPage
             moved = userChoice;
         }
         _peekNote.Text = !peek ? ""
-            : moved ? "Peek needs a screen edge, so the position moved to Top center."
-            : "Notifications wait at the screen edge with a tab showing; point at it to slide one out. Center isn't available with Peek.";
+            : moved ? "Peek needs a screen edge: the position is now Top center."
+            : "Notifications wait as tabs at the screen edge; point at one to slide it out. Not with Center.";
         _peekNote.Visible = peek;
         _position.Invalidate();
     }

@@ -41,13 +41,15 @@ On first start the **Settings** window opens:
 
 1. **Account:** enter the subdomain (`yourcompany` for yourcompany.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
 2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon. On **Clients** (under Groups) untick clients you don't need to hear about (or click **Mute** on a notification's client line); everyone is included by default, new clients too.
-3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, your working hours, and how often to check. Below it: **Colleagues**, **Behavior** (how long notifications stay, snooze) and **Look & sound**.
+3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, your working hours, and how often to check. Below it: **Colleagues**, **Behavior** (how long notifications stay, snooze) and **Look & sound** (style, sounds, and where they appear: below each other, stacked like cards, or peeking from the screen edge).
 
 **How it works**, the last page, explains in plain words when and why each notification appears.
 
 **Save** stores your changes and applies them right away; the window stays open, so you can continue on other pages. **Close** asks before discarding unsaved changes.
 
-To reopen Settings, click the tray icon or right-click it and choose **Settings…**. Checking keeps running while Settings is open (with the saved settings); it only pauses while you sign in or out, or look at a different Zendesk account.
+To reopen Settings, click the tray icon or right-click it and choose **Settings…**. Checking keeps running while Settings is open (with the saved settings); it only pauses while you sign in or out, or look at a different Zendesk account. While signed out, Groups, Clients and Colleagues show the lists as last loaded, locked until you sign in.
+
+**Send feedback** (tray menu or General) opens an email to the maintainer with a zip of `log.txt`, `settings.json` and app details. Classic Outlook attaches it; other mail apps get Explorer with the zip selected. Nothing is sent without you.
 
 ## Tray icon
 

@@ -71,8 +71,8 @@ internal sealed class ClientsPage : SettingsPage
         {
             var count = _clients.CustomizedCount;
             if (count > 0 && ThemedDialog.Confirm(Context.Window, "Clear customizations?",
-                    $"{count} client{(count == 1 ? "" : "s")} go back to normal: no mutes, no important clients, no own sounds. " +
-                    "Discard brings them back until you save.", "Clear"))
+                    $"{count} client{(count == 1 ? "" : "s")} go back to normal (no mutes, important or own sounds). " +
+                    "Discard undoes it until you save.", "Clear"))
                 _clients.ClearAll();
         };
         _reload.Click += (_, _) =>
