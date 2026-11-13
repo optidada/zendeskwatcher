@@ -230,8 +230,9 @@ public sealed class PopupManager
     /// </summary>
     private void UpdateTurns()
     {
-        // In a deck only the front card (the newest) can be read, so it counts down first.
-        var current = _deck ? _visible.LastOrDefault(p => p.TimesOut) : _visible.FirstOrDefault(p => p.TimesOut);
+        // In a deck only the front card (the newest) can be read: only it counts down. One behind it never does, so
+        // nothing disappears unseen; a front card that stays until closed holds the others until then.
+        var current = _deck ? (_visible.LastOrDefault() is { TimesOut: true } front ? front : null) : _visible.FirstOrDefault(p => p.TimesOut);
         // Peek: each one counts down only after it was slid out (and read), so none waits for a tab nobody opened.
         foreach (var popup in _visible)
             popup.MyTurn = !_takeTurns || _peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut;
