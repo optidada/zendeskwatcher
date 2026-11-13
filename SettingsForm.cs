@@ -106,6 +106,7 @@ public sealed class SettingsForm : Form
         Icon = AppIcon.CreateIcon(AppIcon.NeonGreen, 32);
 
         _context = new SettingsContext(this, _content, notifier, sessionFactory) { Current = Current, Changed = UpdateSaveState };
+        _context.ShowAccount = () => SelectPage(Array.IndexOf(_pages!, _account));
         _groups = new GroupsPage(_context);
         _clients = new ClientsPage(_context, _groups);
         _account = new AccountPage(_context, _groups);

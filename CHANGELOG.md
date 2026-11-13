@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.4.1
+
+- **Peek from the edge**: a new choice under Several at once (Look & sound). Notifications wait at the screen edge with only a tab showing; point at a tab to slide the notification out. The tab gives a little wiggle when something new arrives, and fills with color the longer a ticket waits. Urgent and important ones come out by themselves once.
+- **Send feedback attaches your log**: one zip with the log, settings and app details. Classic Outlook attaches it for you; with other mail apps the zip is shown, ready to drag into the email. Nothing is sent without you seeing it.
+- **Clear customizations** on the Clients page puts every client back to normal in one go.
+- **While signed out**, Groups, Clients and Colleagues say so, with a Sign in link, and their lists can't be changed until your session works again (they may be out of date).
+
 ## 1.4.0
 
 - **Clients**: a new page under Groups lists the clients of your groups. Click one to make it **Important ★** (always notifies, also outside your hours, and stays until you close it), hear **only urgent** tickets, **mute** it for a day, a week or for good, or give it its **own sound**. Everyone is normal by default, new clients too.

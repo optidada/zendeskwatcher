@@ -153,6 +153,7 @@ internal sealed class ClientsView
         foreach (var client in settings.Clients.Where(c => !c.IsDefaultAt(DateTimeOffset.UtcNow)))
             _choices[client.Id] = client.Copy();
         _list.Invalidate();
+        UpdateHint();
     }
 
     public void Apply(Settings settings) =>
@@ -166,6 +167,26 @@ internal sealed class ClientsView
     {
         if (_lastGroups.Count > 0)
             Arrange(_lastGroups, _loaded ? _cache?.Groups : null, keepScroll: true);
+    }
+
+    /// <summary>While signed out: greyed, no ticking or client menu, still scrolls.</summary>
+    public bool ReadOnly
+    {
+        get => _list.ReadOnly;
+        set => _list.ReadOnly = value;
+    }
+
+    /// <summary>How many clients have a choice other than Normal (important, only urgent, muted, own sound).</summary>
+    public int CustomizedCount => _choices.Values.Count(c => !c.IsDefaultAt(DateTimeOffset.UtcNow));
+
+    /// <summary>"Clear customizations": every client back to Normal (Save keeps it, Discard brings them back).</summary>
+    public void ClearAll()
+    {
+        _choices.Clear();
+        Resort();
+        _list.Invalidate();
+        UpdateHint();
+        Changed?.Invoke();
     }
 
     /// <summary>A choice made from a notification while Settings is open.</summary>

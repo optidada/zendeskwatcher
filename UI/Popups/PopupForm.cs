@@ -49,6 +49,24 @@ public sealed class PopupForm : Form
     private Rectangle? _hoverButton;
     private float _y;
     private int _restX;
+    private float _x = float.NaN; // glides to _restX while showing (peek tabs shift sideways at the top edge)
+
+    // Peek (Look & sound -> Several at once): tucked at a screen edge, only a tab showing until the mouse comes.
+    /// <summary>Which screen edge it peeks out from; <see cref="PeekEdge.None"/> for the other arrangements.</summary>
+    public enum PeekEdge { None, Right, Left, Top }
+
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public PeekEdge Peek { get; set; }
+
+    private float _tuck;               // 0 = out, 1 = tucked away
+    private bool _seen;                // slid out by the mouse once: from then on it counts down like any other
+    private double _forcedOutUntil;    // urgent and important ones come out by themselves once
+    private double _leftAt = -1e9;     // a short wait after the mouse leaves, so it doesn't snap back at once
+    private double _wiggleFrom = -1;   // the nudge when it arrives
+    private int _paintedFill = -1;
+    private int _yOffset;
+    private const double WiggleMs = 900;
+    private int TabSize => Px(22);
 
     public Result Outcome { get; private set; }
 
@@ -205,6 +223,14 @@ public sealed class PopupForm : Form
         _restX = restX;
         _entry = entry;
         _y = entry == Entry.FromTop ? TargetY - Height - Px(24) : TargetY; // drops down to its place
+        if (Peek != PeekEdge.None)
+        {
+            _tuck = 1; // arrives already tucked: only the tab slides in
+            var start = _clock.Elapsed.TotalMilliseconds;
+            _wiggleFrom = start + EnterMs;
+            if (string.Equals(_content.Priority, "urgent", StringComparison.OrdinalIgnoreCase) || _content.Important)
+                _forcedOutUntil = start + EnterMs + 6000;
+        }
         if (entry is Entry.FromTop or Entry.Fade)
             Opacity = 0;
         Location = new Point(HiddenX(1), (int)_y);
@@ -272,8 +298,9 @@ public sealed class PopupForm : Form
                 break;
 
             default:
-                x = _restX;
-                if (_durationMs > 0 && !_hover && MyTurn && !Away)
+                _x = float.IsNaN(_x) ? _restX : _x + (_restX - _x) * (float)Math.Min(1, dt / 90);
+                x = (int)Math.Round(_x);
+                if (_durationMs > 0 && !_hover && MyTurn && !Away && (Peek == PeekEdge.None || _seen))
                 {
                     _elapsed += dt;
                     if (_elapsed >= _durationMs)
@@ -282,20 +309,46 @@ public sealed class PopupForm : Form
                 break;
         }
 
-        var location = new Point(x, (int)Math.Round(_y));
+        var peekBusy = false;
+        if (Peek != PeekEdge.None)
+        {
+            // Leaving: stays as tucked as it is and goes from there.
+            var goal = _phase == Phase.Leaving ? _tuck : _hover || _menuOpen || now < _forcedOutUntil || now - _leftAt < 400 ? 0f : 1f;
+            _tuck += (goal - _tuck) * (float)Math.Min(1, dt / 80);
+            if (Math.Abs(goal - _tuck) < 0.005f)
+                _tuck = goal;
+            if (_hover && _tuck < 0.1f)
+                _seen = true;
+            var span = Peek == PeekEdge.Top ? Height : Width;
+            var hidden = _tuck * (span - TabSize);
+            var sinceWiggle = now - _wiggleFrom;
+            if (_wiggleFrom >= 0 && sinceWiggle is >= 0 and < WiggleMs)
+                hidden -= _tuck * Px(12) * (float)(Math.Abs(Math.Sin(sinceWiggle / WiggleMs * 3 * Math.PI)) * (1 - sinceWiggle / WiggleMs));
+            var offset = (int)Math.Round(hidden);
+            if (Peek == PeekEdge.Right) x += offset;
+            else if (Peek == PeekEdge.Left) x -= offset;
+            else _yOffset = -offset;
+            peekBusy = _tuck != goal || (_wiggleFrom >= 0 && sinceWiggle < WiggleMs);
+        }
+
+        var location = new Point(x, (int)Math.Round(_y) + (Peek == PeekEdge.Top ? _yOffset : 0));
         var moved = location != Location;
         if (moved)
             Location = location;
+        if (Peek != PeekEdge.None)
+            ClipToScreen(location);
 
         var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn && !Away;
         var typing = Typed().Typing;
         var gliding = Math.Abs(TargetY - _y) > 0.5f;
-        var busy = _phase != Phase.Showing || gliding || countingDown || typing;
+        var busy = _phase != Phase.Showing || gliding || countingDown || typing || peekBusy;
+        var fill = Peek != PeekEdge.None ? (int)(TabFill() * 100) : -1;
 
         var body = Body;
         var blink = _palette.Terminal ? _clock.ElapsedMilliseconds / 500 : 0;
-        if (busy || moved || body != _paintedBody || blink != _paintedBlink)
+        if (busy || moved || body != _paintedBody || blink != _paintedBlink || fill != _paintedFill)
         {
+            _paintedFill = fill;
             _paintedBody = body;
             _paintedBlink = blink;
             Invalidate();
@@ -316,6 +369,65 @@ public sealed class PopupForm : Form
             Entry.FromLeft => _restX - (int)(hidden * amount),
             _ => _restX // dropping or fading: no sideways movement
         };
+    }
+
+    private Rectangle _clip;
+
+    /// <summary>
+    /// A tucked notification is mostly outside the screen; with a monitor next to it, that part would show there.
+    /// Only the part on this screen is drawn (and takes the mouse).
+    /// </summary>
+    private void ClipToScreen(Point location)
+    {
+        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).Bounds;
+        var visible = Rectangle.Intersect(new Rectangle(location, Size), area);
+        visible.Offset(-location.X, -location.Y);
+        if (visible == _clip)
+            return;
+        _clip = visible;
+        var old = Region;
+        Region = visible.Size == Size ? null : new Region(visible);
+        old?.Dispose();
+    }
+
+    /// <summary>How much of the tab is filled with the accent color: a little at first, all of it after 30 minutes waiting.</summary>
+    private float TabFill()
+    {
+        var since = _content.EventTime ?? DateTimeOffset.Now - TimeSpan.FromMilliseconds(_clock.Elapsed.TotalMilliseconds);
+        var minutes = (DateTimeOffset.Now - since).TotalMinutes;
+        return (float)Math.Clamp(0.2 + 0.8 * minutes / 30, 0.2, 1);
+    }
+
+    /// <summary>
+    /// The tab: the strip that stays on screen while tucked, in the accent color filling up the longer it waits, with
+    /// an arrow pointing where it slides out. Fades as the notification comes out.
+    /// </summary>
+    private void PaintPeekTab(Graphics g)
+    {
+        if (Peek == PeekEdge.None || _tuck < 0.02f)
+            return;
+        var tab = TabSize;
+        var strip = Peek switch
+        {
+            PeekEdge.Right => new Rectangle(0, 0, tab, Height),
+            PeekEdge.Left => new Rectangle(Width - tab, 0, tab, Height),
+            _ => new Rectangle(0, Height - tab, Width, tab)
+        };
+        var alpha = (int)(255 * Math.Clamp(_tuck * 1.4f - 0.2f, 0, 1));
+        using (var back = new SolidBrush(Color.FromArgb(alpha, Blend(_palette.Background, _accent, 0.25f))))
+            g.FillRectangle(back, strip);
+
+        var fill = TabFill();
+        var filled = Peek == PeekEdge.Top
+            ? new Rectangle(strip.Left, strip.Top, (int)(strip.Width * fill), strip.Height)
+            : new Rectangle(strip.Left, strip.Bottom - (int)(strip.Height * fill), strip.Width, (int)(strip.Height * fill));
+        using (var front = new SolidBrush(Color.FromArgb(alpha, _accent)))
+            g.FillRectangle(front, filled);
+
+        var arrow = Peek switch { PeekEdge.Right => "\u2039", PeekEdge.Left => "\u203a", _ => "\u02c5" };
+        var arrowRect = Peek == PeekEdge.Top ? strip : new Rectangle(strip.Left, strip.Top + strip.Height / 2 - tab, strip.Width, tab * 2);
+        DrawText(g, arrow, _titleFont, arrowRect, Color.FromArgb(alpha, _palette.Dark ? Color.White : Color.Black),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
     }
 
     private static double EaseOutBack(double p)
@@ -519,6 +631,8 @@ public sealed class PopupForm : Form
 
         PaintFooter(g);
         PaintCountdown(g);
+
+        PaintPeekTab(g);
     }
 
     private void PaintStripe(Graphics g, Rectangle bounds)
@@ -699,6 +813,8 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseLeave(EventArgs e)
     {
+        _leftAt = _clock.Elapsed.TotalMilliseconds;
+        _forcedOutUntil = 0; // came out by itself and was looked at: it may tuck away again
         SetHover(false, null);
         base.OnMouseLeave(e);
     }
@@ -717,12 +833,16 @@ public sealed class PopupForm : Form
             return;
         _hover = hover;
         _hoverButton = button;
+        if (hover && Peek != PeekEdge.None)
+            _timer.Interval = BusyInterval; // slide out smoothly
         Invalidate();
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
+        if (Peek != PeekEdge.None && _tuck > 0.3f)
+            return; // still sliding out: a click on the tab only brings it out
         if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location) || _dismissRect.Contains(e.Location))
             Dismiss(Result.Dismiss);
         else if (_muteRect.Contains(e.Location))

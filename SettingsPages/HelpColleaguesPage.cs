@@ -8,6 +8,7 @@ internal sealed class HelpColleaguesPage : SettingsPage
     {
         Card = new HelpColleaguesCard(context, groups);
         Panel.Controls.Add(Card.Card);
+        UseSignedOutStrip(Card.SetReadOnly);
     }
 
     internal HelpColleaguesCard Card { get; }

@@ -173,7 +173,7 @@ internal sealed class AssigneeList : Control
                     break;
 
                 case ItemKind.All or ItemKind.None:
-                    var link = !Enabled ? Theme.TextMuted : item == _hover ? Theme.AccentHover : Theme.Accent;
+                    var link = !Active ? Theme.TextMuted : item == _hover ? Theme.AccentHover : Theme.Accent;
                     TextRenderer.DrawText(g, item.Text, Theme.Small, rect, link, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
                     break;
 
@@ -190,16 +190,16 @@ internal sealed class AssigneeList : Control
                     {
                         if (covered)
                         {
-                            using var fill = new SolidBrush(Enabled ? Theme.Accent : Theme.Border);
+                            using var fill = new SolidBrush(Active ? Theme.Accent : Theme.Border);
                             g.FillPath(fill, path);
-                            using var tick = new Pen(Enabled ? Theme.OnAccent : Theme.Surface, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                            using var tick = new Pen(Active ? Theme.OnAccent : Theme.Surface, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
                             g.DrawLines(tick, [
                                 new PointF(box.X + 4 * s, box.Y + 8.5f * s), new PointF(box.X + 7 * s, box.Y + 11.5f * s), new PointF(box.X + 12 * s, box.Y + 5 * s)
                             ]);
                         }
                         else
                         {
-                            using var border = new Pen(Enabled && item == _hover ? Theme.Accent : Theme.Neutral, 1.2f * s);
+                            using var border = new Pen(Active && item == _hover ? Theme.Accent : Theme.Neutral, 1.2f * s);
                             g.DrawPath(border, path);
                         }
                     }
@@ -209,7 +209,7 @@ internal sealed class AssigneeList : Control
                         var badgeWidth = TextRenderer.MeasureText(badge.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
                         var badgeRight = rect.Right - (int)(10 * s);
                         TextRenderer.DrawText(g, badge.Text, Theme.Small, new Rectangle(badgeRight - badgeWidth, rect.Y, badgeWidth, rect.Height),
-                            !Enabled ? Theme.TextMuted : badge.Accent ? Theme.Accent : Theme.TextMuted,
+                            !Active ? Theme.TextMuted : badge.Accent ? Theme.Accent : Theme.TextMuted,
                             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
                         text.Width = badgeRight - badgeWidth - (int)(8 * s) - text.X;
                     }
@@ -226,7 +226,7 @@ internal sealed class AssigneeList : Control
                         DrawDot(g, dotX, item.Rect.Y + item.Rect.Height / 2, IsWorkingAt(local), s);
                         text.Width = (int)(dotX - 8 * s) - text.X;
                     }
-                    TextRenderer.DrawText(g, item.Text, Font, text, Enabled ? Theme.Text : Theme.TextMuted,
+                    TextRenderer.DrawText(g, item.Text, Font, text, Active ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                     break;
 
@@ -254,7 +254,7 @@ internal sealed class AssigneeList : Control
         var dot = new RectangleF(x - r, y - r, 2 * r, 2 * r);
         if (working)
         {
-            using var fill = new SolidBrush(Enabled ? Theme.Success : Theme.Neutral);
+            using var fill = new SolidBrush(Active ? Theme.Success : Theme.Neutral);
             g.FillEllipse(fill, dot);
         }
         else
@@ -273,7 +273,7 @@ internal sealed class AssigneeList : Control
         if (hit == _hover)
             return;
         _hover = hit;
-        Cursor = hit is not null && Enabled ? Cursors.Hand : Cursors.Default;
+        Cursor = hit is not null && Active ? Cursors.Hand : Cursors.Default;
         _tips.SetToolTip(this, hit?.Person?.Tip);
         Invalidate();
     }
@@ -289,7 +289,7 @@ internal sealed class AssigneeList : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        if (!Enabled || HitTest(e.Location) is not { } hit)
+        if (!Active || HitTest(e.Location) is not { } hit)
             return;
         // With a menu: the name (or a right-click) opens it, the check box toggles.
         if (hit.Kind == ItemKind.Person && MenuRequested is not null &&
@@ -313,6 +313,24 @@ internal sealed class AssigneeList : Control
                 break;
         }
     }
+
+    /// <summary>Shown greyed and ignores clicks, but still scrolls (e.g. while signed out).</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool ReadOnly
+    {
+        get => _readOnly;
+        set
+        {
+            if (_readOnly == value)
+                return;
+            _readOnly = value;
+            Invalidate();
+        }
+    }
+
+    private bool _readOnly;
+
+    private bool Active => Enabled && !_readOnly;
 
     protected override void OnEnabledChanged(EventArgs e)
     {

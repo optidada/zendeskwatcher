@@ -68,6 +68,14 @@ internal sealed class HelpColleaguesCard
 
     public Card Card { get; }
 
+    /// <summary>While signed out: the group choice and the people list (both from Zendesk) can't be changed.</summary>
+    public void SetReadOnly(bool readOnly)
+    {
+        _groupList.Enabled = !readOnly;
+        _peopleList.ReadOnly = readOnly;
+        _peopleAll.ForeColor = _peopleNone.ForeColor = readOnly ? Theme.TextMuted : Theme.Accent;
+    }
+
     public HelpColleaguesCard(SettingsContext context, GroupsPage groups)
     {
         _context = context;
@@ -124,8 +132,8 @@ internal sealed class HelpColleaguesCard
         foreach (var radio in new[] { _same, _custom })
             radio.CheckedChanged += (_, _) => { UpdateOptions(); _context.Changed(); if (radio.Checked) RefreshPeople(); };
         _help.CheckedChanged += (_, _) => { UpdateOptions(); RefreshPeople(); _context.Changed(); };
-        _peopleAll.Click += (_, _) => SetAllPeople(true);
-        _peopleNone.Click += (_, _) => SetAllPeople(false);
+        _peopleAll.Click += (_, _) => { if (!_context.SignedOut) SetAllPeople(true); };
+        _peopleNone.Click += (_, _) => { if (!_context.SignedOut) SetAllPeople(false); };
         foreach (var combo in new[] { _workStart, _workEnd })
             combo.SelectedIndexChanged += (_, _) => { _peopleList.Invalidate(); _context.Changed(); };
         _myHours.CheckedChanged += (_, _) => _context.Changed();

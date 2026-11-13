@@ -16,6 +16,7 @@ internal sealed class ClientsPage : SettingsPage
     private readonly InputBox _filter = new(ListWidth, "Find a client…  (Enter: next)", searchIcon: true);
     private readonly Label _hint = Theme.Label("", Theme.Small, Theme.TextMuted);
     private readonly Button _reload = Theme.SecondaryButton("Reload");
+    private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
 
     public ClientsPage(SettingsContext context, GroupsPage groups)
         : base(context, "Clients", "Click a client to make it important, hear only its urgent tickets, mute it (for a while) or give it its own sound. " +
@@ -34,16 +35,21 @@ internal sealed class ClientsPage : SettingsPage
         // Full card width, so the Reload button sits at the right edge.
         var footer = new TableLayoutPanel
         {
-            ColumnCount = 2, AutoSize = true, MinimumSize = new Size(ListWidth, 0), MaximumSize = new Size(ListWidth, 0),
+            ColumnCount = 3, AutoSize = true, MinimumSize = new Size(ListWidth, 0), MaximumSize = new Size(ListWidth, 0),
             BackColor = Theme.Surface, Margin = Padding.Empty
         };
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        _clear.Anchor = AnchorStyles.Right;
+        _clear.Margin = new Padding(8, 0, 12, 0);
+        _clear.Visible = false;
         _hint.Anchor = AnchorStyles.Left;
         _reload.Margin = Padding.Empty;
         _reload.Anchor = AnchorStyles.Right;
         footer.Controls.Add(_hint, 0, 0);
-        footer.Controls.Add(_reload, 1, 0);
+        footer.Controls.Add(_clear, 1, 0);
+        footer.Controls.Add(_reload, 2, 0);
         card.Body.Controls.Add(footer);
         Panel.Controls.Add(card);
 
@@ -56,12 +62,25 @@ internal sealed class ClientsPage : SettingsPage
             Find(next: true);
         };
         _clients.Changed += Changed;
-        _clients.HintChanged += () => _hint.Text = _clients.Hint;
+        _clients.HintChanged += () =>
+        {
+            _hint.Text = _clients.Hint;
+            _clear.Visible = _clients.CustomizedCount > 0;
+        };
+        _clear.Click += (_, _) =>
+        {
+            var count = _clients.CustomizedCount;
+            if (count > 0 && ThemedDialog.Confirm(Context.Window, "Clear customizations?",
+                    $"{count} client{(count == 1 ? "" : "s")} go back to normal: no mutes, no important clients, no own sounds. " +
+                    "Discard brings them back until you save.", "Clear"))
+                _clients.ClearAll();
+        };
         _reload.Click += (_, _) =>
         {
             ClientsView.ClearCache();
             Refresh();
         };
+        UseSignedOutStrip(SetReadOnly);
         context.SessionUpdated += reload =>
         {
             if (reload)
@@ -72,6 +91,12 @@ internal sealed class ClientsPage : SettingsPage
     }
 
     public override bool IsSubPage => true; // under Groups
+
+    private void SetReadOnly(bool readOnly)
+    {
+        _clients.ReadOnly = readOnly;
+        _clear.Enabled = !readOnly;
+    }
 
     public override void Load(Settings settings)
     {

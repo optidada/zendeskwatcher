@@ -79,7 +79,12 @@ public sealed class PopupManager
 
         var area = screen.WorkingArea;
         var margin = (int)(16 * scale);
-        var (restX, entry) = settings.Position switch
+        var position = EffectivePosition(settings);
+        _peek = PeekEdgeFor(settings);
+        popup.Peek = _peek;
+        if (_peek != PopupForm.PeekEdge.None)
+            margin = 0; // the tab sits right at the screen edge
+        var (restX, entry) = position switch
         {
             PopupPosition.LeftCenter => (area.Left + margin, PopupForm.Entry.FromLeft),
             PopupPosition.TopCenter => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.FromTop),
@@ -87,10 +92,10 @@ public sealed class PopupManager
             _ => (area.Right - popup.Width - margin, PopupForm.Entry.FromRight)
         };
         _deck = settings.Stacking == PopupStacking.Deck;
-        Layout(settings.Position, scale);
-        popup.Present(restX, entry);
+        Layout(position, scale);
+        popup.Present(_peek == PopupForm.PeekEdge.Top ? popup.RestX : restX, entry); // top tabs sit side by side
         if (_deck)
-            Layout(settings.Position, scale); // now that it has a place: the fan, newest card on top
+            Layout(position, scale); // now that it has a place: the fan, newest card on top
         Shown?.Invoke(content);
 
         PlaySound(settings.SoundFor(content));
@@ -119,7 +124,7 @@ public sealed class PopupManager
                 break;
         }
 
-        Layout(settings.Position, DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f);
+        Layout(EffectivePosition(settings), DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f);
         _ = DrainAsync();
     }
 
@@ -247,6 +252,22 @@ public sealed class PopupManager
             return;
         }
 
+        if (_peek == PopupForm.PeekEdge.Top)
+        {
+            // Tabs along the top edge, side by side and centered, oldest on the left.
+            var width = _visible.Sum(p => p.Width) + gap * Math.Max(0, _visible.Count - 1);
+            var x = area.Left + Math.Max(0, (area.Width - width) / 2);
+            foreach (var popup in _visible)
+            {
+                popup.RestX = x;
+                popup.TargetY = area.Top;
+                x += popup.Width + gap;
+            }
+            return;
+        }
+        if (_peek != PopupForm.PeekEdge.None)
+            margin = gap; // tabs at the side edge: only a small gap from the top or bottom
+
         if (position is PopupPosition.LeftCenter or PopupPosition.Center)
         {
             // Centered vertically as a group, oldest at the top.
@@ -281,6 +302,23 @@ public sealed class PopupManager
 
     /// <summary>Stacked like cards (Look & sound): set from the settings when a notification is shown.</summary>
     private bool _deck;
+
+    /// <summary>Peek (Look & sound): the screen edge the notifications wait at, or None.</summary>
+    private PopupForm.PeekEdge _peek;
+
+    /// <summary>Peek needs a screen edge: with Center it uses Top center (Settings says so too).</summary>
+    public static PopupPosition EffectivePosition(Settings settings) =>
+        settings.Stacking == PopupStacking.Peek && settings.Position == PopupPosition.Center ? PopupPosition.TopCenter : settings.Position;
+
+    /// <summary>The edge the notifications peek out from: right for the right corners, left, or top for Top center.</summary>
+    public static PopupForm.PeekEdge PeekEdgeFor(Settings settings) =>
+        settings.Stacking != PopupStacking.Peek ? PopupForm.PeekEdge.None
+        : EffectivePosition(settings) switch
+        {
+            PopupPosition.LeftCenter => PopupForm.PeekEdge.Left,
+            PopupPosition.TopCenter => PopupForm.PeekEdge.Top,
+            _ => PopupForm.PeekEdge.Right
+        };
 
     /// <summary>
     /// A deck: the newest card in front, each older one behind it shifted up and to the right by the same amount, so

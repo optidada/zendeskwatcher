@@ -536,6 +536,23 @@ public sealed class RoomyComboBox : ComboBox
 
     private void UpdateItemHeight() => ItemHeight = TextRenderer.MeasureText("Ag", Font).Height + (int)(12 * DeviceDpi / 96f);
 
+    /// <summary>Items shown greyed that can't be chosen (picking one goes back to the previous choice).</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<int, bool>? IsItemDisabled { get; set; }
+
+    private int _lastAllowed = -1;
+
+    protected override void OnSelectedIndexChanged(EventArgs e)
+    {
+        if (SelectedIndex >= 0 && IsItemDisabled?.Invoke(SelectedIndex) == true && _lastAllowed >= 0 && _lastAllowed != SelectedIndex)
+        {
+            SelectedIndex = _lastAllowed; // raises the event again, for the allowed item
+            return;
+        }
+        _lastAllowed = SelectedIndex;
+        base.OnSelectedIndexChanged(e);
+    }
+
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         if (e.Index < 0)
@@ -543,8 +560,11 @@ public sealed class RoomyComboBox : ComboBox
 
         var inEdit = (e.State & DrawItemState.ComboBoxEdit) != 0;
         var highlighted = !inEdit && (e.State & DrawItemState.Selected) != 0;
+        var disabled = !inEdit && IsItemDisabled?.Invoke(e.Index) == true;
+        if (disabled)
+            highlighted = false;
         var back = highlighted ? Theme.Accent : Theme.Surface;
-        var fore = highlighted ? Theme.OnAccent : Enabled ? Theme.Text : Theme.TextMuted;
+        var fore = highlighted ? Theme.OnAccent : Enabled && !disabled ? Theme.Text : Theme.TextMuted;
 
         using (var brush = new SolidBrush(back))
             e.Graphics.FillRectangle(brush, e.Bounds);

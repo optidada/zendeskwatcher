@@ -55,8 +55,8 @@ public class SettingsWindowTests
         MyWorkDays = [DayOfWeek.Tuesday, DayOfWeek.Saturday],
         WorkDays = [DayOfWeek.Monday, DayOfWeek.Sunday],
         NotificationsLikeApp = false,
-        Position = PopupPosition.Center,
-        Stacking = PopupStacking.Deck,
+        Position = PopupPosition.TopCenter, // (Center isn't possible with Peek)
+        Stacking = PopupStacking.Peek,
         NotificationSize = 130,
         ShowAppLogo = false,
         GroupNotificationsByType = false
