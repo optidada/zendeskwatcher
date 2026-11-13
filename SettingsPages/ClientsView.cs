@@ -176,13 +176,24 @@ internal sealed class ClientsView
         set => _list.ReadOnly = value;
     }
 
-    /// <summary>How many clients have a choice other than Normal (important, only urgent, muted, own sound).</summary>
-    public int CustomizedCount => _choices.Values.Count(c => !c.IsDefaultAt(DateTimeOffset.UtcNow));
+    /// <summary>
+    /// How many clients in the list have a choice other than Normal. Choices for clients not in the list (their group
+    /// isn't monitored right now) don't count: they're kept for when the group comes back.
+    /// </summary>
+    public int CustomizedCount => ShownCustomized().Count;
 
-    /// <summary>"Clear customizations": every client back to Normal (Save keeps it, Discard brings them back).</summary>
+    private List<long> ShownCustomized()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return _shown.SelectMany(s => s.Clients).Select(c => c.Id).Distinct()
+            .Where(id => _choices.GetValueOrDefault(id) is { } c && !c.IsDefaultAt(now)).ToList();
+    }
+
+    /// <summary>"Clear customizations": the clients in the list back to Normal (Save keeps it, Discard brings them back).</summary>
     public void ClearAll()
     {
-        _choices.Clear();
+        foreach (var id in ShownCustomized())
+            _choices.Remove(id);
         Resort();
         _list.Invalidate();
         UpdateHint();
