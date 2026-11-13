@@ -77,6 +77,52 @@ public sealed class NotificationStats
         }
     }
 
+    /// <summary>
+    /// Counts what happened to a client's notification, for the per-client suggestion on Insights. Stored in the same
+    /// day as "Client|id|name|Outcome" ('|' so the kind totals never mistake it for "Kind.Outcome").
+    /// </summary>
+    public void RecordClient(long clientId, string name, StatOutcome outcome, DateOnly? day = null)
+    {
+        var today = day ?? DateOnly.FromDateTime(DateTime.Now);
+        lock (_gate)
+        {
+            var key = today.ToString("yyyy-MM-dd");
+            if (!_days.TryGetValue(key, out var counts))
+                _days[key] = counts = [];
+            var entry = $"{ClientPrefix}{clientId}|{name.Replace('|', '/')}|{outcome}";
+            counts[entry] = counts.GetValueOrDefault(entry) + 1;
+            Save();
+        }
+    }
+
+    private const string ClientPrefix = "Client|";
+
+    /// <summary>Per client in the period: its last seen name, notifications shown, and how many were opened, taken or copied.</summary>
+    public List<(long Id, string Name, int Shown, int Acted)> ClientTotals(DateOnly today, int days = KeepDays)
+    {
+        var oldest = today.AddDays(-(days - 1));
+        var totals = new Dictionary<long, (string Name, int Shown, int Acted)>();
+        lock (_gate)
+        {
+            foreach (var (day, counts) in _days.OrderBy(d => d.Key, StringComparer.Ordinal))
+            {
+                if (!DateOnly.TryParse(day, out var date) || date < oldest || date > today)
+                    continue;
+                foreach (var (entry, count) in counts)
+                {
+                    var parts = entry.Split('|');
+                    if (parts.Length != 4 || parts[0] != "Client" || !long.TryParse(parts[1], out var id) || !Enum.TryParse<StatOutcome>(parts[3], out var outcome))
+                        continue;
+                    var (_, shown, acted) = totals.GetValueOrDefault(id);
+                    totals[id] = (parts[2],
+                        shown + (outcome == StatOutcome.Shown ? count : 0),
+                        acted + (outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied ? count : 0));
+                }
+            }
+        }
+        return totals.Select(kv => (kv.Key, kv.Value.Name, kv.Value.Shown, kv.Value.Acted)).ToList();
+    }
+
     /// <summary>Totals per kind and outcome for the <paramref name="days"/> days up to and including <paramref name="today"/>.</summary>
     public Dictionary<(NotificationKind Kind, StatOutcome Outcome), int> Totals(DateOnly today, int days = KeepDays)
     {
@@ -119,24 +165,12 @@ public sealed class NotificationStats
         }
     }
 
-    /// <summary>What a closed popup means, or null if it isn't worth counting.</summary>
-    public static StatOutcome? ForPopup(PopupForm.Result result, string action) => result switch
-    {
-        PopupForm.Result.Open when action == Notifier.ActionOpenTicket => StatOutcome.OpenedTicket,
-        PopupForm.Result.Open when action == Notifier.ActionOpenZendesk => StatOutcome.OpenedZendesk,
-        PopupForm.Result.Take => StatOutcome.Took,
-        PopupForm.Result.Snooze => StatOutcome.Snoozed,
-        PopupForm.Result.Dismiss => StatOutcome.Closed,
-        PopupForm.Result.Timeout => StatOutcome.TimedOut,
-        _ => null
-    };
-
     /// <summary>What a click on a Windows notification (or one of its buttons) means.</summary>
     public static StatOutcome? ForToastAction(string action) => action switch
     {
-        Notifier.ActionOpenTicket => StatOutcome.OpenedTicket,
-        Notifier.ActionOpenZendesk => StatOutcome.OpenedZendesk,
-        Notifier.ActionTake => StatOutcome.Took,
+        NotificationActions.OpenTicket => StatOutcome.OpenedTicket,
+        NotificationActions.OpenZendesk => StatOutcome.OpenedZendesk,
+        NotificationActions.Take => StatOutcome.Took,
         _ => null
     };
 

@@ -22,7 +22,8 @@ public interface IZendeskSession
     Task<bool> TryRecoverAsync(CancellationToken ct);
 
     /// <summary>Interactive sign-in. Throws <see cref="OperationCanceledException"/> when the user gives up.</summary>
-    Task SignInAsync(IWin32Window? owner, CancellationToken ct);
+    /// <param name="owner">The window to show it over, in the app's own UI toolkit (a WinForms window on Windows); may be null.</param>
+    Task SignInAsync(object? owner, CancellationToken ct);
 
     void SignOut();
 }

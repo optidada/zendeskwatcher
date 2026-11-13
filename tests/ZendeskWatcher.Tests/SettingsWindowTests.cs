@@ -22,6 +22,7 @@ public class SettingsWindowTests
         HelpSameAsMonitored = false,
         HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
         HelpExcludedAssignees = [new Colleague { Id = 9, Name = "Alex Example" }],
+        Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipBlip }],
         WorkdayStartHour = 9,
         WorkdayEndHour = 18,
         HelpPriorities = ["normal", "low"],
@@ -54,7 +55,8 @@ public class SettingsWindowTests
         MyWorkDays = [DayOfWeek.Tuesday, DayOfWeek.Saturday],
         WorkDays = [DayOfWeek.Monday, DayOfWeek.Sunday],
         NotificationsLikeApp = false,
-        Position = PopupPosition.TopRight,
+        Position = PopupPosition.Center,
+        Stacking = PopupStacking.Deck,
         NotificationSize = 130,
         ShowAppLogo = false,
         GroupNotificationsByType = false
@@ -105,7 +107,7 @@ public class SettingsWindowTests
     }
 
     [Fact]
-    public void Reset_shows_the_defaults_but_keeps_account_and_groups()
+    public void Reset_shows_the_defaults_but_keeps_account_groups_and_clients()
     {
         var saved = NonDefaultSettings();
 
@@ -116,7 +118,7 @@ public class SettingsWindowTests
             return form.PagesAsSettings();
         });
 
-        var expected = new Settings { Subdomain = saved.Subdomain, WatchedGroups = saved.WatchedGroups };
+        var expected = new Settings { Subdomain = saved.Subdomain, WatchedGroups = saved.WatchedGroups, Clients = saved.Clients };
         Assert.Equal(expected.ToJson(), shown.ToJson());
     }
 

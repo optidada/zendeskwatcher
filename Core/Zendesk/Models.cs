@@ -74,8 +74,34 @@ public sealed class CustomStatus
 }
 
 internal sealed class CustomStatusesResponse { public List<CustomStatus> CustomStatuses { get; set; } = []; }
-internal sealed class Organization { public long Id { get; set; } public string? Name { get; set; } }
+/// <summary>A client. <see cref="OrganizationFields"/>: the account's own fields (plan, SLA, …) by key.</summary>
+public sealed class Organization
+{
+    public long Id { get; set; }
+    public string? Name { get; set; }
+    public Dictionary<string, JsonElement>? OrganizationFields { get; set; }
+}
+
+/// <summary>One of the account's organization fields, e.g. "Plan" (a dropdown with options) or "SLA" (text).</summary>
+public sealed class OrganizationField
+{
+    public string Key { get; set; } = "";
+    public string? Title { get; set; }
+    public string? Type { get; set; }
+    public bool Active { get; set; } = true;
+    public List<FieldOption>? CustomFieldOptions { get; set; }
+}
+
+/// <summary>A dropdown option: what agents see, and the value stored on the organization.</summary>
+public sealed class FieldOption
+{
+    public string? Name { get; set; }
+    public string? Value { get; set; }
+}
+
+internal sealed class OrganizationFieldsResponse : PagedResponse { public List<OrganizationField> OrganizationFields { get; set; } = []; }
 internal sealed class OrganizationResponse { public Organization? Organization { get; set; } }
+internal sealed class OrganizationsResponse { public List<Organization> Organizations { get; set; } = []; }
 internal sealed class UsersResponse : PagedResponse { public List<User> Users { get; set; } = []; }
 internal sealed class GroupsResponse : PagedResponse { public List<Group> Groups { get; set; } = []; }
 internal sealed class GroupMembership { public long GroupId { get; set; } }

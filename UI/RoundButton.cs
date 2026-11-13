@@ -17,6 +17,70 @@ public sealed class RoundButton : Button
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
     }
 
+    // ------------------------------------------------------------------ busy
+
+    private System.Windows.Forms.Timer? _spin;
+    private float _angle;
+    private string? _idleText;
+    private Padding _idlePadding;
+
+    /// <summary>Working on something (<see cref="SetBusy"/>): a small spinning arc before the text, clicks are ignored.</summary>
+    public bool IsBusy { get; private set; }
+
+    /// <summary>
+    /// Shows that the click is being worked on: a spinner before the text (optionally another text, e.g. "Checking…")
+    /// until called with false, which brings the old text back. The spinner only runs while busy.
+    /// </summary>
+    public void SetBusy(bool busy, string? text = null)
+    {
+        if (busy == IsBusy)
+        {
+            if (busy && text is not null)
+                Text = text;
+            return;
+        }
+        IsBusy = busy;
+        if (busy)
+        {
+            _idleText = Text;
+            _idlePadding = Padding;
+            if (text is not null)
+                Text = text;
+            Padding = new Padding(_idlePadding.Left + (int)(SpinnerSpace * DeviceDpi / 96f), _idlePadding.Top, _idlePadding.Right, _idlePadding.Bottom); // room for the spinner
+            if (_spin is null)
+            {
+                _spin = new System.Windows.Forms.Timer { Interval = 40 };
+                _spin.Tick += (_, _) => { _angle = (_angle + 24) % 360; Invalidate(); };
+            }
+            _spin.Start();
+            Cursor = Cursors.AppStarting;
+        }
+        else
+        {
+            _spin?.Stop();
+            Text = _idleText ?? Text;
+            Padding = _idlePadding;
+            Cursor = Cursors.Default;
+        }
+        Invalidate();
+    }
+
+    /// <summary>Space for the spinner, at 96 dpi.</summary>
+    private const int SpinnerSpace = 22;
+
+    protected override void OnClick(EventArgs e)
+    {
+        if (!IsBusy)
+            base.OnClick(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _spin?.Dispose();
+        base.Dispose(disposing);
+    }
+
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = _down = false; Invalidate(); base.OnMouseLeave(e); }
     protected override void OnMouseDown(MouseEventArgs e) { _down = true; Invalidate(); base.OnMouseDown(e); }
@@ -60,6 +124,19 @@ public sealed class RoundButton : Button
 
         if (Glyph is { } glyph)
             glyph(g, text, ClientRectangle);
+        else if (IsBusy)
+        {
+            // Spinner and text centered together: an arc that turns, then the text.
+            var s = DeviceDpi / 96f;
+            const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+            var size = TextRenderer.MeasureText(g, Text, Font, Size.Empty, flags);
+            var arc = 12 * s;
+            var gap = 8 * s;
+            var left = (Width - (arc + gap + size.Width)) / 2f;
+            using (var pen = new Pen(text, 2 * s) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round })
+                g.DrawArc(pen, left, (Height - arc) / 2f, arc, arc, _angle, 270);
+            TextRenderer.DrawText(g, Text, Font, new Point((int)(left + arc + gap), (Height - size.Height) / 2), text, flags);
+        }
         else
             TextRenderer.DrawText(g, Text, Font, ClientRectangle, text,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);

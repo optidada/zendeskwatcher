@@ -58,6 +58,10 @@ internal sealed partial class FakeZendesk : IZendeskSession
     public List<CustomStatus> CustomStatuses { get; } = [];
     public Dictionary<long, string> Organizations { get; } = [];
 
+    /// <summary>The account's organization fields (anonymous objects as Zendesk returns them), and values per organization.</summary>
+    public List<object> OrganizationFields { get; } = [];
+    public Dictionary<long, Dictionary<string, object?>> OrganizationFieldValues { get; } = [];
+
     private DateTimeOffset _clock = DateTimeOffset.UtcNow.AddHours(-2);
 
     private DateTimeOffset Tick() => _clock = _clock.AddMinutes(1);
@@ -130,6 +134,12 @@ internal sealed partial class FakeZendesk : IZendeskSession
             "/api/v2/custom_statuses.json" => new { custom_statuses = CustomStatuses },
             "/api/v2/search.json" => new { results = Search(query) },
             "/api/v2/tickets/show_many.json" => new { tickets = ShowMany(query) },
+            "/api/v2/organization_fields.json" => new { organization_fields = OrganizationFields },
+            "/api/v2/organizations/show_many.json" => new
+            {
+                organizations = query.Split("ids=")[1].Split(',').Select(long.Parse).Where(Organizations.ContainsKey)
+                    .Select(id => new { id, name = Organizations[id] }).ToList()
+            },
             _ when path == $"/api/v2/users/{me}/tickets/assigned.json" => new { tickets = Recent(t => t.AssigneeId == me) },
             _ when path == $"/api/v2/users/{me}/tickets/ccd.json" => new { tickets = Recent(t => t.EmailCcIds.Contains(me)) },
             _ when path == $"/api/v2/users/{me}/tickets/followed.json" => new { tickets = Recent(t => t.FollowerIds.Contains(me)) },
@@ -137,7 +147,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
                 new { audits = Audits.GetValueOrDefault(long.Parse(m.Groups[1].Value), []).OrderByDescending(a => a.CreatedAt).ToList() },
             _ when UserPath().Match(path) is { Success: true } m && Users.TryGetValue(long.Parse(m.Groups[1].Value), out var user) => new { user },
             _ when OrgPath().Match(path) is { Success: true } m && Organizations.TryGetValue(long.Parse(m.Groups[1].Value), out var org) =>
-                new { organization = new { id = long.Parse(m.Groups[1].Value), name = org } },
+                new { organization = new { id = long.Parse(m.Groups[1].Value), name = org, organization_fields = OrganizationFieldValues.GetValueOrDefault(long.Parse(m.Groups[1].Value)) } },
             _ => null
         };
         return Task.FromResult(body is null
@@ -154,6 +164,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
         var match = GroupQuery().Match(query);
+        if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets
+            return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))).ToList();
         if (query.Contains("-assignee:none") && match.Success) // Help colleagues: assigned tickets before solved, in a group
             return Tickets.Values.Where(t => t.AssigneeId is not null && t.IsOpen && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
         if (!match.Success || !query.Contains("assignee:none"))
@@ -188,6 +200,6 @@ internal sealed partial class FakeZendesk : IZendeskSession
         Task.FromResult(new ApiResponse(404, "{}", null));
 
     public Task<bool> TryRecoverAsync(CancellationToken ct) => Task.FromResult(false);
-    public Task SignInAsync(IWin32Window? owner, CancellationToken ct) => Task.CompletedTask;
+    public Task SignInAsync(object? owner, CancellationToken ct) => Task.CompletedTask;
     public void SignOut() { }
 }

@@ -72,6 +72,24 @@ public sealed record NotificationContent(
     /// <summary>The customer's organization, shown prominently as "Client: Contoso". Null when the ticket has none.</summary>
     public string? Client { get; init; }
 
+    /// <summary>The client's organization id (for the per-client statistics on Insights); null when the ticket has none.</summary>
+    public long? ClientId { get; init; }
+
+    /// <summary>The client's name alone (<see cref="Client"/> may add a label from Zendesk).</summary>
+    public string? ClientName { get; init; }
+
+    /// <summary>
+    /// The client the "Mute ▾" menu on the client line acts on (with its current choice), Clients page. Only on new
+    /// tickets and customer replies on colleagues' tickets, the ones muting applies to; null otherwise.
+    /// </summary>
+    public ClientChoice? MuteTarget { get; init; }
+
+    /// <summary>From an important client (Clients page): stays until dismissed, ★ in the heading.</summary>
+    public bool Important { get; init; }
+
+    /// <summary>The client's own sound (Clients page), instead of the sound of the notification's type.</summary>
+    public ToastSound? Sound { get; init; }
+
     /// <summary>The priority for display, e.g. "High (P2)".</summary>
     public string? PriorityLabel => LabelForPriority(Priority);
 
@@ -100,5 +118,5 @@ public sealed record NotificationContent(
         var other => char.ToUpperInvariant(other[0]) + other[1..]
     };
 
-    public string ResolvedAction => Action ?? (TicketId is null ? Notifier.ActionOpenZendesk : Notifier.ActionOpenTicket);
+    public string ResolvedAction => Action ?? (TicketId is null ? NotificationActions.OpenZendesk : NotificationActions.OpenTicket);
 }

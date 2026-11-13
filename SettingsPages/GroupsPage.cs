@@ -27,11 +27,11 @@ internal sealed class GroupsPage : SettingsPage
 {
     private const int ListWidth = Kit.CardWidth - 44;
 
-    private readonly InputBox _filter = new(ListWidth, "Filter groups…", searchIcon: true);
+    private readonly InputBox _filter = new(ListWidth, "Find a group…  (Enter: next)", searchIcon: true);
     private readonly SmoothListView _list = new()
     {
         Width = ListWidth, Height = 280, View = View.Details, CheckBoxes = true, HeaderStyle = ColumnHeaderStyle.None,
-        FullRowSelect = true, MultiSelect = false, ShowGroups = true, BorderStyle = BorderStyle.None,
+        FullRowSelect = true, MultiSelect = false, ShowGroups = true, BorderStyle = BorderStyle.None, HideSelection = false, // "find" selects while typing
         BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body, Margin = new Padding(0, 10, 0, 10)
     };
     private readonly Label _loading = new()
@@ -69,11 +69,16 @@ internal sealed class GroupsPage : SettingsPage
     private Dictionary<long, Suggestion> _suggestions = [];
     private bool _suppressEvents;
 
-    /// <summary>Groups loaded from Zendesk, remembered for this app session so reopening Settings is instant.</summary>
+    /// <summary>Groups loaded from Zendesk, remembered for a day (until the app restarts) so reopening Settings is instant.</summary>
     private static (string Subdomain, DateTime At, List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions)? _cache;
 
-    /// <summary>How long loaded groups (and, on the Help colleagues page, group members) are reused.</summary>
-    public static readonly TimeSpan CacheLifetime = TimeSpan.FromMinutes(30);
+    private const string CacheName = "groups";
+
+    /// <summary>The groups and suggestions as saved in the data folder (<see cref="ListCache"/>).</summary>
+    private sealed record SavedGroups(List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions);
+
+    /// <summary>How long loaded groups, group members (Colleagues) and clients are reused; Reload fetches them again.</summary>
+    public static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(24);
 
     /// <summary>Reload was clicked: the account is checked again and everything is fetched fresh.</summary>
     public event Action? ReloadRequested;
@@ -91,8 +96,7 @@ internal sealed class GroupsPage : SettingsPage
     {
         var card = new Card("Monitored groups",
             $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +
-            "Whether you get notifications is set under Notifications. Notifications → Colleagues can use the same groups " +
-            "for helping colleagues whose customers reply while they're off work.", Kit.CardWidth);
+            "Clients (below Groups in the sidebar) lists their clients, to untick the ones you don't need to hear about.", Kit.CardWidth);
         _list.Columns.Add("Group");
         _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         _listHost.Size = _list.Size;
@@ -128,7 +132,14 @@ internal sealed class GroupsPage : SettingsPage
         Panel.Controls.Add(card);
 
         _reload.Click += (_, _) => ReloadRequested?.Invoke();
-        _filter.TextChanged += (_, _) => ShowList();
+        _filter.TextChanged += (_, _) => Find(next: false);
+        _filter.Box.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter)
+                return;
+            e.SuppressKeyPress = true; // no beep
+            Find(next: true);
+        };
         _list.ItemChecked += (_, e) =>
         {
             if (_suppressEvents)
@@ -137,8 +148,10 @@ internal sealed class GroupsPage : SettingsPage
             var group = (GroupItem)item.Tag!;
             if (item.Checked) _selected.Add(group.Id); else _selected.Remove(group.Id);
 
-            // Move the row to its section after the event. Only this row moves, so the list doesn't jump.
-            _list.BeginInvoke(() => { MoveItem(item); Changed(); });
+            // The row stays where it is (moving it away from under the mouse was confusing): it only looks
+            // monitored or not. The list is sorted into its sections again when the page is shown next time.
+            _list.BeginInvoke(() => { RestyleInPlace(item); Changed(); });
+            _needsSort = true;
         };
         _list.MouseClick += (_, e) =>
         {
@@ -151,13 +164,31 @@ internal sealed class GroupsPage : SettingsPage
 
     public override void Load(Settings settings)
     {
-        // Show the saved groups until the real list is loaded, so they are not lost when offline.
+        // Show the saved groups until the real list is loaded, so they are not lost when offline. Cleared first:
+        // Discard must also untick groups ticked since the last save.
+        _selected.Clear();
         foreach (var group in settings.WatchedGroups)
             _selected.Add(group.Id);
-        _groupsLoaded = false;
+        if (_groupsLoaded)
+        {
+            ShowList(); // Discard: the loaded list stays, only the ticks go back
+            return;
+        }
         SetGroups(settings.WatchedGroups.Where(g => !g.IsNoGroup).Select(g => new GroupItem(g.Id, g.Name)));
         _reload.Enabled = false;
     }
+
+    /// <summary>The ticked groups as they are right now, in the order the Clients page shows them.</summary>
+    public List<WatchedGroup> MonitoredGroups()
+    {
+        var names = _allGroups.ToDictionary(g => g.Id, g => g.Name);
+        return _selected
+            .Select(id => new WatchedGroup { Id = id, Name = id == WatchedGroup.NoGroupId ? WatchedGroup.NoGroupName : names.GetValueOrDefault(id, $"Group {id}") })
+            .OrderBy(g => g.IsNoGroup ? 1 : 0)
+            .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
 
     public override void Apply(Settings settings)
     {
@@ -183,17 +214,51 @@ internal sealed class GroupsPage : SettingsPage
             _listHost.Height = height;
             Panel.PerformLayout();
         }
+        if (_needsSort)
+            ShowList(); // groups ticked or unticked last time move to their sections now
+    }
+
+    /// <summary>After Save or Discard: rows move to their sections, keeping the scroll position as far as possible.</summary>
+    public void Resort()
+    {
+        if (!_needsSort)
+            return;
+        var position = _list.VerticalScrollState()?.Pos;
+        ShowList();
+        if (position is { } pos)
+            _list.ScrollToPosition(pos);
+        _scrollBar.Invalidate();
+    }
+
+    /// <summary>Groups were ticked or unticked since the list was last sorted into its sections.</summary>
+    private bool _needsSort;
+
+    /// <summary>A ticked or unticked row: monitored look (highlighted, bold) or not, without moving it.</summary>
+    private void RestyleInPlace(ListViewItem item)
+    {
+        if (item.ListView != _list)
+            return; // the list was rebuilt in the meantime
+        var group = (GroupItem)item.Tag!;
+        var monitored = _selected.Contains(group.Id);
+        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
+        item.Font = monitored ? Theme.BodyBold : Theme.Body;
+        UpdateSectionHeaders();
+        UpdateHint();
     }
 
     public void SetReloadEnabled(bool enabled) => _reload.Enabled = enabled;
 
     /// <summary>
-    /// Loads the groups and suggestions for the signed-in account (reusing the last half hour's unless
+    /// Loads the groups and suggestions for the signed-in account (reusing the last day's unless
     /// <paramref name="force"/>). Stops quietly when <paramref name="stale"/> says the account changed meanwhile.
     /// </summary>
     public async Task LoadAsync(ZendeskClient client, long meId, string subdomain, bool force, Func<bool> stale)
     {
-        // Groups rarely change: reuse what was loaded in the last half hour (Reload always fetches).
+        // Groups rarely change: reuse what was loaded in the last day, also after a restart (Reload always fetches).
+        if (force)
+            ListCache.Clear(CacheName);
+        else if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain) is { } saved)
+            _cache = (subdomain, saved.At, saved.Value.Groups, saved.Value.Suggestions);
         if (!force && _cache is { } cache && cache.Subdomain == subdomain && DateTime.UtcNow - cache.At < CacheLifetime)
         {
             _suggestions = cache.Suggestions;
@@ -203,6 +268,21 @@ internal sealed class GroupsPage : SettingsPage
             return;
         }
 
+        if (force)
+            ClientsView.ClearCache();
+        _reload.SetBusy(true, "Loading\u2026");
+        try
+        {
+            await FetchAsync(client, meId, subdomain, stale);
+        }
+        finally
+        {
+            _reload.SetBusy(false);
+        }
+    }
+
+    private async Task FetchAsync(ZendeskClient client, long meId, string subdomain, Func<bool> stale)
+    {
         var clock = System.Diagnostics.Stopwatch.StartNew();
         SetLoading(true);
         var groups = (await client.GetGroupsAsync(CancellationToken.None)).Select(g => new GroupItem(g.Id, g.Name)).ToList();
@@ -220,6 +300,7 @@ internal sealed class GroupsPage : SettingsPage
             return;
         ShowList();
         _cache = (subdomain, DateTime.UtcNow, groups, _suggestions);
+        ListCache.Save(CacheName, subdomain, _cache.Value.At, new SavedGroups(groups, _suggestions));
         Log.Info($"Settings: groups {groupsMs} ms, suggestions {clock.ElapsedMilliseconds - groupsMs} ms");
     }
 
@@ -294,12 +375,57 @@ internal sealed class GroupsPage : SettingsPage
         ShowSignInIfEmpty();
     }
 
-    /// <summary>Monitored groups first (highlighted), then suggestions, then the rest; all filtered by the search box.</summary>
+    /// <summary>The last "find": the text and which match it's on (Enter goes to the next).</summary>
+    private (string Text, int Index) _find = ("", -1);
+
+    /// <summary>
+    /// Goes to the first group whose name contains the text in the find box (the next one on Enter) and selects it;
+    /// the whole list stays. The text turns orange when nothing matches.
+    /// </summary>
+    private void Find(bool next)
+    {
+        var text = _filter.Text.Trim();
+        _filter.Box.ForeColor = Theme.Text;
+        if (text.Length == 0)
+        {
+            _find = ("", -1);
+            _list.SelectedItems.Clear();
+            return;
+        }
+        // Display order: by section, then as listed in it.
+        var sections = new[] { _monitoredSection, _suggestedSection, _otherSection };
+        var matches = _list.Items.Cast<ListViewItem>()
+            .Where(i => ((GroupItem)i.Tag!).Name.Contains(text, StringComparison.CurrentCultureIgnoreCase))
+            .OrderBy(i => Array.IndexOf(sections, i.Group))
+            .ThenBy(i => i.Index)
+            .ToList();
+        if (matches.Count == 0)
+        {
+            _filter.Box.ForeColor = Theme.Warning;
+            _list.SelectedItems.Clear();
+            return;
+        }
+        var index = next && _find.Text == text ? (_find.Index + 1) % matches.Count : 0;
+        _find = (text, index);
+        var item = matches[index];
+        item.Selected = true;
+        item.Focused = true;
+        item.EnsureVisible();
+        // Then centered: the list scrolls in pixels (it shows sections), so move by the row's distance from the middle.
+        if (_list.VerticalScrollState() is { } state)
+        {
+            var bounds = item.Bounds;
+            _list.ScrollToPosition(state.Pos + bounds.Top + bounds.Height / 2 - _listHost.Height / 2);
+        }
+        _scrollBar.Invalidate();
+    }
+
+    /// <summary>Monitored groups first (highlighted), then suggestions, then the rest.</summary>
     private void ShowList()
     {
-        var filter = _filter.Text.Trim();
-        var visible = _allGroups.Where(g => filter.Length == 0 || g.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        var ordered = visible
+        _needsSort = false;
+        _allGroups.RemoveAll(g => g.Missing && !_selected.Contains(g.Id)); // gone from Zendesk and unticked: nowhere to go
+        var ordered = _allGroups
             .OrderBy(g => SectionFor(g) == _monitoredSection ? 0 : SectionFor(g) == _suggestedSection ? 1 : 2)
             .ThenBy(g => g, Comparer<GroupItem>.Create((x, y) => CompareInSection(x, y, SectionFor(x))))
             .ToList();
@@ -353,47 +479,14 @@ internal sealed class GroupsPage : SettingsPage
         item.ForeColor = group.Missing ? Theme.TextMuted : Theme.Text;
     }
 
-    /// <summary>Moves one row to its section, in order, without rebuilding the list (a rebuild resets the scroll position).</summary>
-    private void MoveItem(ListViewItem item)
-    {
-        if (item.ListView != _list)
-            return; // the list was rebuilt in the meantime
-
-        var group = (GroupItem)item.Tag!;
-        var section = SectionFor(group);
-
-        _suppressEvents = true;
-        _list.BeginUpdate();
-        _list.Items.Remove(item);
-
-        if (group.Missing && section != _monitoredSection)
-        {
-            // A group that no longer exists has nowhere to go once unticked.
-            _allGroups.Remove(group);
-        }
-        else
-        {
-            Style(item, group, section);
-            // Rows show in collection order within their section.
-            var index = _list.Items.Cast<ListViewItem>().ToList()
-                .FindIndex(i => i.Group == section && CompareInSection(group, (GroupItem)i.Tag!, section) < 0);
-            _list.Items.Insert(index < 0 ? _list.Items.Count : index, item);
-        }
-
-        UpdateSectionHeaders();
-        _list.EndUpdate();
-        _suppressEvents = false;
-
-        UpdateHint();
-    }
-
     /// <summary>"Other groups" only makes sense next to monitored or suggested ones; alone it's just "Groups".</summary>
     private void UpdateSectionHeaders()
     {
         var monitored = _monitoredSection.Items.Count;
         var suggested = _suggestedSection.Items.Count;
         var others = _otherSection.Items.Count;
-        _monitoredSection.Header = $"Monitored · {monitored}";
+        // How many are ticked, also before the rows have moved to their sections (on the next visit).
+        _monitoredSection.Header = $"Monitored · {_selected.Count}";
         _suggestedSection.Header = $"Suggested · {suggested}";
         _otherSection.Header = monitored + suggested == 0 ? $"Groups · {others}" : $"Other groups · {others}";
     }

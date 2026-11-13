@@ -61,6 +61,8 @@ internal sealed class HelpColleaguesCard
     /// </summary>
     private bool _applyRegionDefault;
 
+    private const string MemberCacheName = "group-members";
+
     /// <summary>Group members loaded from Zendesk (group id -> members), remembered like the group list.</summary>
     private static (string Subdomain, DateTime At, Dictionary<long, List<Member>> Groups)? _memberCache;
 
@@ -134,7 +136,10 @@ internal sealed class HelpColleaguesCard
         _context.SessionUpdated += reload =>
         {
             if (reload)
+            {
                 _memberCache = null; // Reload fetches the group members again too
+                ListCache.Clear(MemberCacheName);
+            }
             if (_context.Me is { } me)
                 _myRegion = TimeRegions.Mine(me);
             RefreshPeople();
@@ -274,6 +279,8 @@ internal sealed class HelpColleaguesCard
         if (_help.Checked && _context.Client is { } client && groupIds.Count > 0)
         {
             var subdomain = _context.Current().Subdomain;
+            if (_memberCache is null && ListCache.Load<Dictionary<long, List<Member>>>(MemberCacheName, subdomain) is { } saved)
+                _memberCache = (subdomain, saved.At, saved.Value); // from an earlier run
             if (_memberCache is not { } cache || cache.Subdomain != subdomain || DateTime.UtcNow - cache.At > GroupsPage.CacheLifetime)
                 _memberCache = (subdomain, DateTime.UtcNow, []);
             var groups = _memberCache.Value.Groups;
@@ -303,6 +310,7 @@ internal sealed class HelpColleaguesCard
                     }
                 }
                 Log.Info($"Settings: loaded the members of {missing.Count - failed} group(s) for Help colleagues");
+                ListCache.Save(MemberCacheName, subdomain, _memberCache.Value.At, groups);
             }
             if (version != _peopleVersion || !ReferenceEquals(client, _context.Client))
                 return; // the choices or the session changed meanwhile

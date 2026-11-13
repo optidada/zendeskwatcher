@@ -115,7 +115,8 @@ internal sealed class StatisticsPage : SettingsPage
             row++;
         }
 
-        ShowInsights(StatsInsights.Analyze(totals, Context.Notifier.Stats.ActiveDays(DateOnly.FromDateTime(DateTime.Now)), Context.Current()));
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        ShowInsights(StatsInsights.Analyze(totals, Context.Notifier.Stats.ActiveDays(today), Context.Current(), Context.Notifier.Stats.ClientTotals(today)));
 
         _table.Controls.Add(Cell("Total", Theme.BodyBold, Theme.Text, left: true), 0, row);
         for (var c = 0; c < Columns.Length; c++)

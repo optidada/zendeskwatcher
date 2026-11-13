@@ -25,6 +25,7 @@ public sealed class SettingsForm : Form
     private readonly SettingsContext _context;
     private readonly AccountPage _account;
     private readonly GroupsPage _groups;
+    private readonly ClientsPage _clients;
     private readonly NotificationsPage _notifications;
     private readonly HelpColleaguesPage _help;
     private readonly BehaviorPage _behavior;
@@ -58,6 +59,14 @@ public sealed class SettingsForm : Form
 
     /// <summary>General page buttons; the tray app does the same as its menu items.</summary>
     public event Action? CheckForUpdatesClicked;
+
+    /// <summary>Starts Catch up (the Account page's button); done when it has run.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<Task>? CatchUp
+    {
+        get => _account.CatchUp;
+        set => _account.CatchUp = value;
+    }
     public event Action? SendFeedbackClicked;
     public event Action? OpenLogFolderClicked;
 
@@ -90,7 +99,7 @@ public sealed class SettingsForm : Form
         Text = "Zendesk Watcher – Settings";
         Font = Theme.Body;
         BackColor = Theme.Window;
-        ClientSize = new Size(840, 620);
+        ClientSize = new Size(840, 680); // tall enough for the Account page with Catch up, without a scrollbar
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -98,6 +107,7 @@ public sealed class SettingsForm : Form
 
         _context = new SettingsContext(this, _content, notifier, sessionFactory) { Current = Current, Changed = UpdateSaveState };
         _groups = new GroupsPage(_context);
+        _clients = new ClientsPage(_context, _groups);
         _account = new AccountPage(_context, _groups);
         _notifications = new NotificationsPage(_context);
         _help = new HelpColleaguesPage(_context, _groups);
@@ -106,7 +116,7 @@ public sealed class SettingsForm : Form
         _statistics = new StatisticsPage(_context);
         _general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
         _howItWorks = new HowItWorksPage(_context);
-        _pages = [_account, _groups, _notifications, _help, _behavior, _appearance, _statistics, _general, _howItWorks];
+        _pages = [_account, _groups, _clients, _notifications, _help, _behavior, _appearance, _statistics, _general, _howItWorks];
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();
@@ -125,6 +135,10 @@ public sealed class SettingsForm : Form
         PerformLayout();
         Load += (_, _) =>
         {
+            // Never taller than the screen (small or highly scaled displays): then the pages scroll instead.
+            var area = Screen.FromControl(this).WorkingArea;
+            if (Height > area.Height)
+                Height = area.Height;
             foreach (var page in _pages) CreateHandles(page.Panel);
             Theme.ApplyWindowChrome(this, Theme.Current.Dark);
         };
@@ -267,14 +281,14 @@ public sealed class SettingsForm : Form
     }
 
     /// <summary>
-    /// Shows the default settings, keeping the account and monitored groups (and "Start with Windows", a Windows setting).
+    /// Shows the default settings, keeping the account, monitored groups and clients (and "Start with Windows", a Windows setting).
     /// It's an unsaved change like any other: Save keeps it, Close offers to discard it.
     /// </summary>
     internal void ResetToDefaults()
     {
         var current = Current();
         var defaults = new Settings { Subdomain = current.Subdomain, WatchedGroups = current.WatchedGroups };
-        foreach (var page in _pages.Where(p => p is not AccountPage and not GroupsPage and not GeneralPage))
+        foreach (var page in _pages.Where(p => p is not AccountPage and not GroupsPage and not ClientsPage and not GeneralPage))
             page.Load(defaults);
         _general.ResetStartSummary();
         _general.SelectAppTheme(defaults.AppTheme);
@@ -346,7 +360,25 @@ public sealed class SettingsForm : Form
         UpdateSaveState();
         Log.Info("Settings saved");
         Saved?.Invoke(result);
+        // A batch of choices is done: ticked groups and changed clients move to their sections now.
+        _groups.Resort();
+        _clients.Resort();
         return true;
+    }
+
+    /// <summary>
+    /// A client choice was made from a notification (already saved): the Clients page shows it, and it counts as
+    /// saved, so it's neither an unsaved change nor lost when other changes are saved.
+    /// </summary>
+    internal void ClientChoiceSaved(ClientChoice choice)
+    {
+        var wasDirty = HasUnsavedChanges;
+        Result = Result.Clone();
+        Result.SetClientChoice(choice);
+        _clients.SetChoice(choice);
+        if (!wasDirty)
+            _savedSnapshot = Snapshot();
+        UpdateSaveState();
     }
 
     /// <summary>Back to the saved settings on every page (and the saved app theme); the window stays open.</summary>
@@ -356,6 +388,8 @@ public sealed class SettingsForm : Form
         foreach (var page in _pages)
             page.Load(Result);
         _loading = false;
+        _groups.Resort();
+        _clients.Resort();
         _saveState.Text = "Changes discarded";
         _saveState.ForeColor = Theme.TextMuted;
         Log.Info("Settings: unsaved changes discarded");
@@ -438,8 +472,17 @@ public sealed class SettingsForm : Form
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 HelpExcludedAssignees = [new Colleague { Id = 9, Name = "Alex Example" }],
-                WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }]
+                WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
+                Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
+                    new ClientChoice { Id = 21, Name = "Contoso", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
+                    new ClientChoice { Id = 25, Name = "Tailspin Toys", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
             };
+            ClientsView.SetSample(settings.Subdomain, new()
+            {
+                [1] = [new(21, "Contoso", 41), new(22, "Northwind Traders", 17), new(23, "Fabrikam", 9), new(24, "Adventure Works", 6),
+                       new(25, "Tailspin Toys", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
+                [2] = [new(21, "Contoso", 12), new(26, "Wide World Importers", 8), new(27, "Litware", 2)]
+            });
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
             form.Location = new Point(-5000, -5000); // off-screen; controls only paint once the window is shown
@@ -552,7 +595,7 @@ public sealed class SettingsForm : Form
         public Task<ApiResponse> GetAsync(string url, CancellationToken ct) => Task.FromResult(new ApiResponse(401, "", null));
         public Task<ApiResponse> SendAsync(string method, string url, string jsonBody, CancellationToken ct) => GetAsync(url, ct);
         public Task<bool> TryRecoverAsync(CancellationToken ct) => Task.FromResult(false);
-        public Task SignInAsync(IWin32Window? owner, CancellationToken ct) => Task.FromCanceled(new CancellationToken(true));
+        public Task SignInAsync(object? owner, CancellationToken ct) => Task.FromCanceled(new CancellationToken(true));
         public void SignOut() { }
     }
 }

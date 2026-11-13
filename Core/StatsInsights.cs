@@ -22,10 +22,39 @@ public static class StatsInsights
         (NotificationKind.CcTicket, "CC / following"), (NotificationKind.HelpColleague, "colleague")
     ];
 
+    /// <summary>A client needs this many notifications in the period before it's judged.</summary>
+    public const int MinPerClient = 10;
+
     /// <param name="totals">The last 30 days (see <see cref="NotificationStats.Totals"/>).</param>
     /// <param name="activeDays">Days with at least one notification in that period.</param>
     /// <param name="settings">The current settings, to suggest the right change.</param>
-    public static List<Insight> Analyze(IReadOnlyDictionary<(NotificationKind Kind, StatOutcome Outcome), int> totals, int activeDays, Settings settings)
+    /// <param name="clients">Per client in the same period (see <see cref="NotificationStats.ClientTotals"/>).</param>
+    public static List<Insight> Analyze(IReadOnlyDictionary<(NotificationKind Kind, StatOutcome Outcome), int> totals, int activeDays, Settings settings,
+        IReadOnlyList<(long Id, string Name, int Shown, int Acted)>? clients = null)
+    {
+        var insights = AnalyzeKinds(totals, activeDays, settings);
+        insights.AddRange(Clients(clients ?? [], settings));
+        return insights;
+    }
+
+    /// <summary>
+    /// Clients you hardly ever act on: at least <see cref="MinPerClient"/> notifications and fewer than 1 in 10 opened,
+    /// taken or copied. The two with the most, unless already muted, "only urgent" or important.
+    /// </summary>
+    internal static IEnumerable<Insight> Clients(IReadOnlyList<(long Id, string Name, int Shown, int Acted)> clients, Settings settings)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return clients
+            .Where(c => c.Shown >= MinPerClient && c.Acted * 10 < c.Shown)
+            .Where(c => (settings.ClientChoiceFor(c.Id)?.ModeAt(now) ?? ClientMode.Normal) == ClientMode.Normal)
+            .OrderByDescending(c => c.Shown)
+            .Take(2)
+            .Select(c => new Insight(Tone.Hint, c.Acted == 0
+                ? $"{c.Name}: {c.Shown} notifications and you opened none. Mute them, or hear only urgent ones (Groups → Clients, or Mute ▾ on a notification)."
+                : $"{c.Name}: {c.Shown} notifications and you opened only {c.Acted}. Mute them, or hear only urgent ones (Groups → Clients, or Mute ▾ on a notification)."));
+    }
+
+    private static List<Insight> AnalyzeKinds(IReadOnlyDictionary<(NotificationKind Kind, StatOutcome Outcome), int> totals, int activeDays, Settings settings)
     {
         int Count(NotificationKind kind, StatOutcome outcome) => outcome == StatOutcome.OpenedTicket
             ? totals.GetValueOrDefault((kind, StatOutcome.OpenedTicket)) + totals.GetValueOrDefault((kind, StatOutcome.OpenedZendesk))

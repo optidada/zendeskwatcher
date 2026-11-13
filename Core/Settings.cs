@@ -50,6 +50,25 @@ public sealed class Settings
     /// </summary>
     public List<Colleague> HelpExcludedAssignees { get; set; } = [];
 
+    /// <summary>
+    /// Choices per client (Zendesk organization) on the Clients page or from a notification: muted (for good or for a
+    /// while), only urgent, important, an own sound. Only clients with a choice are stored; everyone else is Normal,
+    /// so new clients are included automatically. See <see cref="ClientChoice"/>.
+    /// </summary>
+    public List<ClientChoice> Clients { get; set; } = [];
+
+    /// <summary>The choice for a client (organization id; <see cref="ClientChoice.NoClientId"/> for none), if any.</summary>
+    public ClientChoice? ClientChoiceFor(long? organizationId) =>
+        Clients.FirstOrDefault(c => c.Id == (organizationId ?? ClientChoice.NoClientId));
+
+    /// <summary>Sets a client's choice (replacing any earlier one); a choice back to the defaults is removed.</summary>
+    public void SetClientChoice(ClientChoice choice)
+    {
+        Clients.RemoveAll(c => c.Id == choice.Id);
+        if (!choice.IsDefaultAt(DateTimeOffset.UtcNow))
+            Clients.Add(choice.Copy());
+    }
+
     /// <summary>The groups "Help colleagues" actually covers (none when it's off).</summary>
     public IReadOnlyList<WatchedGroup> EffectiveHelpGroups =>
         !HelpColleagues ? [] : (HelpSameAsMonitored ? WatchedGroups : HelpGroups).Where(g => !g.IsNoGroup).ToList();
@@ -143,7 +162,8 @@ public sealed class Settings
     public NotificationStyle AppMessageStyle { get; set; } = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Long };
 
     /// <summary>The sound: app messages and the summary by their style, ticket notifications by type.</summary>
-    public ToastSound SoundFor(UI.Popups.NotificationContent content) => (content.Style ?? StyleFor(content.Kind)).Sound;
+    public ToastSound SoundFor(UI.Popups.NotificationContent content) =>
+        content.Style is null && content.Sound is { } clientSound ? clientSound : (content.Style ?? StyleFor(content.Kind)).Sound;
 
     /// <summary>
     /// When your working day starts, Catch up runs once by itself: what came in while you were off and still needs
@@ -156,7 +176,7 @@ public sealed class Settings
 
     /// <summary>Seconds on screen, 0 = until dismissed: app messages and the summary by their style, ticket notifications by priority.</summary>
     public int DisplaySecondsFor(UI.Popups.NotificationContent content) =>
-        content.Style is { } style ? style.Display.Seconds() : TicketDisplay.For(content.Priority);
+        content.Style is { } style ? style.Display.Seconds() : content.Important ? 0 : TicketDisplay.For(content.Priority);
 
     public NotificationStyle StyleFor(NotificationKind kind) => kind switch
     {
@@ -184,6 +204,9 @@ public sealed class Settings
     [System.Text.Json.Serialization.JsonIgnore]
     public NotificationTheme ActiveNotificationTheme => NotificationsLikeApp ? AppTheme : Theme;
     public PopupPosition Position { get; set; } = PopupPosition.BottomRight;
+
+    /// <summary>Several notifications at once: below each other (default) or stacked like cards (Look & sound).</summary>
+    public PopupStacking Stacking { get; set; } = PopupStacking.List;
 
     /// <summary>Size of Zendesk Watcher's own notifications in percent (text, buttons and spacing together).</summary>
     public int NotificationSize { get; set; } = 100;
@@ -290,11 +313,14 @@ public sealed class Settings
     {
         if (!Enum.IsDefined(Theme)) Theme = NotificationTheme.NeonDark;
         if (!Enum.IsDefined(AppTheme)) AppTheme = Theme;
+        Clients.ForEach(c => c.Upgrade());
+        Clients.RemoveAll(c => c.IsDefaultAt(DateTimeOffset.UtcNow)); // e.g. a mute for a day that has run out
         WorkdayStartHour = Math.Clamp(WorkdayStartHour, 0, 23);
         WorkdayEndHour = Math.Clamp(WorkdayEndHour, WorkdayStartHour + 1, 24);
         MyWorkdayStartHour = Math.Clamp(MyWorkdayStartHour, 0, 23);
         MyWorkdayEndHour = Math.Clamp(MyWorkdayEndHour, MyWorkdayStartHour + 1, 24);
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
+        if (!Enum.IsDefined(Stacking)) Stacking = PopupStacking.List;
         NotificationSize = Math.Clamp(NotificationSize, 100, 200);
         if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Silent;
         if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Silent;
@@ -352,6 +378,72 @@ public sealed class WatchedGroup
 
     /// <summary>"in Support Tier 2", or "with no group" for the pseudo group.</summary>
     public string Describe() => IsNoGroup ? "with no group" : $"in {Name}";
+}
+
+/// <summary>How a client's tickets notify (Clients page). Stored as a number: new values go at the end.</summary>
+public enum ClientMode
+{
+    /// <summary>Like everyone else (the default).</summary>
+    Normal,
+
+    /// <summary>
+    /// New tickets and customer replies on colleagues' tickets stay quiet. Only as the mode right now
+    /// (<see cref="ClientChoice.ModeAt"/>): muting is <see cref="ClientChoice.IsMuted"/>, on top of the client's own mode.
+    /// </summary>
+    Muted,
+
+    /// <summary>Only Urgent (P1) and High (P2) new tickets and colleagues' tickets notify.</summary>
+    OnlyUrgent,
+
+    /// <summary>Always notify (also outside your hours and for priorities you unticked), stay until dismissed, ★ in the heading.</summary>
+    Important
+}
+
+/// <summary>A client (Zendesk organization) with a choice that isn't the default, with the name as last seen.</summary>
+public sealed class ClientChoice
+{
+    /// <summary>Pseudo client for tickets without an organization (Zendesk ids are always positive).</summary>
+    public const long NoClientId = 0;
+    public const string NoClientName = "(No client)";
+
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+
+    /// <summary>The group it was set in, so the Clients list can show it there even before it's loaded.</summary>
+    public long GroupId { get; set; }
+
+    /// <summary>The client's own choice: Normal, Only urgent or Important. Kept while muted, so unmuting brings it back.</summary>
+    public ClientMode Mode { get; set; }
+
+    /// <summary>Muted (until <see cref="MutedUntil"/>, if set), whatever <see cref="Mode"/> is.</summary>
+    public bool IsMuted { get; set; }
+
+    /// <summary>Muted for a while: back to <see cref="Mode"/> after this. Null: for good.</summary>
+    public DateTimeOffset? MutedUntil { get; set; }
+
+    /// <summary>Its own notification sound; null uses the sound of the notification's type.</summary>
+    public ToastSound? Sound { get; set; }
+
+    /// <summary>Muted right now (a mute for a while that has run out isn't).</summary>
+    public bool IsMutedAt(DateTimeOffset now) => IsMuted && (MutedUntil is not { } until || until > now);
+
+    /// <summary>The mode right now: Muted while muted, otherwise the client's own choice.</summary>
+    public ClientMode ModeAt(DateTimeOffset now) =>
+        IsMutedAt(now) ? ClientMode.Muted : Mode == ClientMode.Muted ? ClientMode.Normal : Mode;
+
+    /// <summary>Nothing set (or only a mute that has run out): not worth storing.</summary>
+    public bool IsDefaultAt(DateTimeOffset now) => ModeAt(now) == ClientMode.Normal && Sound is null;
+
+    /// <summary>A file from a test build stored "muted" as the mode: muted now means <see cref="IsMuted"/>.</summary>
+    internal void Upgrade()
+    {
+        if (Mode != ClientMode.Muted)
+            return;
+        Mode = ClientMode.Normal;
+        IsMuted = true;
+    }
+
+    public ClientChoice Copy() => (ClientChoice)MemberwiseClone();
 }
 
 /// <summary>A Zendesk agent, by id, with the name as last seen.</summary>
@@ -460,4 +552,15 @@ public enum NotificationTheme
     Retro
 }
 
-public enum PopupPosition { BottomRight, TopRight }
+/// <summary>Where Zendesk Watcher's own notifications appear. Stored as a number: new values go at the end.</summary>
+public enum PopupPosition { BottomRight, TopRight, TopCenter, LeftCenter, Center }
+
+/// <summary>How several notifications on screen at once are arranged.</summary>
+public enum PopupStacking
+{
+    /// <summary>Below (or above) each other, all visible (the default).</summary>
+    List,
+
+    /// <summary>Like a deck of cards: the newest in front, older ones behind it with their edge peeking out.</summary>
+    Deck
+}

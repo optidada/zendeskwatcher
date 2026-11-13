@@ -108,7 +108,12 @@ internal sealed class GeneralPage : SettingsPage
     /// <summary>Mirrors the tray menu's update item ("Checking for updates…", "Restart to update to …").</summary>
     public void ShowUpdateState(string text, bool enabled)
     {
+        // While it checks or downloads: a spinner with that text (and not greyed out), clicks ignored.
+        var working = !enabled && text.EndsWith('\u2026');
+        _checkUpdates.SetBusy(false);
         _checkUpdates.Text = text;
-        _checkUpdates.Enabled = enabled;
+        _checkUpdates.Enabled = enabled || working;
+        if (working)
+            _checkUpdates.SetBusy(true, text);
     }
 }

@@ -18,6 +18,12 @@ You sign in as usual (Okta / SSO) in a built-in Edge (WebView2) window, so no ad
 
 Check that using your browser session this way is acceptable under your company's policy.
 
+## Code
+
+`Core/` (`ZendeskWatcher.Core`) holds what doesn't need Windows: the Zendesk calls, the checks and their rules, settings, state
+and statistics. The Windows app around it adds the tray icon, notifications, the Settings window and the WebView2 sign-in,
+so another platform (e.g. a Mac app) could reuse `Core/`.
+
 ## Run
 
 ```
@@ -26,15 +32,15 @@ dotnet run -c Release
 
 Or build and start `bin\Release\net10.0-windows10.0.17763.0\ZendeskWatcher.exe`.
 
-**Tests:** `dotnet test tests/ZendeskWatcher.Tests`. They cover the notification rules (`Tracking/TicketRules.cs`), the
-checks end to end against a fake Zendesk (unassigned tickets, ticket changes, Help colleagues, Catch up), the Settings
+**Tests:** `dotnet test tests/ZendeskWatcher.Tests`. They cover the notification rules (`Core/Tracking/TicketRules.cs`), the
+checks end to end against a fake Zendesk (unassigned tickets, ticket changes, Help colleagues, Catch up, client filter), the Settings
 pages and the settings file, in a temp data folder (never your real state). The release workflow runs them first; a
 failing test stops the release.
 
 On first start the **Settings** window opens:
 
 1. **Account:** enter the subdomain (`yourcompany` for yourcompany.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
-2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon.
+2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon. On **Clients** (under Groups) untick clients you don't need to hear about (or click **Mute** on a notification's client line); everyone is included by default, new clients too.
 3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, your working hours, and how often to check. Below it: **Colleagues**, **Behavior** (how long notifications stay, snooze) and **Look & sound**.
 
 **How it works**, the last page, explains in plain words when and why each notification appears.
@@ -70,6 +76,7 @@ To reopen Settings, click the tray icon or right-click it and choose **Settingsâ
 | `settings.json` | Settings written by the Settings window. `settings.json.bak` is the version before the last save; a damaged file is kept as `settings.json.bad` and the backup is used |
 | `WebView2\` | Browser profile with your Zendesk/Okta cookies. API responses are not cached (`no-store`), and the cache is cleared at every start |
 | `state.json` | Ticket IDs, status and timestamps of tickets already seen. No subjects or other ticket content |
+| `cache\` | The lists Settings loads from Zendesk (groups, group members, clients: names only), reused for 24 hours so Settings opens fast; **Reload** fetches them again |
 | `log.txt` | Log, useful when something doesn't work. Ticket IDs, names and change types, but never comment text, so it's safe to share |
 
 **What is read from Zendesk:** the API always returns complete objects (tickets with their description, audits with comment text, user profiles); the app keeps only what it needs in memory (ticket ID, subject, status, priority, group, assignee, CC/follower IDs, timestamps; change types and, for notifications, the first 140 characters of a comment; user names, roles, time zones and email addresses, the last only to tell your company's people from customers; the names of custom statuses) and discards the rest. The only change it ever makes is **Take it** (assigning a ticket to you). Turn off *Show the comment text in notifications* under Notifications to keep comment text out of notifications too.

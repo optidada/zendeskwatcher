@@ -203,14 +203,18 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             if (tickets.Count < candidates.Count)
                 Log.Info($"Search returned {candidates.Count - tickets.Count} ticket(s) {group.Describe()} that are no longer unassigned: " +
                          string.Join(",", candidates.Select(t => t.Id).Except(tickets.Select(t => t.Id))));
-            total += tickets.Count;
-            byGroup.Add((group, tickets));
 
+            // All are recorded as seen (so ticking a client again later doesn't report its old tickets as new), but
+            // muted clients (and "only urgent" ones below High) neither notify nor count (Clients page).
             var isBaseline = _state.BaselinedGroups.Add(group.Id);
             var fresh = tickets.Where(t => !_state.SeenUnassigned.ContainsKey(t.Id)).OrderBy(t => t.CreatedAt).ToList();
-
             foreach (var ticket in tickets)
                 _state.SeenUnassigned[ticket.Id] = now;
+            tickets = tickets.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
+            fresh = fresh.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
+
+            total += tickets.Count;
+            byGroup.Add((group, tickets));
 
             // A newly monitored group: one summary of what's already waiting instead of a notification per ticket.
             if (isBaseline && settings.NotifyUnassigned && tickets.Count > 0)
@@ -223,7 +227,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             // New tickets are always recorded, so switching notifications on later does not report old ones.
             if (isBaseline || fresh.Count == 0 || !settings.NotifyUnassigned)
                 continue;
-            if (settings.OnlyNotifyDuringMyHours && IAmOffWork())
+            // Important clients always notify, one by one, also outside my hours.
+            var important = fresh.Where(IsImportant).ToList();
+            fresh = settings.OnlyNotifyDuringMyHours && IAmOffWork() ? [] : fresh.Except(important).ToList();
+            foreach (var ticket in important)
+                await ShowNewTicketAsync(ticket, group, ct);
+            if (fresh.Count == 0)
                 continue;
 
             Log.Info($"{fresh.Count} new unassigned ticket(s) {group.Describe()}: {string.Join(",", fresh.Select(t => t.Id))}");
@@ -238,10 +247,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             }
 
             foreach (var ticket in fresh)
-            {
-                Show(new NotificationContent(NotificationKind.NewTicket, "New ticket", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                    await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group)) { Client = await ClientAsync(ticket, ct), CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
-            }
+                await ShowNewTicketAsync(ticket, group, ct);
         }
 
         // Forget tickets that have not been unassigned for a while, so they notify again if they come back.
@@ -251,6 +257,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         UnassignedCount = total;
         _unassigned = byGroup;
     }
+
+    private async Task ShowNewTicketAsync(Ticket ticket, WatchedGroup group, CancellationToken ct, string heading = "New ticket") =>
+        Show(await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, heading, $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
+            await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group))
+            { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true }, ticket, group, ct));
 
     /// <summary>What the last check found, for the "Right now" card on Insights and the start summary.</summary>
     public WatchSnapshot Snapshot()
@@ -423,14 +434,16 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                     continue; // your own tickets are covered by "my tickets"
                 if (excluded.Contains(assigneeId))
                     continue; // a colleague you chose not to cover
-                if (!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities))
-                    continue; // not a priority you chose (no priority counts as normal)
+                if (!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket))
+                    continue; // not a priority you chose (no priority counts as normal), unless the client is important
                 var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
                 if (ticket.UpdatedAt <= seen)
                     continue;
                 _state.HelpSeen[ticket.Id] = ticket.UpdatedAt;
-                if (baseline || !iAmWorking || _state.CcTickets.ContainsKey(ticket.Id))
-                    continue; // first look at this group, you're off work, or already reported as a CC'd ticket
+                if (baseline || (!iAmWorking && !IsImportant(ticket)) || _state.CcTickets.ContainsKey(ticket.Id))
+                    continue; // first look at this group, you're off work (important clients still notify), or already reported as a CC'd ticket
+                if (!TicketRules.IsWantedClient(ticket, ClientMode(ticket)))
+                    continue; // a muted client, or "only urgent" and it isn't (Clients page)
 
                 var reply = await LatestCustomerReplyAsync(ticket, seen == default ? since : seen, ct);
                 if (reply is null)
@@ -480,11 +493,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     {
         var name = Markdown.Escape(reply.Customer);
         var said = settings.ShowCommentText ? $"**{name}** replied: {Markdown.Escape(Snippet(reply.Comment))}" : $"**{name}** replied";
-        Show(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
+        Show(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             $"{said}\n{Markdown.Escape(who)} is off work · {English(local, "ddd HH:mm")} their time{StatusSuffix(ticket, reply.At, now)}",
             ticket.Id, ticket.Priority, GroupLabel(group))
-        { IsTicketNotification = true, ChangedAt = reply.At, Client = await ClientAsync(ticket, ct) });
+        { IsTicketNotification = true, ChangedAt = reply.At }, ticket, group, ct));
     }
 
     /// <summary>
@@ -505,7 +518,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             if (!ticket.IsOpen || ticket.AssigneeId is not { } assigneeId || assigneeId == me || excluded.Contains(assigneeId))
                 continue;
-            if (ticket.GroupId is not { } groupId || !byId.TryGetValue(groupId, out var group) || !TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities))
+            if (ticket.GroupId is not { } groupId || !byId.TryGetValue(groupId, out var group))
+                continue;
+            if (!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket))
+                continue;
+            if (!TicketRules.IsWantedClient(ticket, ClientMode(ticket)))
                 continue;
             var repliedAt = due.First(kv => kv.Key == ticket.Id).Value;
             if (await LatestCustomerReplyAsync(ticket, repliedAt.AddSeconds(-1), ct) is not { } reply)
@@ -635,10 +652,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         // Not a priority you chose: stay quiet (and skip reading its changes). The caller still records the ticket's
         // new state, so these changes don't pop up later if the priority is ticked again.
         var priorities = kind == NotificationKind.CcTicket ? settings.CcTicketPriorities : settings.MyTicketPriorities;
-        if (!TicketRules.MatchesPriority(ticket.Priority, priorities))
+        var important = IsImportant(ticket); // important clients: whatever the priority, also outside my hours
+        if (!TicketRules.MatchesPriority(ticket.Priority, priorities) && !important)
             return;
         // Outside my own working hours (if chosen): same, the changes are skipped rather than saved for later.
-        if (settings.OnlyNotifyDuringMyHours && IAmOffWork())
+        if (settings.OnlyNotifyDuringMyHours && IAmOffWork() && !important)
             return;
 
         var me = Me!.Id;
@@ -678,9 +696,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (await RequesterNameAsync(ticket, ct) is { } requester && !shown.Any(l => Markdown.Strip(l).Contains(requester)))
             shown.Insert(0, Markdown.Escape(requester));
 
-        Show(new NotificationContent(kind, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
+        Show(await WithClientAsync(new NotificationContent(kind, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             string.Join("\n", shown), ticket.Id, ticket.Priority, context)
-        { IsTicketNotification = true, ChangedAt = changedAt, Client = await ClientAsync(ticket, ct) });
+        { IsTicketNotification = true, ChangedAt = changedAt }, ticket, null, ct));
     }
 
     /// <summary>"Now watching Tier 2 · 3 unassigned tickets" when a group is added; a ticket notification if there's just one.</summary>
@@ -691,9 +709,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         if (oldestFirst.Count == 1)
         {
-            var ticket = oldestFirst[0];
-            Show(new NotificationContent(NotificationKind.NewTicket, "Already waiting", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group)) { Client = await ClientAsync(ticket, ct), CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true });
+            await ShowNewTicketAsync(oldestFirst[0], group, ct, heading: "Already waiting");
             return;
         }
 
@@ -713,9 +729,46 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private async Task<string?> RequesterNameAsync(Ticket ticket, CancellationToken ct) =>
         ticket.RequesterId is { } id && (await zendesk.GetUserAsync(id, ct))?.Name is { Length: > 0 } name ? name : null;
 
-    /// <summary>The ticket's organization, shown as "Client: Contoso". Null if it has none.</summary>
-    private async Task<string?> ClientAsync(Ticket ticket, CancellationToken ct) =>
-        ticket.OrganizationId is { } orgId && await zendesk.GetOrganizationNameAsync(orgId, ct) is { Length: > 0 } org ? org : null;
+    /// <summary>The client as the "Mute ▾" menu needs it: its current choice (or a Normal one), current name and group.</summary>
+    private static ClientChoice MenuTarget(ClientChoice? choice, long id, string name, long groupId)
+    {
+        var target = choice?.Copy() ?? new ClientChoice { Id = id };
+        target.Name = name;
+        target.GroupId = groupId;
+        return target;
+    }
+
+    /// <summary>How the ticket's client notifies right now (Clients page).</summary>
+    private ClientMode ClientMode(Ticket ticket) => TicketRules.ClientMode(ticket, settings, DateTimeOffset.UtcNow);
+
+    private bool IsImportant(Ticket ticket) => ClientMode(ticket) == ZendeskWatcher.ClientMode.Important;
+
+    /// <summary>
+    /// Adds the client: "Client: Contoso", ★ and "until dismissed"
+    /// for important clients, the client's own sound, and on new tickets and colleagues' tickets the "Mute ▾" menu.
+    /// </summary>
+    private async Task<NotificationContent> WithClientAsync(NotificationContent content, Ticket ticket, WatchedGroup? group, CancellationToken ct)
+    {
+        var choice = settings.ClientChoiceFor(ticket.OrganizationId);
+        var important = ClientMode(ticket) == ZendeskWatcher.ClientMode.Important;
+        content = content with
+        {
+            Important = important,
+            Heading = important ? $"★ {content.Heading}" : content.Heading,
+            Sound = choice?.Sound
+        };
+        if (ticket.OrganizationId is not { } orgId || await zendesk.GetOrganizationNameAsync(orgId, ct) is not { Length: > 0 } name)
+            return content;
+        return content with
+        {
+            Client = name,
+            ClientId = orgId,
+            ClientName = name,
+            MuteTarget = group is not null && content.Kind is NotificationKind.NewTicket or NotificationKind.HelpColleague
+                ? MenuTarget(choice, orgId, name, group.Id)
+                : null
+        };
+    }
 
     /// <summary>"Jane Doe · Created 14:02" (the time since is added when shown).</summary>
     private async Task<string> CreatedLineAsync(Ticket ticket, CancellationToken ct) =>

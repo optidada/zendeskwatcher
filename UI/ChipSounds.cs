@@ -12,7 +12,12 @@ public static class ChipSounds
 {
     private const int SampleRate = 22050;
     private static readonly Dictionary<ToastSound, byte[]> Cache = [];
-    private static SoundPlayer? _player; // kept so it isn't collected while playing
+    private static SoundPlayer? _player; // fallback, kept so it isn't collected while playing
+
+    /// <summary>Windows' media player: unlike SoundPlayer it has a volume, so a song can fade out.</summary>
+    private static Windows.Media.Playback.MediaPlayer? _media;
+    private static System.Windows.Forms.Timer? _fade;
+    private const int FadeMs = 300, FadeStepMs = 30;
 
     public static bool IsChip(ToastSound sound) => sound >= ToastSound.ChipBlip;
 
@@ -22,6 +27,8 @@ public static class ChipSounds
         {
             if (!Cache.TryGetValue(sound, out var wav))
                 Cache[sound] = wav = Wav(Render(sound));
+            if (TryPlayWithVolume(wav))
+                return;
             _player?.Stop();
             _player?.Dispose();
             _player = new SoundPlayer(new MemoryStream(wav));
@@ -31,6 +38,72 @@ public static class ChipSounds
         {
             Log.Error("Could not play chiptune sound", ex);
         }
+    }
+
+    private static bool _mediaFailed;
+
+    private static bool TryPlayWithVolume(byte[] wav)
+    {
+        if (_mediaFailed)
+            return false;
+        try
+        {
+            _fade?.Stop();
+            _player?.Stop();
+            _media ??= new Windows.Media.Playback.MediaPlayer { AutoPlay = false };
+            _media.Pause();
+            _media.Volume = 1;
+            var stream = System.IO.WindowsRuntimeStreamExtensions.AsRandomAccessStream(new MemoryStream(wav));
+            _media.Source = Windows.Media.Core.MediaSource.CreateFromStream(stream, "audio/wav");
+            _media.Play();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _mediaFailed = true; // e.g. no media components (Windows N): SoundPlayer from now on, without fading
+            Log.Error("Could not play a sound with the media player; using the simple player", ex);
+            return false;
+        }
+    }
+
+    /// <summary>Fades out a jingle or song that's playing, quickly (e.g. when a notification is clicked). Call on the UI thread.</summary>
+    public static void Stop()
+    {
+        try
+        {
+            _player?.Stop();
+            if (_media is not { } media || media.PlaybackSession.PlaybackState != Windows.Media.Playback.MediaPlaybackState.Playing)
+                return;
+            if (_fade is null)
+            {
+                _fade = new System.Windows.Forms.Timer { Interval = FadeStepMs };
+                _fade.Tick += (_, _) => FadeStep();
+            }
+            _fade.Stop();
+            _fadeStep = media.Volume * FadeStepMs / FadeMs;
+            _fade.Start();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not stop the chiptune sound", ex);
+        }
+    }
+
+    private static double _fadeStep;
+
+    private static void FadeStep()
+    {
+        if (_media is not { } media)
+        {
+            _fade?.Stop();
+            return;
+        }
+        media.Volume = Math.Max(0, media.Volume - _fadeStep);
+        if (media.Volume > 0.001)
+            return;
+        _fade?.Stop();
+        media.Pause();
+        media.Source = null;
     }
 
     // ------------------------------------------------------------------ notes and songs

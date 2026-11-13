@@ -35,6 +35,40 @@ internal sealed class AssigneeList : Control
     /// <summary>Someone was ticked or unticked (after <c>setCovered</c>).</summary>
     public event Action? Changed;
 
+    /// <summary>
+    /// Optional: a short label at the right end of a row ("★ Important"), in the accent color when Accent. Used by the
+    /// Clients page; the Colleagues list shows local times there instead.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<long, (string Text, bool Accent)?>? Badge { get; set; }
+
+    /// <summary>
+    /// Optional: a click on the name (or a right-click) asks for a menu at that point (screen coordinates) instead of
+    /// toggling; the check box still toggles. Used by the Clients page.
+    /// </summary>
+    public event Action<Person, Point>? MenuRequested;
+
+    /// <summary>The people's rows in display order (a person in two groups has two), for "find".</summary>
+    public List<(Person Person, Rectangle Rect)> PersonRows() =>
+        _items.Where(i => i.Kind == ItemKind.Person).Select(i => (i.Person!, Rectangle.Round(i.Rect))).ToList();
+
+    /// <summary>A row drawn highlighted (the one "find" went to); empty for none.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Rectangle Highlighted
+    {
+        get => _highlighted;
+        set
+        {
+            if (value == _highlighted)
+                return;
+            Invalidate(_highlighted);
+            _highlighted = value;
+            Invalidate(_highlighted);
+        }
+    }
+
+    private Rectangle _highlighted;
+
     /// <param name="isCovered">Whether a person is ticked.</param>
     /// <param name="setCovered">Ticks or unticks a person.</param>
     public AssigneeList(int width, Func<long, bool> isCovered, Action<Person, bool> setCovered)
@@ -52,6 +86,7 @@ internal sealed class AssigneeList : Control
     public void SetGroups(List<Group> groups)
     {
         _groups = groups;
+        _highlighted = Rectangle.Empty;
         _clock.Enabled = groups.Any(g => g.People.Any(p => p.Zone is not null));
         _hover = null;
         _tips.SetToolTip(this, null);
@@ -143,6 +178,12 @@ internal sealed class AssigneeList : Control
                     break;
 
                 case ItemKind.Person:
+                    if (rect == _highlighted)
+                    {
+                        using var mark = new SolidBrush(Theme.AccentSoft);
+                        using var markPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
+                        g.FillPath(mark, markPath);
+                    }
                     var covered = _isCovered(item.Person!.Id);
                     var box = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s);
                     using (var path = Theme.RoundedRect(box, 3 * s))
@@ -163,6 +204,15 @@ internal sealed class AssigneeList : Control
                         }
                     }
                     var text = new Rectangle((int)(box.Right + 8 * s), rect.Y, rect.Width - (int)(24 * s), rect.Height);
+                    if (Badge?.Invoke(item.Person.Id) is { } badge)
+                    {
+                        var badgeWidth = TextRenderer.MeasureText(badge.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+                        var badgeRight = rect.Right - (int)(10 * s);
+                        TextRenderer.DrawText(g, badge.Text, Theme.Small, new Rectangle(badgeRight - badgeWidth, rect.Y, badgeWidth, rect.Height),
+                            !Enabled ? Theme.TextMuted : badge.Accent ? Theme.Accent : Theme.TextMuted,
+                            TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                        text.Width = badgeRight - badgeWidth - (int)(8 * s) - text.X;
+                    }
                     if (item.Person.Zone is { } zone)
                     {
                         // Right-aligned: their local time, with a dot that says whether they're working now.
@@ -239,7 +289,16 @@ internal sealed class AssigneeList : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        if (!Enabled || e.Button != MouseButtons.Left || HitTest(e.Location) is not { } hit)
+        if (!Enabled || HitTest(e.Location) is not { } hit)
+            return;
+        // With a menu: the name (or a right-click) opens it, the check box toggles.
+        if (hit.Kind == ItemKind.Person && MenuRequested is not null &&
+            (e.Button == MouseButtons.Right || e.X > hit.Rect.X + 24 * DpiScale))
+        {
+            MenuRequested(hit.Person!, PointToScreen(e.Location));
+            return;
+        }
+        if (e.Button != MouseButtons.Left)
             return;
         switch (hit.Kind)
         {

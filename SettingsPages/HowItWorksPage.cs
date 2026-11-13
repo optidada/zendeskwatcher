@@ -14,7 +14,15 @@ internal sealed class HowItWorksPage : SettingsPage
         [
             "A ticket in a group you monitor (Groups page) that nobody has picked up yet.",
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
-            "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it."
+            "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
+            "Muted clients stay quiet and aren't counted; \u201conly urgent\u201d clients only for Urgent (P1) and High (P2). Groups → Clients, or Mute \u25be on a notification."
+        ]),
+        ("Clients",
+        [
+            "Every client is normal to begin with, new ones too. Click a client on the Clients page (or Mute \u25be on a notification) to change it.",
+            "Important \u2605: always notifies, also outside your hours and for priorities you unticked, and stays until you close it.",
+            "Only urgent: new tickets and colleagues' tickets only for Urgent (P1) and High (P2). Mute: none of those, for good or for a day or a week.",
+            "Your own and CC'd tickets always notify, whatever the client. A client can also have its own sound."
         ]),
         ("Your tickets and CC / following",
         [
@@ -32,6 +40,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "Waiting: the customer's message is the newest public comment. An internal note isn't an answer.",
             "Any status counts (Pending, On-hold, Escalated, …), except “In progress” and “Scheduled”: they're trusted for a while first (4 hours by default).",
             "Colleagues in your own region are left out to begin with: they usually work when you do.",
+            "Not for muted clients, and only Urgent (P1) and High (P2) for \u201conly urgent\u201d ones (Groups → Clients).",
             "Only while you're working yourself, if you chose that on the Colleagues page; Catch up brings up what was held back."
         ]),
         ("Catch up",

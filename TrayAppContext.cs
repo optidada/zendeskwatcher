@@ -30,6 +30,9 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>Catch up was asked for: runs right after the next check (which is started at once).</summary>
     private bool _catchUpRequested;
 
+    /// <summary>Done when the requested Catch up has run (or failed), for the spinner on the Account page.</summary>
+    private TaskCompletionSource? _catchUpDone;
+
     private Settings _settings = Settings.Load();
     private BrowserSession? _browser;
     private CancellationTokenSource? _loopCts;
@@ -44,6 +47,7 @@ public sealed class TrayAppContext : ApplicationContext
         Current = this;
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _notifier = new Notifier(HandleAction) { Settings = _settings, StillNeeded = StillNeededAsync };
+        _notifier.ClientChoiceRequested += SetClientChoice;
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_statusItem);
@@ -51,7 +55,7 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add("Open Zendesk", null, (_, _) => OpenUrl(_settings.IsConnectionConfigured ? $"{_settings.BaseUrl}/agent" : null));
         menu.Items.Add("Check now", null, (_, _) => _wakeUp.Release());
         menu.Items.Add(_catchUpItem);
-        _catchUpItem.Click += (_, _) => RequestCatchUp();
+        _catchUpItem.Click += (_, _) => _ = RequestCatchUp();
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
@@ -110,6 +114,7 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>Called by the toast library on a background thread when a notification is clicked.</summary>
     public void OnToastActivated(ToastArguments args) => _ui.Post(_ =>
     {
+        ChipSounds.Stop(); // acted on: the music can stop
         args.TryGetValue("action", out var action);
         long? ticketId = args.TryGetValue("ticketId", out var id) && long.TryParse(id, out var parsed) ? parsed : null;
         if (action == Notifier.ActionCopy)
@@ -119,9 +124,16 @@ public sealed class TrayAppContext : ApplicationContext
                 _notifier.Copy(new NotificationContent(NotificationKind.MyTicket, "", $"#{linkId}", TicketId: linkId));
             return;
         }
+        if (action == Notifier.ActionMuteClient)
+        {
+            if (args.TryGetValue("clientId", out var clientId) && long.TryParse(clientId, out var orgId))
+                _notifier.MuteFromToast(orgId, args.TryGetValue("clientName", out var name) ? name : $"Organization {orgId}",
+                    args.TryGetValue("clientGroup", out var group) && long.TryParse(group, out var groupId) ? groupId : 0);
+            return;
+        }
         if (args.TryGetValue(Notifier.StatArgument, out var kindName) && Enum.TryParse<NotificationKind>(kindName, out var kind) &&
             NotificationStats.ForToastAction(action ?? "") is { } outcome)
-            _notifier.Stats.Record(kind, outcome);
+            _notifier.CountToastClick(kind, outcome, args.TryGetValue(Notifier.StatClientArgument, out var client) ? client : null);
         HandleAction(action ?? "", ticketId);
     }, null);
 
@@ -153,21 +165,26 @@ public sealed class TrayAppContext : ApplicationContext
                 _updates.RestartToUpdate();
                 break;
             case Notifier.ActionCatchUp:
-                RequestCatchUp();
+                _ = RequestCatchUp();
                 break;
         }
     }
 
-    /// <summary>Catch up: checks now and then shows what still needs attention since you stopped working last time.</summary>
-    private void RequestCatchUp()
+    /// <summary>
+    /// Catch up: checks now and then shows what still needs attention since you stopped working last time. Done when
+    /// it has run (for the spinner on the Account page).
+    /// </summary>
+    private Task RequestCatchUp()
     {
         if (_loopCts is null || _taker is null)
         {
             _notifier.ShowInfo("Can't catch up yet", "Sign in first: click the Zendesk Watcher icon in the tray.");
-            return;
+            return Task.CompletedTask;
         }
+        _catchUpDone ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _catchUpRequested = true;
         _wakeUp.Release();
+        return _catchUpDone.Task;
     }
 
     // ------------------------------------------------------------------ checking
@@ -278,6 +295,14 @@ public sealed class TrayAppContext : ApplicationContext
                         Log.Error("Catch up failed", ex);
                         _notifier.ShowInfo("Catch up didn't work", ex.Message);
                     }
+                    finally
+                    {
+                        if (requested)
+                        {
+                            _catchUpDone?.TrySetResult();
+                            _catchUpDone = null;
+                        }
+                    }
                 }
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
                 _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
@@ -343,6 +368,26 @@ public sealed class TrayAppContext : ApplicationContext
         wait.Start();
     }
 
+    /// <summary>
+    /// A choice from a notification's "Mute ▾" menu: saved right away for the client (Clients page). The checks share
+    /// this settings object, so the next check already uses it. An open Settings window takes it over too.
+    /// </summary>
+    private void SetClientChoice(ClientChoice choice)
+    {
+        _settings.SetClientChoice(choice);
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not save settings after a client choice", ex);
+        }
+        _settingsForm?.ClientChoiceSaved(choice);
+        var (title, body) = TicketRules.ClientChoiceConfirmation(choice, DateTimeOffset.UtcNow);
+        _notifier.ShowInfo(title, body);
+    }
+
     // ------------------------------------------------------------------ settings window
 
     /// <param name="knownSignedOut">The session was just found to be inactive; the window skips its own check.</param>
@@ -367,6 +412,7 @@ public sealed class TrayAppContext : ApplicationContext
         form.SessionChanging += () => PauseChecking("Paused while signing in or out");
         form.SessionChanged += () => Start(openSettingsIfNeeded: false);
         form.CheckForUpdatesClicked += _updates.OnClicked;
+        form.CatchUp = RequestCatchUp;
         form.SendFeedbackClicked += SendFeedback;
         form.OpenLogFolderClicked += () => OpenUrl(AppPaths.DataDir);
         form.ShowUpdateState(_updates.Text, _updates.Enabled);

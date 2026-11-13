@@ -66,11 +66,11 @@ public class NotificationStatsTests
     [InlineData(PopupForm.Result.Dismiss, Notifier.ActionOpenTicket, StatOutcome.Closed)]
     [InlineData(PopupForm.Result.Timeout, Notifier.ActionOpenTicket, StatOutcome.TimedOut)]
     public void Popup_outcomes(PopupForm.Result result, string action, StatOutcome expected)
-        => Assert.Equal(expected, NotificationStats.ForPopup(result, action));
+        => Assert.Equal(expected, Notifier.StatForPopup(result, action));
 
     [Fact]
     public void Popups_closed_without_an_outcome_are_not_counted()
-        => Assert.Null(NotificationStats.ForPopup(PopupForm.Result.None, Notifier.ActionOpenTicket));
+        => Assert.Null(Notifier.StatForPopup(PopupForm.Result.None, Notifier.ActionOpenTicket));
 
     [Theory]
     [InlineData(Notifier.ActionOpenTicket, StatOutcome.OpenedTicket)]

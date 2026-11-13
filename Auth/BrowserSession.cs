@@ -161,7 +161,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     }
 
     /// <summary>Shows the browser window with the Zendesk login (redirects to Okta) and waits until signed in.</summary>
-    public async Task SignInAsync(IWin32Window? owner, CancellationToken ct)
+    public async Task SignInAsync(object? owner, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
         try
@@ -212,7 +212,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             DialogResult result;
             try
             {
-                result = _window.ShowDialog(owner); // closing a modal form only hides it; the WebView2 stays alive
+                result = _window.ShowDialog(owner as IWin32Window); // closing a modal form only hides it; the WebView2 stays alive
             }
             finally
             {

@@ -7,7 +7,7 @@ namespace ZendeskWatcher.SettingsPages;
 internal sealed class AppearancePage : SettingsPage
 {
     // Silent first, then by kind: Normal (Windows sounds), Retro (short chiptune blips), Nostalgic (chiptune songs, 4–8 s).
-    private static readonly Option<ToastSound>[] SoundOptions =
+    internal static readonly Option<ToastSound>[] SoundOptions =
     [
         new(ToastSound.Silent, "Silent"),
         new(ToastSound.Default, "Normal – Default"), new(ToastSound.Mail, "Normal – Mail"), new(ToastSound.InstantMessage, "Normal – Instant message"),
@@ -29,8 +29,13 @@ internal sealed class AppearancePage : SettingsPage
     ];
     private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme (General page)");
     private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
-    private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right")]);
-    private readonly ComboBox _size = Kit.Combo<int>([new(100, "100%"), new(115, "115%"), new(130, "130%"), new(150, "150%"), new(175, "175%")], width: 100);
+    private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
+        new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.LeftCenter, "Left, middle"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
+    private readonly ComboBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards")], width: PlacementWidth);
+
+    /// <summary>The same width for the position, stacking and size choices, so they line up.</summary>
+    private const int PlacementWidth = 200;
+    private readonly ComboBox _size = Kit.Combo<int>([new(100, "100%"), new(115, "115%"), new(130, "130%"), new(150, "150%"), new(175, "175%")], width: PlacementWidth);
     private readonly ComboBox _newSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _mySound = Kit.Combo(SoundOptions);
     private readonly ComboBox _helpSound = Kit.Combo(SoundOptions);
@@ -49,7 +54,7 @@ internal sealed class AppearancePage : SettingsPage
     public AppearancePage(SettingsContext context)
         : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
     {
-        var style = new Card("Notification style", "Zendesk Watcher's own styles slide in at the screen corner and stack; Windows uses Windows " +
+        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below; Windows uses Windows " +
             "notifications. While you present or run a full-screen app, Windows notifications are always used, so nothing pops up over your screen.", Kit.CardWidth);
         style.Body.Controls.Add(_likeApp);
         style.Body.Controls.Add(_ownStyle);
@@ -57,7 +62,19 @@ internal sealed class AppearancePage : SettingsPage
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(20, 4, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
         style.Body.Controls.Add(tiles);
-        style.Body.Controls.Add(Kit.Row(Theme.Label("Position on screen"), _position, Theme.Label("Size"), _size));
+        // Labels in one column, choices lined up in the next.
+        var placement = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
+        placement.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        placement.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        foreach (var (text, combo) in new[] { ("Position on screen", _position), ("Several at once", _stacking), ("Size", _size) })
+        {
+            var label = Theme.Label(text);
+            label.Anchor = AnchorStyles.Left;
+            label.Margin = new Padding(0, 0, 16, 0);
+            placement.Controls.Add(label);
+            placement.Controls.Add(combo);
+        }
+        style.Body.Controls.Add(placement);
         Panel.Controls.Add(style);
 
         var sound = new Card("Sound", "App messages: update ready, welcome, group not found and \"Sign-in required\". Replies to " +
@@ -97,7 +114,7 @@ internal sealed class AppearancePage : SettingsPage
             tile.Click += (_, _) => { SelectNotificationTheme(tile.Value); Changed(); };
         foreach (var radio in new[] { _likeApp, _ownStyle })
             radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
-        TrackChanges(_position, _size, _newSound, _mySound, _ccSound, _helpSound,
+        TrackChanges(_position, _stacking, _size, _newSound, _mySound, _ccSound, _helpSound,
             _summarySound, _appSound, _commentText, _showLogo, _groupByType);
     }
 
@@ -117,6 +134,7 @@ internal sealed class AppearancePage : SettingsPage
         _ownStyle.Checked = !settings.NotificationsLikeApp;
         SelectNotificationTheme(settings.Theme);
         Kit.Select(_position, settings.Position);
+        Kit.Select(_stacking, settings.Stacking);
         Kit.Select(_size, settings.NotificationSize, fallback: 100);
         _groupByType.Checked = settings.GroupNotificationsByType;
     }
@@ -136,6 +154,7 @@ internal sealed class AppearancePage : SettingsPage
         if (_themeTiles.FirstOrDefault(t => t.Selected) is { } tile)
             s.Theme = tile.Value;
         s.Position = Kit.Selected<PopupPosition>(_position);
+        s.Stacking = Kit.Selected<PopupStacking>(_stacking);
         s.NotificationSize = Kit.Selected<int>(_size);
         s.GroupNotificationsByType = _groupByType.Checked;
     }

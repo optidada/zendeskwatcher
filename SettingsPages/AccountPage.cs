@@ -13,6 +13,11 @@ internal sealed class AccountPage : SettingsPage
     private readonly Label _status = Theme.Label("Not signed in", maxWidth: Kit.CardWidth - 70);
     private readonly Button _signIn = Theme.PrimaryButton("Sign in");
     private readonly Button _signOut = Theme.SecondaryButton("Sign out");
+    private readonly Button _catchUp = Theme.SecondaryButton("Catch up");
+    private Card _catchUpCard = null!;
+
+    /// <summary>Starts Catch up in the app (set by the app); done when it has run.</summary>
+    public Func<Task>? CatchUp { get; set; }
     private readonly GroupsPage _groups;
 
     private bool _signingIn;
@@ -45,9 +50,18 @@ internal sealed class AccountPage : SettingsPage
         status.Body.Controls.Add(buttons);
         Panel.Controls.Add(status);
 
+        // Its own card, shown once signed in (it needs the app to be checking with this account).
+        _catchUpCard = new Card("Catch up",
+            "What still needs you since you stopped working last time: unassigned tickets in your groups and customers " +
+            "waiting for an answer. Also in the tray menu, and by itself when your working day starts.", Kit.CardWidth);
+        _catchUpCard.Body.Controls.Add(_catchUp);
+        _catchUpCard.Visible = false;
+        Panel.Controls.Add(_catchUpCard);
+
         _subdomain.Leave += async (_, _) => await RefreshAsync();
         _signIn.Click += async (_, _) => await SignInAsync();
         _signOut.Click += (_, _) => SignOut();
+        _catchUp.Click += async (_, _) => await CatchUpAsync();
         _groups.ReloadRequested += async () => await RefreshAsync(force: true);
         TrackChanges(_subdomain);
     }
@@ -136,6 +150,42 @@ internal sealed class AccountPage : SettingsPage
         }
     }
 
+    /// <summary>
+    /// "Catch up since yesterday 17:00": what still needs you since you stopped working last time (your hours as set
+    /// on the Notifications page, even before saving). Runs in the app with the saved settings; the button spins until
+    /// it's done.
+    /// </summary>
+    private async Task CatchUpAsync()
+    {
+        if (CatchUp is null)
+            return;
+        _catchUp.SetBusy(true, "Catching up\u2026");
+        try
+        {
+            await CatchUp().WaitAsync(TimeSpan.FromMinutes(2));
+        }
+        catch (TimeoutException)
+        {
+            Log.Info("Settings: Catch up is taking long; the button stops waiting");
+        }
+        finally
+        {
+            _catchUp.SetBusy(false);
+        }
+    }
+
+    /// <summary>The Catch up button's text and hint, with the time it starts from.</summary>
+    private void UpdateCatchUp()
+    {
+        var current = Context.Current();
+        var since = Tracking.TicketRules.CatchUpStart(DateTime.Now, current.MyWorkdayStartHour, current.MyWorkdayEndHour, current.MyWorkDays);
+        var when = Tracking.TicketRules.CatchUpSince(since, DateTime.Now);
+        if (!((RoundButton)_catchUp).IsBusy)
+            _catchUp.Text = $"Catch up {when}";
+    }
+
+    public override void OnShowing() => UpdateCatchUp();
+
     private async Task SignInAsync()
     {
         var connection = Context.Current();
@@ -148,6 +198,7 @@ internal sealed class AccountPage : SettingsPage
 
         Log.Info($"Sign-in started: {connection.BaseUrl}");
         _signingIn = true;
+        _signIn.SetBusy(true, "Signing in\u2026");
         SetStatus("Sign in in the window that opened…", AccountState.Checking);
 
         SessionChanging?.Invoke();
@@ -170,6 +221,7 @@ internal sealed class AccountPage : SettingsPage
         finally
         {
             _signingIn = false;
+            _signIn.SetBusy(false);
             Context.Window.Activate();
         }
 
@@ -205,5 +257,9 @@ internal sealed class AccountPage : SettingsPage
         _signIn.Visible = state is AccountState.SignedOut or AccountState.Error;
         _signIn.Enabled = true;
         _signOut.Visible = state is AccountState.SignedIn or AccountState.Error;
+        // Catch up needs the app to be checking with this account: only offered once signed in.
+        _catchUpCard.Visible = state is AccountState.SignedIn && CatchUp is not null;
+        if (_catchUpCard.Visible)
+            UpdateCatchUp();
     }
 }

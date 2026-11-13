@@ -175,6 +175,13 @@ public static class Theme
 
     public static Button PrimaryButton(string text) => StyledButton(text, Accent, OnAccent, Accent, AccentHover);
 
+    /// <summary>Shows a spinner on a themed button while something loads (<see cref="RoundButton.SetBusy"/>); other buttons ignore it.</summary>
+    public static void SetBusy(this Button button, bool busy, string? text = null)
+    {
+        if (button is RoundButton round)
+            round.SetBusy(busy, text);
+    }
+
     public static Button SecondaryButton(string text) => StyledButton(text, Surface, Text, Border, Window);
 
     private static Button StyledButton(string text, Color back, Color fore, Color border, Color hover)

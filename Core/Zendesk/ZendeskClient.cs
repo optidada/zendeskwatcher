@@ -187,9 +187,8 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         return result;
     }
 
-    private readonly Dictionary<long, string?> _organizations = [];
+    private readonly Dictionary<long, Organization?> _organizations = [];
 
-    /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
     /// <summary>The account's custom ticket statuses ("In progress", "Escalated", …); empty if it doesn't use them.</summary>
     public async Task<List<CustomStatus>> GetCustomStatusesAsync(CancellationToken ct)
     {
@@ -204,21 +203,78 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
-    public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct)
+    /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
+    public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct) =>
+        (await GetOrganizationAsync(organizationId, ct))?.Name;
+
+    /// <summary>An organization with its fields (cached for this session). Null if it can't be read.</summary>
+    public async Task<Organization?> GetOrganizationAsync(long organizationId, CancellationToken ct)
     {
         if (_organizations.TryGetValue(organizationId, out var cached))
             return cached;
-        string? name;
+        Organization? org;
         try
         {
-            name = (await GetAsync<OrganizationResponse>($"/api/v2/organizations/{organizationId}.json", ct)).Organization?.Name;
+            org = (await GetAsync<OrganizationResponse>($"/api/v2/organizations/{organizationId}.json", ct)).Organization;
         }
         catch (HttpRequestException)
         {
-            name = null;
+            org = null;
         }
-        _organizations[organizationId] = name;
-        return name;
+        _organizations[organizationId] = org;
+        return org;
+    }
+
+    /// <summary>The account's active organization fields (for the client label on the Clients page); empty if none or not allowed.</summary>
+    public async Task<List<OrganizationField>> GetOrganizationFieldsAsync(CancellationToken ct)
+    {
+        try
+        {
+            return (await GetAllPagesAsync<OrganizationFieldsResponse, OrganizationField>("/api/v2/organization_fields.json", r => r.OrganizationFields, ct))
+                .Where(f => f.Active && f.Key.Length > 0).ToList();
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>How far back <see cref="GetGroupClientsAsync"/> looks for a group's clients.</summary>
+    public const int ClientLookBackDays = 90;
+
+    /// <summary>
+    /// The clients (organizations) of a group's tickets created in the last <see cref="ClientLookBackDays"/> days, with
+    /// how many tickets each had, most first. Zendesk doesn't tie organizations to groups, so the tickets tell.
+    /// <see cref="ClientChoice.NoClientId"/> stands for tickets without one. Reads up to 500 tickets (5 searches).
+    /// </summary>
+    public async Task<List<(long Id, string Name, int Tickets)>> GetGroupClientsAsync(long groupId, CancellationToken ct)
+    {
+        var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
+        var query = $"type:ticket group:{group} created>{DateTime.UtcNow.AddDays(-ClientLookBackDays):yyyy-MM-dd}";
+        var tickets = await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct, maxPages: 5);
+        var counts = tickets.GroupBy(t => t.OrganizationId ?? ClientChoice.NoClientId).ToDictionary(g => g.Key, g => g.Count());
+
+        // Names in batches of 100 (show_many); cached with the ones notifications use.
+        var unknown = counts.Keys.Where(id => id != ClientChoice.NoClientId && !_organizations.ContainsKey(id)).ToList();
+        foreach (var chunk in unknown.Chunk(100))
+        {
+            try
+            {
+                var orgs = (await GetAsync<OrganizationsResponse>($"/api/v2/organizations/show_many.json?ids={string.Join(",", chunk)}", ct)).Organizations;
+                foreach (var org in orgs)
+                    _organizations[org.Id] = org;
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Error("Could not read organization names", ex);
+            }
+        }
+
+        return counts
+            .Select(kv => (kv.Key, kv.Key == ClientChoice.NoClientId ? ClientChoice.NoClientName
+                : _organizations.GetValueOrDefault(kv.Key)?.Name is { Length: > 0 } name ? name : $"Organization {kv.Key}", kv.Value))
+            .OrderByDescending(c => c.Value).ThenBy(c => c.Item2, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
     }
 
     public async Task<string> GetUserNameAsync(long userId, CancellationToken ct) =>
@@ -254,13 +310,13 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct) =>
         await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct);
 
-    private async Task<List<TItem>> GetAllPagesAsync<TResponse, TItem>(string path, Func<TResponse, List<TItem>> items, CancellationToken ct)
+    private async Task<List<TItem>> GetAllPagesAsync<TResponse, TItem>(string path, Func<TResponse, List<TItem>> items, CancellationToken ct, int maxPages = MaxPages)
         where TResponse : PagedResponse
     {
         var result = new List<TItem>();
         string? next = path;
 
-        for (var page = 0; next is not null && page < MaxPages; page++)
+        for (var page = 0; next is not null && page < maxPages; page++)
         {
             var response = await GetAsync<TResponse>(next, ct);
             result.AddRange(items(response));

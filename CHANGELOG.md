@@ -3,6 +3,20 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.4.0
+
+- **Clients**: a new page under Groups lists the clients of your groups. Click one to make it **Important ★** (always notifies, also outside your hours, and stays until you close it), hear **only urgent** tickets, **mute** it for a day, a week or for good, or give it its **own sound**. Everyone is normal by default, new clients too.
+- **Mute ▾ on notifications**: the same choices right from a new-ticket or customer-waiting notification. Muting keeps a client's other choices; unmute brings them back.
+- **Catch up on the Account page**, in its own card: "Catch up since yesterday 17:00" at any time, also right after setting up.
+- **Where notifications appear**: also top center, left middle and center; and several at once can be **stacked like cards**, the newest in front and the ones behind fanning out (Look & sound).
+- **Find instead of filter** on Groups and Clients: the whole list stays, typing jumps to the match and highlights it, Enter goes to the next.
+- Buttons that load something (Sign in, Catch up, Reload, Check for updates) show a spinner while they work.
+- Clicking a notification fades out a song that's still playing. Close is always at the bottom left.
+- Insights suggests muting a client whose notifications you never open.
+- Groups, colleagues and clients load once a day (kept between restarts; Reload fetches them again), so Settings opens fast. Ticking a group no longer moves it away from under the mouse; Save sorts the lists.
+- Discard on the Groups page now also unticks groups ticked since the last save, and keeps the full group list.
+- Settings is a little taller, so the Account page fits without scrolling.
+
 ## 1.3.21
 
 - **How it works** also explains the "only while I'm working myself" switch for colleagues' tickets, and that Catch up brings up what it held back.

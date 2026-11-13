@@ -21,6 +21,9 @@ public sealed class PopupManager
     /// <summary>A notification really appeared (not when it only joins the line; dropped ones never do).</summary>
     public Action<NotificationContent>? Shown { get; set; }
 
+    /// <summary>A choice from "Mute ▾" on a notification's client line.</summary>
+    public Action<NotificationContent, ClientChoice>? ClientChosen { get; set; }
+
     /// <summary>Which of these notifications are still needed (bool: also read the ticket's changes). Set by the notifier.</summary>
     public Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? StillNeeded { get; set; }
     private readonly Action<string, long?> _onAction;
@@ -66,6 +69,7 @@ public sealed class PopupManager
         var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size);
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
+        popup.ClientChosen += (p, choice) => ClientChosen?.Invoke(p.Content, choice);
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
         _takeTurns = settings.PopupsTakeTurns;
         _visible.Add(popup);
@@ -73,9 +77,20 @@ public sealed class PopupManager
         _awayWatch.Start();
         UpdateTurns();
 
-        var restX = screen.WorkingArea.Right - popup.Width - (int)(16 * scale);
+        var area = screen.WorkingArea;
+        var margin = (int)(16 * scale);
+        var (restX, entry) = settings.Position switch
+        {
+            PopupPosition.LeftCenter => (area.Left + margin, PopupForm.Entry.FromLeft),
+            PopupPosition.TopCenter => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.FromTop),
+            PopupPosition.Center => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.Fade),
+            _ => (area.Right - popup.Width - margin, PopupForm.Entry.FromRight)
+        };
+        _deck = settings.Stacking == PopupStacking.Deck;
         Layout(settings.Position, scale);
-        popup.Present(restX);
+        popup.Present(restX, entry);
+        if (_deck)
+            Layout(settings.Position, scale); // now that it has a place: the fan, newest card on top
         Shown?.Invoke(content);
 
         PlaySound(settings.SoundFor(content));
@@ -210,7 +225,8 @@ public sealed class PopupManager
     /// </summary>
     private void UpdateTurns()
     {
-        var current = _visible.FirstOrDefault(p => p.TimesOut);
+        // In a deck only the front card (the newest) can be read, so it counts down first.
+        var current = _deck ? _visible.LastOrDefault(p => p.TimesOut) : _visible.FirstOrDefault(p => p.TimesOut);
         foreach (var popup in _visible)
             popup.MyTurn = !_takeTurns || popup == current || !popup.TimesOut;
     }
@@ -225,7 +241,24 @@ public sealed class PopupManager
         var margin = (int)(16 * scale);
         var gap = (int)(10 * scale);
 
-        if (position == PopupPosition.TopRight)
+        if (_deck)
+        {
+            LayoutDeck(position, area, margin, scale);
+            return;
+        }
+
+        if (position is PopupPosition.LeftCenter or PopupPosition.Center)
+        {
+            // Centered vertically as a group, oldest at the top.
+            var total = _visible.Sum(p => p.Height) + gap * Math.Max(0, _visible.Count - 1);
+            var y = area.Top + Math.Max(margin, (area.Height - total) / 2);
+            foreach (var popup in _visible)
+            {
+                popup.TargetY = y;
+                y += popup.Height + gap;
+            }
+        }
+        else if (position is PopupPosition.TopRight or PopupPosition.TopCenter)
         {
             var y = area.Top + margin;
             for (var i = 0; i < _visible.Count; i++)
@@ -244,6 +277,44 @@ public sealed class PopupManager
                 y -= gap;
             }
         }
+    }
+
+    /// <summary>Stacked like cards (Look & sound): set from the settings when a notification is shown.</summary>
+    private bool _deck;
+
+    /// <summary>
+    /// A deck: the newest card in front, each older one behind it shifted up and to the right by the same amount, so
+    /// every card behind shows an equal strip along its top and right edge. The fan is kept on screen: at the right
+    /// edge the front card moves left to make room, at the top it moves down.
+    /// </summary>
+    private void LayoutDeck(PopupPosition position, Rectangle area, int margin, float scale)
+    {
+        if (_visible.Count == 0)
+            return;
+        var peek = (int)(12 * scale);
+        var front = _visible[^1];
+        var spread = (_visible.Count - 1) * peek; // how far the last card behind sticks out
+        var frontX = position switch
+        {
+            PopupPosition.LeftCenter => area.Left + margin,
+            PopupPosition.TopCenter or PopupPosition.Center => area.Left + (area.Width - front.Width - spread) / 2,
+            _ => area.Right - margin - front.Width - spread
+        };
+        var frontTop = position switch
+        {
+            PopupPosition.TopRight or PopupPosition.TopCenter => area.Top + margin + spread,
+            PopupPosition.LeftCenter or PopupPosition.Center => area.Top + (area.Height - front.Height + spread) / 2,
+            _ => area.Bottom - margin - front.Height
+        };
+        for (var i = 0; i < _visible.Count; i++)
+        {
+            var depth = _visible.Count - 1 - i; // 0 = front
+            _visible[i].RestX = frontX + depth * peek;
+            _visible[i].TargetY = frontTop - depth * peek; // tops line up step by step, whatever the card's height
+        }
+        // Back to front, so the newest ends up on top.
+        foreach (var popup in _visible)
+            popup.RaiseWithoutActivating();
     }
 
     /// <summary>

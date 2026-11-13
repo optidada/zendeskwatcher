@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    What any Zendesk Watcher app shares, without Windows: the Zendesk API calls, the checks and their rules, settings,
+    state and statistics. The Windows app (../ZendeskWatcher.csproj) adds the tray, notifications, Settings window and
+    the WebView2 sign-in; a Mac app would add its own. Nothing here may use WinForms or other Windows-only APIs.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZendeskWatcher</RootNamespace>
+    <AssemblyName>ZendeskWatcher.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZendeskWatcher" />
+    <InternalsVisibleTo Include="ZendeskWatcher.Tests" />
+    <!-- The subdomain pre-filled on first start (read by Settings); the release workflow passes it from a GitHub secret. -->
+    <AssemblyMetadata Include="DefaultSubdomain" Value="$(DefaultSubdomain)" />
+  </ItemGroup>
+
+</Project>

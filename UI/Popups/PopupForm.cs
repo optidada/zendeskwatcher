@@ -36,7 +36,7 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _clientRect;
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _clientRect, _muteRect;
     private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _dismissLabel = "";
 
     // State
@@ -96,6 +96,12 @@ public sealed class PopupForm : Form
 
     /// <summary>Copy was clicked (ticket notifications only). The popup stays open and shows a check mark for a moment.</summary>
     public event Action<PopupForm>? CopyClicked;
+
+    /// <summary>A choice from "Mute ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
+    public event Action<PopupForm, ClientChoice>? ClientChosen;
+
+    /// <summary>The "Mute ▾" menu is open: the countdown waits, as when hovering.</summary>
+    private bool _menuOpen;
 
     private double _copiedUntil;
     private Font? _iconFont;
@@ -169,12 +175,39 @@ public sealed class PopupForm : Form
         DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref border, sizeof(int));
     }
 
-    /// <summary>Shows the popup sliding in from the screen edge at (restX, TargetY).</summary>
-    public void Present(int restX)
+    /// <summary>Where it rests horizontally (moved by deck stacking, where older cards fan out to the right).</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int RestX
+    {
+        get => _restX;
+        set => _restX = value;
+    }
+
+    /// <summary>Puts this popup above the other ones without taking the focus from what you're doing (deck stacking).</summary>
+    public void RaiseWithoutActivating()
+    {
+        const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
+        if (IsHandleCreated)
+            SetWindowPos(Handle, new IntPtr(-1) /* HWND_TOPMOST */, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    /// <summary>How a popup comes in and goes: from the right or left edge, dropping from the top, or fading.</summary>
+    public enum Entry { FromRight, FromLeft, FromTop, Fade }
+
+    private Entry _entry = Entry.FromRight;
+
+    /// <summary>Shows the popup at (restX, TargetY), coming in as <paramref name="entry"/> says.</summary>
+    public void Present(int restX, Entry entry = Entry.FromRight)
     {
         _restX = restX;
-        _y = TargetY;
-        Location = new Point(restX + Width + Px(24), TargetY);
+        _entry = entry;
+        _y = entry == Entry.FromTop ? TargetY - Height - Px(24) : TargetY; // drops down to its place
+        if (entry is Entry.FromTop or Entry.Fade)
+            Opacity = 0;
+        Location = new Point(HiddenX(1), (int)_y);
         Show();
         _phaseStart = _lastTick = _clock.Elapsed.TotalMilliseconds;
         _timer.Start();
@@ -205,7 +238,6 @@ public sealed class PopupForm : Form
         var dt = now - _lastTick;
         _lastTick = now;
         var t = now - _phaseStart;
-        var hidden = Width + Px(24);
 
         // Glide vertically towards the stack position.
         _y += (TargetY - _y) * (float)Math.Min(1, dt / 90);
@@ -215,7 +247,9 @@ public sealed class PopupForm : Form
         {
             case Phase.Entering:
                 var pIn = Math.Min(1, t / EnterMs);
-                x = _restX + (int)(hidden * (1 - EaseOutBack(pIn)));
+                x = HiddenX(1 - EaseOutBack(pIn));
+                if (_entry is Entry.FromTop or Entry.Fade)
+                    Opacity = Math.Min(1, pIn * 1.5);
                 if (pIn >= 1)
                 {
                     _phase = Phase.Showing;
@@ -225,7 +259,9 @@ public sealed class PopupForm : Form
 
             case Phase.Leaving:
                 var pOut = Math.Min(1, t / LeaveMs);
-                x = _restX + (int)(hidden * pOut * pOut);
+                x = HiddenX(pOut * pOut);
+                if (_entry is Entry.FromTop or Entry.Fade)
+                    Opacity = 1 - pOut;
                 if (pOut >= 1)
                 {
                     _timer.Stop();
@@ -270,6 +306,18 @@ public sealed class PopupForm : Form
             _timer.Interval = interval;
     }
 
+    /// <summary>The x on the way in or out: <paramref name="amount"/> 0 is in place, 1 fully outside its screen edge.</summary>
+    private int HiddenX(double amount)
+    {
+        var hidden = Width + Px(24);
+        return _entry switch
+        {
+            Entry.FromRight => _restX + (int)(hidden * amount),
+            Entry.FromLeft => _restX - (int)(hidden * amount),
+            _ => _restX // dropping or fading: no sideways movement
+        };
+    }
+
     private static double EaseOutBack(double p)
     {
         const double c1 = 1.2, c3 = c1 + 1;
@@ -305,10 +353,21 @@ public sealed class PopupForm : Form
             var clientHeight = TextRenderer.MeasureText("Ag", _clientFont).Height;
             _clientRect = new Rectangle(left, y, width, clientHeight);
             y += clientHeight + Px(2);
+
+            // "Mute" at the right end of the client line: no more notifications from this client (Groups → Clients).
+            if (_content.MuteTarget is not null)
+            {
+                var muteSize = TextRenderer.MeasureText(MuteLabel, _smallFont, Size.Empty, TextFormatFlags.NoPadding);
+                var muteWidth = muteSize.Width + Px(8);
+                _muteRect = new Rectangle(_clientRect.Right - muteWidth, _clientRect.Top, muteWidth, clientHeight);
+                _clientRect.Width -= muteWidth + Px(6);
+            }
+            else
+                _muteRect = Rectangle.Empty;
         }
         else
         {
-            _clientRect = Rectangle.Empty;
+            _clientRect = _muteRect = Rectangle.Empty;
         }
 
         var titleHeight = Measure(_content.Title, _titleFont, width, maxLines: 2);
@@ -349,8 +408,8 @@ public sealed class PopupForm : Form
         _takeLabel = _content.CanCatchUp ? (_palette.Terminal ? "[ catch up ]" : "Catch up") : (_palette.Terminal ? "[ take ]" : "Take it");
         _dismissLabel = _palette.Terminal ? "[ close ]" : "Close";
 
-        // Right to left: Open, Take it, Snooze (or Close), and on ticket notifications also Close (the same as ✕ and
-        // right-click). If they don't fit, slimmer buttons; if still not, no extra Close (✕ is there anyway).
+        // Right to left: Open, Take it, Snooze; Close (the same as ✕ and right-click) always at the bottom left, so it's
+        // in the same place on every notification. If they don't fit, slimmer buttons; if still not, no extra Close.
         var withDismiss = SecondButton == Result.Snooze;
         int Fit(int padding, bool dismiss) =>
             new[] { _openLabel, HasExtraButton ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
@@ -370,10 +429,11 @@ public sealed class PopupForm : Form
         var takeWidth = HasExtraButton ? WidthOf(_takeLabel) : 0;
         _takeRect = HasExtraButton ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
         var snoozeRight = HasExtraButton ? _takeRect.Left : _openRect.Left;
-        _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight) : new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
+        _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight)
+            : SecondButton == Result.Dismiss ? new Rectangle(left, y, snoozeWidth, buttonHeight) // "Close" on app messages: bottom left too
+            : new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
         var dismissWidth = withDismiss ? WidthOf(DismissLabel) : 0;
-        _dismissRect = dismissWidth == 0 ? new Rectangle(_snoozeRect.Left, y, 0, buttonHeight)
-            : new Rectangle(_snoozeRect.Left - Px(8) - dismissWidth, y, dismissWidth, buttonHeight);
+        _dismissRect = new Rectangle(left, y, dismissWidth, buttonHeight);
 
         y += buttonHeight + pad;
 
@@ -502,7 +562,18 @@ public sealed class PopupForm : Form
         var nameLeft = _clientRect.Left + labelSize.Width + Px(6);
         DrawText(g, _content.Client!, _clientFont, new Rectangle(nameLeft, _clientRect.Top, _clientRect.Right - nameLeft, nameHeight),
             _palette.Text, TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+
+        if (!_muteRect.IsEmpty)
+        {
+            // On the name's baseline, like the "Client:" label; brighter on hover.
+            var muteHeight = TextRenderer.MeasureText(g, MuteLabel, _smallFont, Size.Empty, TextFormatFlags.NoPadding).Height;
+            var muteRect = new Rectangle(_muteRect.Left, _muteRect.Bottom - muteHeight - Px(3), _muteRect.Width, muteHeight);
+            DrawText(g, MuteLabel, _smallFont, muteRect, _hoverButton == _muteRect ? _palette.Text : _palette.Muted,
+                TextFormatFlags.SingleLine | TextFormatFlags.Right);
+        }
     }
+
+    private string MuteLabel => _palette.Terminal ? "[mute ▾]" : "Mute ▾";
 
     private void PaintCursorAt(Graphics g, Point at, int lineHeight)
     {
@@ -634,13 +705,14 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        SetHover(true, new[] { _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
     }
 
     /// <summary>Hover pauses the countdown and highlights buttons; repaint only when that changes.</summary>
     private void SetHover(bool hover, Rectangle? button)
     {
+        hover |= _menuOpen;
         if (hover == _hover && button == _hoverButton)
             return;
         _hover = hover;
@@ -653,6 +725,17 @@ public sealed class PopupForm : Form
         base.OnMouseClick(e);
         if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location) || _dismissRect.Contains(e.Location))
             Dismiss(Result.Dismiss);
+        else if (_muteRect.Contains(e.Location))
+        {
+            var menu = ClientMenu.Build(_content.MuteTarget!, choice =>
+            {
+                ClientChosen?.Invoke(this, choice);
+                Dismiss(Result.Dismiss);
+            });
+            _menuOpen = true;
+            menu.Closed += (_, _) => { _menuOpen = false; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
+            menu.Show(this, new Point(_muteRect.Left, _muteRect.Bottom));
+        }
         else if (_copyRect.Contains(e.Location))
         {
             CopyClicked?.Invoke(this);

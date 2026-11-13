@@ -4,55 +4,79 @@ using ZendeskWatcher.UI.Popups;
 
 namespace ZendeskWatcher;
 
-public enum NotificationKind
-{
-    /// <summary>New unassigned tickets in a monitored group.</summary>
-    NewTicket,
-
-    /// <summary>Changes on a ticket assigned to me.</summary>
-    MyTicket,
-
-    /// <summary>"Help colleagues": a customer replied on a colleague's ticket while they're off work.</summary>
-    HelpColleague,
-
-    /// <summary>Changes on a ticket where I'm CC'd or follow (looks like <see cref="MyTicket"/>, has its own sound).</summary>
-    CcTicket
-}
-
 /// <summary>
 /// Shows notifications as custom popups (Neon dark, Terminal, Clean light) or as Windows toasts, depending on the theme.
 /// While presenting or in full screen, Windows toasts are used so nothing pops up over the screen.
 /// </summary>
-/// <summary>Where the ticket checks send notifications; the real <see cref="Notifier"/>, or a recorder in tests.</summary>
-public interface INotificationSink
-{
-    void Show(NotificationContent content);
-    void ShowMissingGroups(IReadOnlyCollection<string> names);
-}
-
 public sealed class Notifier : INotificationSink
 {
-    public const string ActionOpenTicket = "open";
-    public const string ActionOpenZendesk = "zendesk";
-    public const string ActionSignIn = "signin";
-    public const string ActionNone = "none";
-    public const string ActionInfo = "info"; // information only: the button says OK, a click just dismisses it
-    public const string ActionUpdate = "update";
-    public const string ActionTake = "take";
-    public const string ActionCatchUp = "catchup";
-    public const string ActionSettings = "settings";
-    public const string ActionCopy = "copy";
+    public const string ActionOpenTicket = NotificationActions.OpenTicket;
+    public const string ActionOpenZendesk = NotificationActions.OpenZendesk;
+    public const string ActionSignIn = NotificationActions.SignIn;
+    public const string ActionNone = NotificationActions.None;
+    public const string ActionInfo = NotificationActions.Info;
+    public const string ActionUpdate = NotificationActions.Update;
+    public const string ActionTake = NotificationActions.Take;
+    public const string ActionCatchUp = NotificationActions.CatchUp;
+    public const string ActionSettings = NotificationActions.Settings;
+    public const string ActionCopy = NotificationActions.Copy;
+    public const string ActionMuteClient = NotificationActions.MuteClient;
 
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups;
 
-    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze, OnPopupClosed, Copy) { Shown = OnShown };
+    public Notifier(Action<string, long?> onAction) =>
+        _popups = new PopupManager(onAction, Snooze, OnPopupClosed, Copy)
+        {
+            Shown = OnShown,
+            ClientChosen = (content, choice) => { if (content.IsTicketNotification) ChooseForClient(choice); } // samples: nothing to change
+        };
+
+    /// <summary>
+    /// A choice from the "Mute ▾" menu on a notification (mute, mute for a while, only urgent, important): the app
+    /// saves it for the client (Clients page).
+    /// </summary>
+    public event Action<ClientChoice>? ClientChoiceRequested;
+
+    private void ChooseForClient(ClientChoice choice)
+    {
+        Log.Info($"Client {choice.Name} ({choice.Id}) set to {choice.Mode}{(choice.IsMuted ? ", muted" : "")}{(choice.IsMuted && choice.MutedUntil is { } until ? $" until {until.ToLocalTime():yyyy-MM-dd HH:mm}" : "")} from a notification");
+        ClientChoiceRequested?.Invoke(choice);
+    }
+
+    /// <summary>"Mute client" on a Windows notification: muted for good (its other choices stay).</summary>
+    public void MuteFromToast(long id, string name, long groupId)
+    {
+        var choice = Settings.ClientChoiceFor(id)?.Copy() ?? new ClientChoice { Id = id, Name = name, GroupId = groupId };
+        choice.IsMuted = true;
+        choice.MutedUntil = null;
+        ChooseForClient(choice);
+    }
+
+    /// <summary>Counts what happened to a ticket notification, per kind and (for the Insights suggestion) per client.</summary>
+    private void Count(NotificationContent content, StatOutcome outcome)
+    {
+        Stats.Record(content.Kind, outcome);
+        if (content.ClientId is { } id && content.ClientName is { } name)
+            Stats.RecordClient(id, name, outcome);
+    }
+
+    /// <summary>Toast argument with the client of a ticket notification ("id|name"), so a click on it counts for the client too.</summary>
+    public const string StatClientArgument = "statClient";
+
+    /// <summary>A click on a Windows notification, counted like <see cref="Count"/> (the toast only knows the kind and client).</summary>
+    public void CountToastClick(NotificationKind kind, StatOutcome outcome, string? client)
+    {
+        Stats.Record(kind, outcome);
+        if (client?.Split('|', 2) is [var id, var name] && long.TryParse(id, out var clientId))
+            Stats.RecordClient(clientId, name, outcome);
+    }
 
     /// <summary>A notification appeared on screen: ticket notifications count in the statistics (snoozed repeats don't).</summary>
     private void OnShown(NotificationContent content)
     {
         if (content.IsTicketNotification && !content.IsSnoozedRepeat)
-            Stats.Record(content.Kind, StatOutcome.Shown);
+            Count(content, StatOutcome.Shown);
     }
 
     /// <summary>Recent ticket notifications by id, so "Copy" on a Windows notification knows what it said.</summary>
@@ -62,11 +86,12 @@ public sealed class Notifier : INotificationSink
     /// <summary>Copies a ticket notification for Teams and counts it. Runs on the UI thread.</summary>
     public void Copy(NotificationContent content)
     {
+        ChipSounds.Stop();
         try
         {
             TicketShare.Copy(content, content.TicketId is { } id ? Settings.TicketUrl(id) : null);
             if (content.IsTicketNotification)
-                Stats.Record(content.Kind, StatOutcome.Copied);
+                Count(content, StatOutcome.Copied);
         }
         catch (Exception ex)
         {
@@ -98,9 +123,23 @@ public sealed class Notifier : INotificationSink
 
     private void OnPopupClosed(NotificationContent content, PopupForm.Result result)
     {
-        if (content.IsTicketNotification && NotificationStats.ForPopup(result, content.ResolvedAction) is { } outcome)
-            Stats.Record(content.Kind, outcome);
+        if (result is not (PopupForm.Result.Timeout or PopupForm.Result.None))
+            ChipSounds.Stop(); // acted on: the music can stop
+        if (content.IsTicketNotification && StatForPopup(result, content.ResolvedAction) is { } outcome)
+            Count(content, outcome);
     }
+
+    /// <summary>What a closed popup means, or null if it isn't worth counting.</summary>
+    public static StatOutcome? StatForPopup(PopupForm.Result result, string action) => result switch
+    {
+        PopupForm.Result.Open when action == ActionOpenTicket => StatOutcome.OpenedTicket,
+        PopupForm.Result.Open when action == ActionOpenZendesk => StatOutcome.OpenedZendesk,
+        PopupForm.Result.Take => StatOutcome.Took,
+        PopupForm.Result.Snooze => StatOutcome.Snoozed,
+        PopupForm.Result.Dismiss => StatOutcome.Closed,
+        PopupForm.Result.Timeout => StatOutcome.TimedOut,
+        _ => null
+    };
 
     /// <summary>While paused, changes are still recorded but nothing is shown. Snoozed popups wait for the end of the pause.</summary>
     public bool Paused
@@ -342,16 +381,19 @@ public sealed class Notifier : INotificationSink
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
                 { Action = ActionSettings });
 
+    /// <summary>Shows "Mute" on samples; muting a sample does nothing (see <see cref="Mute"/>).</summary>
+    private static ClientChoice SampleClient(string name) => new() { Id = -1, Name = name };
+
     private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind switch
     {
         NotificationKind.NewTicket =>
           [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
               $"Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2")
-              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso" }],
+              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso", MuteTarget = SampleClient("Contoso") }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
               "**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
-              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone, Client = "Northwind" }],
+              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone, Client = "Northwind", MuteTarget = SampleClient("Northwind") }],
         _ =>
           [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
               "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
@@ -430,7 +472,7 @@ public sealed class Notifier : INotificationSink
         if (content.TicketId is { } id)
             builder.AddArgument("ticketId", id);
         if (content.IsTicketNotification)
-            builder.AddArgument(StatArgument, content.Kind.ToString());
+            builder.AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content));
 
         if (settings.ShowAppLogo)
             builder.AddAppLogoOverride(Logo.Value, ToastGenericAppLogoCrop.Circle);
@@ -456,7 +498,7 @@ public sealed class Notifier : INotificationSink
                 .AddArgument("action", ActionTake)
                 .AddArgument("ticketId", takeTicket);
             if (content.IsTicketNotification)
-                take.AddArgument(StatArgument, content.Kind.ToString());
+                take.AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content));
             builder.AddButton(take);
         }
 
@@ -466,7 +508,17 @@ public sealed class Notifier : INotificationSink
                 .SetContent("Copy")
                 .AddArgument("action", ActionCopy)
                 .AddArgument("copyId", RememberForCopy(content))
-                .AddArgument(StatArgument, content.Kind.ToString()));
+                .AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content)));
+        }
+
+        if (content.MuteTarget is { } mute && !mute.IsMutedAt(DateTimeOffset.UtcNow))
+        {
+            builder.AddButton(new ToastButton()
+                .SetContent("Mute client")
+                .AddArgument("action", ActionMuteClient)
+                .AddArgument("clientId", mute.Id)
+                .AddArgument("clientName", mute.Name)
+                .AddArgument("clientGroup", mute.GroupId));
         }
 
         var button = new ToastButton()
@@ -482,7 +534,7 @@ public sealed class Notifier : INotificationSink
         if (content.TicketId is { } buttonTicket)
             button.AddArgument("ticketId", buttonTicket);
         if (content.IsTicketNotification)
-            button.AddArgument(StatArgument, content.Kind.ToString());
+            button.AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content));
         builder.AddButton(button);
 
         // Windows only has short (~5 s), long (~25 s) and until dismissed.
@@ -522,10 +574,13 @@ public sealed class Notifier : INotificationSink
                     _ => null
                 };
                 if (outcome is { } o)
-                    Stats.Record(content.Kind, o);
+                    Count(content, o);
             };
         });
     }
+
+    private static string StatClient(NotificationContent content) =>
+        content.ClientId is { } id && content.ClientName is { } name ? $"{id}|{name}" : "";
 
     private static string SoundUri(ToastSound sound) => sound switch
     {

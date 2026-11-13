@@ -35,6 +35,65 @@ public static class TicketRules
         !IsTrustedStatus(statusLabel) || now - repliedAt >= grace;
 
     /// <summary>
+    /// How the ticket's client should notify right now (Clients page): Normal unless a choice was made. A ticket
+    /// without an organization is "(No client)"; a mute for a while that has run out is Normal again.
+    /// </summary>
+    public static ClientMode ClientMode(Ticket ticket, Settings settings, DateTimeOffset now) =>
+        settings.ClientChoiceFor(ticket.OrganizationId)?.ModeAt(now) ?? ZendeskWatcher.ClientMode.Normal;
+
+    /// <summary>
+    /// Not used yet (a possible "Contoso · Enterprise" label). The text after the client's name from an organization field: a dropdown's option name ("Enterprise"),
+    /// the field's title for a ticked checkbox ("VIP"), otherwise the value as written. Null when empty or none chosen.
+    /// </summary>
+    public static string? ClientLabel(Organization? org, OrganizationField? field)
+    {
+        if (field is null || org?.OrganizationFields?.GetValueOrDefault(field.Key) is not { } value)
+            return null;
+        var text = value.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.String => value.GetString(),
+            System.Text.Json.JsonValueKind.Number => value.GetRawText(),
+            System.Text.Json.JsonValueKind.True => field.Title,
+            _ => null
+        };
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        var option = field.CustomFieldOptions?.FirstOrDefault(o => string.Equals(o.Value, text, StringComparison.OrdinalIgnoreCase));
+        text = (option?.Name ?? text).Trim();
+        return text.Length > 30 ? text[..30] + "…" : text;
+    }
+
+    /// <summary>The confirmation after a choice from a notification's "Mute ▾" menu: a title and what it means.</summary>
+    public static (string Title, string Body) ClientChoiceConfirmation(ClientChoice choice, DateTimeOffset now)
+    {
+        const string where = "Change it under Settings → Groups → Clients.";
+        return choice.ModeAt(now) switch
+        {
+            ZendeskWatcher.ClientMode.Muted when choice.MutedUntil is { } until =>
+                ($"Muted {choice.Name} until {until.ToLocalTime().ToString("ddd HH:mm", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))}",
+                 $"No notifications about their new tickets or colleagues' tickets until then. Your own tickets still notify. {where}"),
+            ZendeskWatcher.ClientMode.Muted =>
+                ($"Muted {choice.Name}", $"No more notifications about their new tickets or colleagues' tickets. Your own tickets still notify. {where}"),
+            ZendeskWatcher.ClientMode.OnlyUrgent =>
+                ($"{choice.Name}: only urgent", $"Only Urgent (P1) and High (P2) new tickets and colleagues' tickets notify. {where}"),
+            ZendeskWatcher.ClientMode.Important =>
+                ($"{choice.Name} is important ★", $"Their tickets always notify, also outside your hours, and stay until you close them. {where}"),
+            _ => ($"{choice.Name}: back to normal", where)
+        };
+    }
+
+    /// <summary>
+    /// Whether a new ticket or a customer reply on a colleague's ticket from this client may notify: not when muted,
+    /// and only Urgent (P1) and High (P2) with "only urgent". Your own and CC'd tickets don't use this.
+    /// </summary>
+    public static bool IsWantedClient(Ticket ticket, ClientMode mode) => mode switch
+    {
+        ZendeskWatcher.ClientMode.Muted => false,
+        ZendeskWatcher.ClientMode.OnlyUrgent => ticket.Priority?.ToLowerInvariant() is "urgent" or "high",
+        _ => true
+    };
+
+    /// <summary>
     /// Whether a comment's author is the customer: an end-user, but not someone from your own company (an end-user
     /// with your email domain, e.g. a salesperson CC'd from their mailbox). The requester always counts as the
     /// customer, so internal tickets opened by a colleague still work. Agents and admins are never the customer.
