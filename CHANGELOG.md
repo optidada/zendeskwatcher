@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.4.4
+
+- **Tick boxes on the Groups page are clearly visible in every theme**: drawn in the theme's colors like the other lists, instead of Windows' own boxes that were faint on dark themes.
+
 ## 1.4.3
 
 - **Update checks try again sooner**: if GitHub can't be reached or is busy, the app tries again after 15 minutes (then 30, 60 … up to 6 hours) instead of the next day, and says so in plain words.
