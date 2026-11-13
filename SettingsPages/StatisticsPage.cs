@@ -29,8 +29,8 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly TableLayoutPanel _insights = new() { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
 
     public StatisticsPage(SettingsContext context)
-        : base(context, "Insights", "What's waiting right now, ticket notifications in the last 30 days, what you did with them, and " +
-            "suggestions. Counted on this PC only; nothing is sent anywhere.")
+        : base(context, "Insights", "What's waiting now, the last 30 days of ticket notifications and what you did with them, and " +
+            "suggestions. Counted on this PC only.")
     {
         var now = new Card("Right now", null, Kit.CardWidth);
         now.Body.Controls.Add(_nowStatus);

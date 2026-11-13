@@ -53,10 +53,10 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ToolTip _tips = new();
 
     public AppearancePage(SettingsContext context)
-        : base(context, "Look & sound", "How notifications look and sound. The test buttons use your current choices, even before saving.")
+        : base(context, "Look & sound", "How notifications look and sound. Try it uses your choices, even before saving.")
     {
-        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below; Windows uses Windows " +
-            "notifications. While you present or run a full-screen app, Windows notifications are always used, so nothing pops up over your screen.", Kit.CardWidth);
+        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below. While you present or use a full-screen app, " +
+            "Windows notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);
         style.Body.Controls.Add(_likeApp);
         style.Body.Controls.Add(_ownStyle);
         // Two rows of three tiles.
@@ -86,8 +86,8 @@ internal sealed class AppearancePage : SettingsPage
         _position.SelectedIndexChanged += (_, _) => UpdatePeekNote(userChoice: false);
         Panel.Controls.Add(style);
 
-        var sound = new Card("Sound", "App messages: update ready, welcome, group not found and \"Sign-in required\". Replies to " +
-            "your own clicks (e.g. \"No updates\") stay quiet. How long notifications stay: Notifications \u2192 Behavior.", Kit.CardWidth);
+        var sound = new Card("Sound", "App messages: update ready, welcome, group not found, sign-in required. " +
+            "Answers to your own clicks (e.g. \"No updates\") stay quiet.", Kit.CardWidth);
         var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface };
         AddSoundRow(grid, 0, "New tickets", _newSound);
         AddSoundRow(grid, 1, "My tickets", _mySound);
@@ -100,8 +100,8 @@ internal sealed class AppearancePage : SettingsPage
 
         var content = new Card("Content", "Replies and notes on your tickets, CC / following tickets and colleagues' tickets.", Kit.CardWidth);
         content.Body.Controls.Add(_commentText);
-        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows notifications are kept in " +
-            "the Windows notification center; notifications in Zendesk Watcher's own styles are never stored.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50); // minus the indent below
+        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows keeps its notifications in " +
+            "the notification center; Zendesk Watcher's own styles store nothing.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50); // minus the indent below
         privacy.Margin = new Padding(50, 0, 0, 0);
         content.Body.Controls.Add(privacy);
         Panel.Controls.Add(content);

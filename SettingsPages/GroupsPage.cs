@@ -95,8 +95,8 @@ internal sealed class GroupsPage : SettingsPage
         : base(context, "Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.")
     {
         var card = new Card("Monitored groups",
-            $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +
-            "Clients (below Groups in the sidebar) lists their clients, to untick the ones you don't need to hear about.", Kit.CardWidth);
+            $"The groups your account can see. \"{WatchedGroup.NoGroupName}\" covers tickets with neither a group nor an assignee. " +
+            "To leave out clients you don't need: Clients, below Groups.", Kit.CardWidth);
         _list.Columns.Add("Group");
         _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         _listHost.Size = _list.Size;

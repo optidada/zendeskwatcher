@@ -226,3 +226,19 @@ public class UnassignedTicketTests
         Assert.Contains("Gone group", _notifier.MissingGroups);
     }
 }
+
+public class TicketListTests
+{
+    [Fact]
+    public void Lists_five_tickets_then_how_many_more()
+    {
+        var tickets = Enumerable.Range(1, 7).Select(i => new ZendeskWatcher.Zendesk.Ticket { Id = i, Subject = $"Problem {i}" }).ToList();
+
+        var lines = ZendeskWatcher.Tracking.TicketWatcher.TicketList(tickets).Split('\n');
+
+        Assert.Equal(6, lines.Length);
+        Assert.Equal("#1 Problem 1", lines[0]);
+        Assert.Equal("… and 2 more", lines[^1]);
+        Assert.True(lines.Length <= ZendeskWatcher.Tracking.TicketWatcher.ListLines);
+    }
+}
