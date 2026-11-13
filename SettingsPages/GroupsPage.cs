@@ -141,6 +141,11 @@ internal sealed class GroupsPage : SettingsPage
             Find(next: true);
         };
         UseSignedOutStrip(readOnly => _list.ForeColor = readOnly ? Theme.TextMuted : Theme.Text);
+        context.SignedOutChanged += () =>
+        {
+            if (Context.SignedOut)
+                ShowCached();
+        };
         _list.ItemCheck += (_, e) =>
         {
             if (Context.SignedOut && !_suppressEvents)
@@ -182,6 +187,25 @@ internal sealed class GroupsPage : SettingsPage
         }
         SetGroups(settings.WatchedGroups.Where(g => !g.IsNoGroup).Select(g => new GroupItem(g.Id, g.Name)));
         _reload.Enabled = false;
+        if (Context.SignedOut)
+            ShowCached();
+    }
+
+    /// <summary>
+    /// Signed out: the list as last loaded (whatever its age; the strip says it may be out of date), so the whole
+    /// list shows instead of only the ticked groups. Signing in loads it again as usual.
+    /// </summary>
+    private void ShowCached()
+    {
+        if (_groupsLoaded)
+            return; // loaded in this window already: that list stays
+        var subdomain = Context.Current().Subdomain;
+        if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain) is { } saved)
+            _cache = (subdomain, saved.At, saved.Value.Groups, saved.Value.Suggestions);
+        if (_cache is not { } cache || cache.Subdomain != subdomain)
+            return;
+        _suggestions = cache.Suggestions;
+        SetGroups(WithMissing(cache.Groups));
     }
 
     /// <summary>The ticked groups as they are right now, in the order the Clients page shows them.</summary>

@@ -323,6 +323,15 @@ internal sealed class HelpColleaguesCard
                 return; // the choices or the session changed meanwhile
             loaded = groups;
         }
+        else if (_help.Checked && _context.Client is null && groupIds.Count > 0)
+        {
+            // Signed out: the members as last loaded (any age; the page says they may be out of date), read-only.
+            var subdomain = _context.Current().Subdomain;
+            if (_memberCache is null && ListCache.Load<Dictionary<long, List<Member>>>(MemberCacheName, subdomain) is { } saved)
+                _memberCache = (subdomain, saved.At, saved.Value);
+            if (_memberCache is { } cache && cache.Subdomain == subdomain)
+                loaded = cache.Groups;
+        }
         else if (version != _peopleVersion)
             return;
 
