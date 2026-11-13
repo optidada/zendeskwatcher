@@ -22,6 +22,7 @@ public sealed class SettingsForm : Form
             : null;
 
     private readonly bool _knownSignedOut;
+    private readonly User? _signedInAs;
     private readonly SettingsContext _context;
     private readonly AccountPage _account;
     private readonly GroupsPage _groups;
@@ -73,8 +74,8 @@ public sealed class SettingsForm : Form
     /// <summary>Mirrors the tray menu's update item ("Checking for updates…", "Restart to update to …").</summary>
     public void ShowUpdateState(string text, bool enabled) => _general.ShowUpdateState(text, enabled);
 
-    public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false)
-        : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0)
+    public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false, User? signedInAs = null)
+        : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0, signedInAs)
     {
     }
 
@@ -88,9 +89,10 @@ public sealed class SettingsForm : Form
         return settings;
     }
 
-    private SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut, int _)
+    private SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut, int _, User? signedInAs = null)
     {
         _knownSignedOut = knownSignedOut;
+        _signedInAs = signedInAs;
         Result = settings;
 
         SuspendLayout();
@@ -143,7 +145,7 @@ public sealed class SettingsForm : Form
             foreach (var page in _pages) CreateHandles(page.Panel);
             Theme.ApplyWindowChrome(this, Theme.Current.Dark);
         };
-        Shown += async (_, _) => await _account.OnWindowShownAsync(_knownSignedOut);
+        Shown += async (_, _) => await _account.OnWindowShownAsync(_knownSignedOut, _signedInAs);
         FormClosing += OnFormClosing;
 
         _savedSnapshot = Snapshot();

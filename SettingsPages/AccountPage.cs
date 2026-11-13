@@ -104,8 +104,16 @@ internal sealed class AccountPage : SettingsPage
     public override void Apply(Settings settings) => settings.Subdomain = Subdomain;
 
     /// <summary>The window was shown: check the session (or, when the app just found none, say so right away).</summary>
-    public async Task OnWindowShownAsync(bool knownSignedOut)
+    /// <param name="signedInAs">Who the app is checking as right now: shown at once, without asking Zendesk again.</param>
+    public async Task OnWindowShownAsync(bool knownSignedOut, User? signedInAs = null)
     {
+        if (signedInAs is { } me && Context.Current() is { IsConnectionConfigured: true } current)
+        {
+            Context.Window.ActiveControl = null;
+            await ShowSignedInAsync(current, me);
+            return;
+        }
+
         if (knownSignedOut && Context.Current() is { IsConnectionConfigured: true } connection)
         {
             // The app just found no active session; don't make the user wait for another check.
@@ -123,6 +131,36 @@ internal sealed class AccountPage : SettingsPage
             Context.Window.ActiveControl = null;
 
         await RefreshAsync();
+    }
+
+    private static string SignedInText(Settings connection, User me) =>
+        $"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}";
+
+    /// <summary>The app is checking with this account right now: signed in, groups from the saved list when it's recent.</summary>
+    private async Task ShowSignedInAsync(Settings connection, User me)
+    {
+        var key = connection.Subdomain;
+        _loadedFor = key;
+        var client = new ZendeskClient(connection, Context.SessionFactory(connection));
+        SetStatus(SignedInText(connection, me), AccountState.SignedIn);
+        Context.SetSession(client, me);
+        try
+        {
+            await _groups.LoadAsync(client, me.Id, key, force: false, stale: () => key != _loadedFor);
+        }
+        catch (AuthRequiredException)
+        {
+            SetStatus($"Not signed in to {key}.zendesk.com. Click Sign in.", AccountState.SignedOut);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Settings: could not load the groups", ex);
+            _groups.SetReloadEnabled(true);
+        }
+        finally
+        {
+            _groups.SetLoading(false);
+        }
     }
 
     /// <summary>Checks the session for the subdomain and loads the groups. Skipped if nothing changed, unless forced.</summary>
@@ -154,7 +192,7 @@ internal sealed class AccountPage : SettingsPage
             if (key != _loadedFor)
                 return; // the subdomain changed meanwhile
 
-            SetStatus($"Signed in to {connection.Subdomain}.zendesk.com as {me.Name} ({me.Email}) · {me.Role}", AccountState.SignedIn);
+            SetStatus(SignedInText(connection, me), AccountState.SignedIn);
             Context.SetSession(client, me, reload: force);
             Log.Info($"Settings: session {clock.ElapsedMilliseconds} ms");
 

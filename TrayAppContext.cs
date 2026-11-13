@@ -47,6 +47,7 @@ public sealed class TrayAppContext : ApplicationContext
     private CancellationTokenSource? _loopCts;
     private SettingsForm? _settingsForm;
     private (ZendeskClient Client, long MeId)? _taker; // set once the watcher knows who is signed in
+    private User? _me; // who the watcher is signed in as (Settings shows it without checking again)
     private bool _signInPromptShown;
     /// <summary>The start summary is shown once per app run (not again when Settings restarts checking).</summary>
     private bool _summaryShown;
@@ -281,6 +282,7 @@ public sealed class TrayAppContext : ApplicationContext
                     try { await watcher.InitializeAsync(ct); }
                     finally { _tray.EndBusy(); }
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
+                    _me = watcher.Me;
                     initialized = true;
                     // Signed in: show it right away; the first check (a few seconds) then sets green/orange.
                     _tray.SetStatus("Signed in · checking…", _tray.State == TrayState.Off ? TrayState.Ok : null);
@@ -421,7 +423,10 @@ public sealed class TrayAppContext : ApplicationContext
         // A normal (not modal) window, so notifications stay clickable while it's open. Checking keeps running with
         // the saved settings; Save applies changes right away. It only pauses while signing in or out, or while the
         // window looks at a different Zendesk account (the hidden browser is shared).
-        var form = new SettingsForm(_settings, CreateSessionForSettings, _notifier, knownSignedOut);
+        // Checking works right now: Settings shows who is signed in at once instead of asking Zendesk again.
+        var signedInAs = !knownSignedOut && _loopCts is not null && _taker is not null && WatchStatus.Latest is not null &&
+            WatchStatus.Problem is null ? _me : null;
+        var form = new SettingsForm(_settings, CreateSessionForSettings, _notifier, knownSignedOut, signedInAs);
         _settingsForm = form;
         form.Saved += saved =>
         {
