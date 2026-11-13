@@ -140,7 +140,7 @@ internal sealed class GroupsPage : SettingsPage
             e.SuppressKeyPress = true; // no beep
             Find(next: true);
         };
-        UseSignedOutStrip(readOnly => _list.ForeColor = readOnly ? Theme.TextMuted : Theme.Text);
+        UseSignedOutStrip(_ => ColorAll());
         context.SignedOutChanged += () =>
         {
             if (Context.SignedOut)
@@ -504,9 +504,25 @@ internal sealed class GroupsPage : SettingsPage
             : group.DisplayName;
         item.Checked = monitored;
         item.Group = section;
-        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
         item.Font = monitored ? Theme.BodyBold : Theme.Body;
-        item.ForeColor = group.Missing ? Theme.TextMuted : Theme.Text;
+        ColorRow(item, group, monitored);
+    }
+
+    /// <summary>Monitored rows are highlighted; signed out, every row is grey (the list can't be changed then).</summary>
+    private void ColorRow(ListViewItem item, GroupItem group, bool monitored)
+    {
+        var readOnly = Context.SignedOut;
+        item.BackColor = monitored && !readOnly ? Theme.AccentSoft : Theme.Surface;
+        item.ForeColor = group.Missing || readOnly ? Theme.TextMuted : Theme.Text;
+    }
+
+    private void ColorAll()
+    {
+        _list.BeginUpdate();
+        foreach (ListViewItem item in _list.Items)
+            if (item.Tag is GroupItem group)
+                ColorRow(item, group, item.Group == _monitoredSection);
+        _list.EndUpdate();
     }
 
     /// <summary>"Other groups" only makes sense next to monitored or suggested ones; alone it's just "Groups".</summary>
