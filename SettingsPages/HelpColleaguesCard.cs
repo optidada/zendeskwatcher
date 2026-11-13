@@ -296,25 +296,29 @@ internal sealed class HelpColleaguesCard
             if (missing.Count > 0)
             {
                 _peopleHint.Text = "Loading the group members…";
-                foreach (var id in missing)
+                // All groups at once (the app sends a few requests side by side).
+                var results = await Task.WhenAll(missing.Select(async id =>
                 {
                     try
                     {
-                        groups[id] = (await client.GetGroupMembersAsync(id, CancellationToken.None))
+                        return (Id: id, Members: (await client.GetGroupMembersAsync(id, CancellationToken.None))
                             .Where(u => u.Role != "end-user")
                             .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", TimeRegions.ZoneOf(u)))
-                            .ToList();
-                    }
-                    catch (AuthRequiredException)
-                    {
-                        failed++;
-                        break;
+                            .ToList());
                     }
                     catch (Exception ex)
                     {
-                        Log.Error($"Settings: could not load the members of group {id}", ex);
-                        failed++;
+                        if (ex is not AuthRequiredException)
+                            Log.Error($"Settings: could not load the members of group {id}", ex);
+                        return (Id: id, Members: (List<Member>?)null);
                     }
+                }));
+                foreach (var (id, members) in results)
+                {
+                    if (members is null)
+                        failed++;
+                    else
+                        groups[id] = members;
                 }
                 Log.Info($"Settings: loaded the members of {missing.Count - failed} group(s) for Help colleagues");
                 ListCache.Save(MemberCacheName, subdomain, _memberCache.Value.At, groups);

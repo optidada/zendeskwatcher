@@ -243,23 +243,27 @@ internal sealed class ClientsView
                 ShowMessage("Loading the clients of your groups…");
                 SetHint("Loading…");
                 var clock = System.Diagnostics.Stopwatch.StartNew();
-                foreach (var group in missing)
+                // All groups at once (the app sends a few requests side by side).
+                var results = await Task.WhenAll(missing.Select(async group =>
                 {
                     try
                     {
-                        cached[group.Id] = (await client.GetGroupClientsAsync(group.Id, CancellationToken.None))
-                            .Select(c => new Client(c.Id, c.Name, c.Tickets)).ToList();
-                    }
-                    catch (AuthRequiredException)
-                    {
-                        failed++;
-                        break;
+                        return (group.Id, Clients: (await client.GetGroupClientsAsync(group.Id, CancellationToken.None))
+                            .Select(c => new Client(c.Id, c.Name, c.Tickets)).ToList());
                     }
                     catch (Exception ex)
                     {
-                        Log.Error($"Settings: could not load the clients of group {group.Id}", ex);
-                        failed++;
+                        if (ex is not AuthRequiredException)
+                            Log.Error($"Settings: could not load the clients of group {group.Id}", ex);
+                        return (group.Id, Clients: (List<Client>?)null);
                     }
+                }));
+                foreach (var (id, clients) in results)
+                {
+                    if (clients is null)
+                        failed++;
+                    else
+                        cached[id] = clients;
                 }
                 Log.Info($"Settings: clients of {missing.Count - failed} group(s) in {clock.ElapsedMilliseconds} ms");
                 ListCache.Save(CacheName, subdomain, _cache.Value.At, cached);

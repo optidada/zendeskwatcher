@@ -595,8 +595,10 @@ internal sealed class GroupsPage : SettingsPage
     {
         try
         {
-            var memberOf = (await client.GetMyGroupIdsAsync(meId, CancellationToken.None)).ToHashSet();
-            var myTickets = await client.GetMyOpenTicketsAsync(CancellationToken.None);
+            var memberOfTask = client.GetMyGroupIdsAsync(meId, CancellationToken.None); // both at once
+            var myTicketsTask = client.GetMyOpenTicketsAsync(CancellationToken.None);
+            var memberOf = (await memberOfTask).ToHashSet();
+            var myTickets = await myTicketsTask;
             var ticketCounts = myTickets.Where(t => t.GroupId is not null).GroupBy(t => t.GroupId!.Value).ToDictionary(g => g.Key, g => g.Count());
 
             _suggestions = memberOf.Union(ticketCounts.Keys)

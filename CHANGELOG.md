@@ -5,6 +5,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.4.4
 
+- **Faster checks**: the parts of a check and the searches per group now run side by side (up to 4 requests at once), so notifications arrive sooner. Settings loads Clients and colleagues the same way.
 - **Settings opens much faster**: about 0.1 s instead of 0.75 s, by building each page the first time you open it; less memory while it's open.
 - **The built-in browser does less in the background**: no component updates, sync, extensions or safety lookups, which the Zendesk and Okta pages don't need.
 - **Tick boxes on the Groups page are clearly visible in every theme**: drawn in the theme's colors like the other lists, instead of Windows' own boxes that were faint on dark themes. Drop-downs match the theme too.
