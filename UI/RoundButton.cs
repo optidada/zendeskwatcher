@@ -8,6 +8,10 @@ public sealed class RoundButton : Button
 {
     private bool _hover, _down;
 
+    /// <summary>Draws a symbol instead of the text (e.g. the play triangle), in the given color and client area.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Action<Graphics, Color, Rectangle>? Glyph { get; set; }
+
     public RoundButton()
     {
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
@@ -54,8 +58,11 @@ public sealed class RoundButton : Button
             g.DrawPath(dotted, focus);
         }
 
-        TextRenderer.DrawText(g, Text, Font, ClientRectangle, text,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        if (Glyph is { } glyph)
+            glyph(g, text, ClientRectangle);
+        else
+            TextRenderer.DrawText(g, Text, Font, ClientRectangle, text,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
     }
 
     private static System.Drawing.Drawing2D.GraphicsPath Rectangle(RectangleF r)

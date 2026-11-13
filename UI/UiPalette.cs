@@ -23,6 +23,7 @@ public sealed record UiPalette(
     public static float ButtonRadiusFor(NotificationTheme theme) => theme switch
     {
         NotificationTheme.Terminal => 0,
+        NotificationTheme.Retro => 2,         // nearly square, like the old desktops
         NotificationTheme.NeonDark or NotificationTheme.CozyPurple => Pill,
         NotificationTheme.CleanLight => 8,
         NotificationTheme.WindowsNative => 4, // like Windows 11
@@ -44,6 +45,7 @@ public sealed record UiPalette(
         NotificationTheme.CozyPurple => CozyPurple,
         NotificationTheme.Optimizely => Optimizely,
         NotificationTheme.Night => Night,
+        NotificationTheme.Retro => Retro,
         _ => CleanLight
     }).Distinct() with { ButtonRadius = ButtonRadiusFor(theme) };
 
@@ -89,6 +91,14 @@ public sealed record UiPalette(
         Accent: Rgb(200, 146, 80), AccentHover: Rgb(216, 166, 102), AccentSoft: Rgb(56, 44, 32), OnAccent: Rgb(24, 20, 16),
         Success: Rgb(136, 156, 100), Warning: Rgb(212, 160, 82), Danger: Rgb(196, 98, 84), Neutral: Rgb(110, 98, 84),
         Sidebar: Rgb(15, 13, 11), SidebarHover: Rgb(36, 31, 26), SidebarText: Rgb(188, 172, 148), SidebarTitle: Rgb(222, 186, 128),
+        Dark: true);
+
+    /// <summary>Classic 80s home computer desktop: deep blue window, darker blue sidebar, white text, orange accent.</summary>
+    private static readonly UiPalette Retro = new(
+        Window: Rgb(0, 46, 108), Surface: Rgb(0, 62, 136), Border: Rgb(60, 118, 190), Text: Rgb(255, 255, 255), TextMuted: Rgb(176, 204, 238),
+        Accent: Rgb(255, 136, 0), AccentHover: Rgb(255, 160, 50), AccentSoft: Rgb(20, 88, 168), OnAccent: Rgb(0, 30, 70),
+        Success: Rgb(150, 220, 150), Warning: Rgb(255, 200, 80), Danger: Rgb(255, 92, 92), Neutral: Rgb(110, 150, 205),
+        Sidebar: Rgb(0, 32, 80), SidebarHover: Rgb(0, 62, 136), SidebarText: Rgb(200, 220, 245), SidebarTitle: Rgb(255, 136, 0),
         Dark: true);
 
     /// <summary>Follows the Windows light/dark app mode and accent color.</summary>

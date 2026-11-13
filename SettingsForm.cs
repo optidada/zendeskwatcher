@@ -28,6 +28,8 @@ public sealed class SettingsForm : Form
 
     private readonly Button _save = Theme.PrimaryButton("Save");
     private readonly Button _close = Theme.SecondaryButton("Close");
+    private readonly Button _saveAndClose = Theme.SecondaryButton("Save & Close");
+    private readonly Button _discard = Theme.SecondaryButton("Discard");
     private readonly Label _saveState = Theme.Label("", Theme.Small, Theme.TextMuted);
     private readonly Panel _content = new RepaintOnScrollPanel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(32, 26, 20, 10), BackColor = Theme.Window };
     private bool _loading = true;
@@ -188,13 +190,17 @@ public sealed class SettingsForm : Form
 
         _save.Click += (_, _) => Save();
         _close.Click += (_, _) => Close();
+        _saveAndClose.Click += (_, _) => { if (Save()) Close(); };
+        _discard.Click += (_, _) => Discard();
         AcceptButton = _save;
-        CancelButton = _close;
 
+        // With unsaved changes: Discard · Save & Close · Save. Without: Close. (Esc closes either way, asking first.)
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, BackColor = Theme.Surface };
         _close.Margin = Padding.Empty;
         buttons.Controls.Add(_close);
         buttons.Controls.Add(_save);
+        buttons.Controls.Add(_saveAndClose);
+        buttons.Controls.Add(_discard);
 
         _saveState.Dock = DockStyle.Left;
         _saveState.Padding = new Padding(0, 9, 0, 0);
@@ -286,7 +292,8 @@ public sealed class SettingsForm : Form
 
         var dirty = HasUnsavedChanges;
         _save.Enabled = dirty;
-        _save.Visible = dirty; // only offered when there's something to save (a disabled flat button still looks clickable)
+        _save.Visible = _saveAndClose.Visible = _discard.Visible = dirty; // only offered when there's something to save
+        _close.Visible = !dirty;
         if (dirty)
         {
             _saveState.Text = "Unsaved changes";
@@ -330,6 +337,30 @@ public sealed class SettingsForm : Form
         Log.Info("Settings saved");
         Saved?.Invoke(result);
         return true;
+    }
+
+    /// <summary>Back to the saved settings on every page (and the saved app theme); the window stays open.</summary>
+    private void Discard()
+    {
+        _loading = true;
+        foreach (var page in _pages)
+            page.Load(Result);
+        _loading = false;
+        _saveState.Text = "Changes discarded";
+        _saveState.ForeColor = Theme.TextMuted;
+        Log.Info("Settings: unsaved changes discarded");
+        UpdateSaveState();
+    }
+
+    /// <summary>Esc closes the window (asking about unsaved changes), whichever buttons are showing.</summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.Escape)
+        {
+            Close();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
     }
 
     /// <summary>

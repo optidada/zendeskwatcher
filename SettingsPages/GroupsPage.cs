@@ -40,6 +40,19 @@ internal sealed class GroupsPage : SettingsPage
         Font = Theme.Body, ForeColor = Theme.TextMuted, BackColor = Theme.Surface, Visible = false
     };
     private readonly Panel _listHost = new() { BackColor = Theme.Surface };
+    private readonly ThinScrollBar _scrollBar = new() { BackColor = Theme.Surface };
+
+    private void LayoutList()
+    {
+        var s = _listHost.DeviceDpi / 96f;
+        var bar = (int)(10 * s);
+        _scrollBar.Bounds = new Rectangle(_listHost.Width - bar, 0, bar, _listHost.Height);
+        _list.VisibleWidth = _listHost.Width - bar - (int)(4 * s); // the column stops before the themed bar: no sideways scrolling
+        _list.Bounds = new Rectangle(0, 0, _listHost.Width - bar + SystemInformation.GetVerticalScrollBarWidthForDpi(_listHost.DeviceDpi), _listHost.Height);
+        _scrollBar.BringToFront();
+        _loading.BringToFront();
+    }
+
     private readonly ListViewGroup _monitoredSection = new("Monitored");
     private readonly ListViewGroup _suggestedSection = new("Suggested");
     private readonly ListViewGroup _otherSection = new("Other groups");
@@ -79,9 +92,17 @@ internal sealed class GroupsPage : SettingsPage
         _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         _listHost.Size = _list.Size;
         _listHost.Margin = _list.Margin;
-        _list.Dock = DockStyle.Fill;
         _listHost.Controls.Add(_loading); // overlay, shown while loading
+        _listHost.Controls.Add(_scrollBar);
         _listHost.Controls.Add(_list);
+
+        // Windows' scrollbar only comes in light or dark gray, which clashes with colored themes: the list is made
+        // wider than its host so that one is cut off, and a thin themed scrollbar sits at the right edge instead.
+        _scrollBar.State = _list.VerticalScrollState;
+        _scrollBar.ScrollTo = _list.ScrollToPosition;
+        _list.ScrollChanged += () => _scrollBar.Invalidate();
+        _listHost.Resize += (_, _) => LayoutList();
+        LayoutList();
         card.Body.Controls.Add(_filter);
         card.Body.Controls.Add(_listHost);
 

@@ -3,6 +3,16 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.14
+
+- **Three new chiptune songs** with an Amiga feel: Quest, Turbo and Starfield (6–8 seconds). Sounds are now grouped: Silent first, then Normal, Retro (short blips) and Nostalgic (songs).
+- **Retro**: a new theme in deep blue, white and orange, like a classic 80s home computer. All themes now fit on two rows.
+- **The tray menu follows the app theme**, with more room between the lines.
+- **Save, Discard and Save & Close** at the bottom of Settings when something has changed; just Close otherwise.
+- The Groups list has a thin scrollbar and check boxes in the theme's colors.
+- Insights only counts notifications that actually appeared: ones dropped while waiting (no longer needed) don't count.
+- Fixed: input boxes (group filter, Zendesk address) had a gap in their right border at 125% display scaling; the ▶ sound buttons look the same in every theme.
+
 ## 1.3.13
 
 - **Client first**: ticket notifications show "Client: Contoso" large and bold, and the priority moved into the top line ("NEW TICKET · P2 · SUPPORT TIER 2"). Names of people who replied are bold.

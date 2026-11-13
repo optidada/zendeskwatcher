@@ -6,16 +6,19 @@ namespace ZendeskWatcher.SettingsPages;
 /// <summary>Appearance: popup style and position, sound and display time per kind, and test notifications.</summary>
 internal sealed class AppearancePage : SettingsPage
 {
+    // Silent first, then by kind: Normal (Windows sounds), Retro (short chiptune blips), Nostalgic (chiptune songs, 4–8 s).
     private static readonly Option<ToastSound>[] SoundOptions =
     [
-        new(ToastSound.Default, "Default"), new(ToastSound.Mail, "Mail"), new(ToastSound.InstantMessage, "Instant message"),
-        new(ToastSound.Reminder, "Reminder"), new(ToastSound.Sms, "SMS"),
-        new(ToastSound.ChipBlip, "Chiptune: Blip"), new(ToastSound.ChipArpeggio, "Chiptune: Arpeggio"),
-        new(ToastSound.ChipBounce, "Chiptune: Bounce"), new(ToastSound.ChipAlert, "Chiptune: Alert"),
-        new(ToastSound.ChipFanfare, "Chiptune: Fanfare"),
-        new(ToastSound.SongBouncy, "Chiptune song: Bouncy"), new(ToastSound.SongGroove, "Chiptune song: Groove"),
-        new(ToastSound.SongCelebration, "Chiptune song: Celebration"),
-        new(ToastSound.Silent, "Silent")
+        new(ToastSound.Silent, "Silent"),
+        new(ToastSound.Default, "Normal – Default"), new(ToastSound.Mail, "Normal – Mail"), new(ToastSound.InstantMessage, "Normal – Instant message"),
+        new(ToastSound.Reminder, "Normal – Reminder"), new(ToastSound.Sms, "Normal – SMS"),
+        new(ToastSound.ChipBlip, "Retro – Blip"), new(ToastSound.ChipArpeggio, "Retro – Arpeggio"),
+        new(ToastSound.ChipBounce, "Retro – Bounce"), new(ToastSound.ChipAlert, "Retro – Alert"),
+        new(ToastSound.ChipFanfare, "Retro – Fanfare"),
+        new(ToastSound.SongBouncy, "Nostalgic – Bouncy"), new(ToastSound.SongGroove, "Nostalgic – Groove"),
+        new(ToastSound.SongCelebration, "Nostalgic – Celebration"),
+        new(ToastSound.SongQuest, "Nostalgic – Quest"), new(ToastSound.SongTurbo, "Nostalgic – Turbo"),
+        new(ToastSound.SongStarfield, "Nostalgic – Starfield")
     ];
 
     private static readonly Option<ToastDisplay>[] DisplayOptions =
@@ -27,7 +30,7 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ThemeTile[] _themeTiles =
     [
         new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
-        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"), new(NotificationTheme.Night, "Night"),
+        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"), new(NotificationTheme.Night, "Night"), new(NotificationTheme.Retro, "Retro"),
         new(NotificationTheme.WindowsNative, "Windows")
     ];
     private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme (General page)");
@@ -199,19 +202,29 @@ internal sealed class AppearancePage : SettingsPage
     {
         var text = Theme.Label(label);
         text.Anchor = AnchorStyles.Left;
-        text.Margin = new Padding(0, 4, 20, 4);
-        sound.Width = display.Width = 160;
+        text.Margin = new Padding(0, 4, 10, 4);
+        sound.Width = 182; // fits "Nostalgic – Celebration"
+        display.Width = 150;
         sound.Margin = new Padding(0, 3, 4, 3);
 
         // ▶ plays the selected sound, without showing a notification.
-        var play = Theme.SecondaryButton("▶");
+        // The triangle is drawn, not a ▶ character: fonts draw that one differently (emoji, off-center) per theme.
+        var play = Theme.SecondaryButton("");
         play.AutoSize = false;
         play.MinimumSize = Size.Empty;
         play.Padding = Padding.Empty;
-        play.Font = new Font("Segoe UI Symbol", 9f);
         play.Size = new Size(32, sound.Height);
+        if (play is RoundButton round)
+            round.Glyph = (g, color, area) =>
+            {
+                var s = play.DeviceDpi / 96f;
+                float cx = area.Width / 2f + 1 * s, cy = area.Height / 2f, h = 5f * s;
+                using var brush = new SolidBrush(color);
+                g.FillPolygon(brush, new[] { new PointF(cx - h * 0.8f, cy - h), new PointF(cx - h * 0.8f, cy + h), new PointF(cx + h, cy) });
+            };
         play.Margin = new Padding(0, 3, 10, 3);
-        play.Anchor = AnchorStyles.Left;
+        play.Anchor = AnchorStyles.Left | AnchorStyles.Top; // level with the dropdown next to it, and as tall
+        sound.SizeChanged += (_, _) => play.Height = sound.Height;
         _tips.SetToolTip(play, "Play this sound");
         play.Click += (_, _) => PopupManager.PlaySound(Kit.Selected<ToastSound>(sound));
 

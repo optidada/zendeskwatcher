@@ -38,6 +38,7 @@ public sealed class PopupPalette
         NotificationTheme.CozyPurple => CozyPurple,
         NotificationTheme.Optimizely => Optimizely,
         NotificationTheme.Night => Night,
+        NotificationTheme.Retro => Retro,
         _ => NeonDark
     };
 
@@ -146,6 +147,33 @@ public sealed class PopupPalette
             "high" => Color.FromArgb(200, 146, 80),    // amber
             "low" => Color.FromArgb(136, 146, 108),    // olive
             _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(178, 140, 122) : Color.FromArgb(170, 152, 112) // dusty rose, sand
+        }
+    };
+
+    /// <summary>
+    /// Classic 80s home computer desktop: deep blue, crisp white text, orange accents, nearly square corners. Priority
+    /// colors in the same bold, flat style. Goes with the chiptune sounds.
+    /// </summary>
+    public static readonly PopupPalette Retro = new()
+    {
+        ButtonRadius = UiPalette.ButtonRadiusFor(NotificationTheme.Retro),
+        Name = "Retro",
+        Background = Color.FromArgb(0, 62, 136),
+        BackgroundEnd = Color.FromArgb(0, 46, 108),
+        Border = Color.FromArgb(70, 130, 200),
+        Text = Color.FromArgb(255, 255, 255),
+        Muted = Color.FromArgb(176, 204, 238),
+        OnAccent = Color.FromArgb(0, 30, 70),
+        FontFamily = "Segoe UI",
+        Stripe = true,
+        Dark = true,
+        Glow = false,
+        Accent = (priority, kind) => priority switch
+        {
+            "urgent" => Color.FromArgb(255, 92, 92),    // red
+            "high" => Color.FromArgb(255, 136, 0),      // the classic orange
+            "low" => Color.FromArgb(150, 220, 150),     // soft green
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(255, 200, 80) : Color.FromArgb(120, 200, 255) // yellow, sky blue
         }
     };
 

@@ -18,6 +18,9 @@ public sealed class PopupManager
 
     private sealed record Waiting(NotificationContent Content, Settings Settings, DateTime Since);
 
+    /// <summary>A notification really appeared (not when it only joins the line; dropped ones never do).</summary>
+    public Action<NotificationContent>? Shown { get; set; }
+
     /// <summary>Which of these notifications are still needed (bool: also read the ticket's changes). Set by the notifier.</summary>
     public Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? StillNeeded { get; set; }
     private readonly Action<string, long?> _onAction;
@@ -74,6 +77,7 @@ public sealed class PopupManager
         var restX = screen.WorkingArea.Right - popup.Width - (int)(16 * scale);
         Layout(settings.Position, scale);
         popup.Present(restX);
+        Shown?.Invoke(content);
 
         PlaySound(style.Sound);
     }

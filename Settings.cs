@@ -296,7 +296,7 @@ public sealed class NotificationStyle
 
 /// <summary>Windows sounds, then chiptune jingles (added last: settings store the number).</summary>
 public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent, ChipBlip, ChipArpeggio, ChipBounce, ChipAlert, ChipFanfare,
-    SongBouncy, SongGroove, SongCelebration }
+    SongBouncy, SongGroove, SongCelebration, SongQuest, SongTurbo, SongStarfield }
 
 public enum SnoozeBehavior
 {
@@ -338,7 +338,10 @@ public enum NotificationTheme
     Optimizely,
 
     /// <summary>For late evenings: warm near-black, dimmed cream text, muted colors, no glow. (Added last: settings store the number.)</summary>
-    Night
+    Night,
+
+    /// <summary>Classic 80s home computer: deep blue, white text, orange accents. (Added last: settings store the number.)</summary>
+    Retro
 }
 
 public enum PopupPosition { BottomRight, TopRight }

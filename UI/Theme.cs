@@ -456,12 +456,24 @@ public sealed class InputBox : Panel
         Invalidate();
     }
 
+    // Also after layout: when Windows scales the window (e.g. 125%), it stretches the inner box after OnResize,
+    // which made it cover the right border.
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        base.OnLayout(levent);
+        LayoutBox();
+    }
+
     private void LayoutBox()
     {
         if (Box is null)
             return;
-        var left = PadX + (_searchIcon ? IconSpace : 0);
-        Box.SetBounds(left, (Height - Box.PreferredHeight) / 2, Math.Max(10, Width - left - PadX), Box.PreferredHeight);
+        var s = DeviceDpi / 96f;
+        var left = (int)((PadX + (_searchIcon ? IconSpace : 0)) * s);
+        var right = (int)(PadX * s);
+        var bounds = new Rectangle(left, (Height - Box.PreferredHeight) / 2, Math.Max(10, Width - left - right), Box.PreferredHeight);
+        if (Box.Bounds != bounds)
+            Box.Bounds = bounds;
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -549,8 +561,18 @@ public sealed class SmoothListView : ListView
     public void FitColumn()
     {
         if (Columns.Count == 1)
-            Columns[0].Width = Math.Max(50, ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
+            Columns[0].Width = Math.Max(50, VisibleWidth is { } visible ? visible : ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
     }
+
+    /// <summary>When the list is wider than what shows (its own scrollbar cut off): the width the column fits in.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int? VisibleWidth
+    {
+        get => _visibleWidth;
+        set { _visibleWidth = value; FitColumn(); }
+    }
+
+    private int? _visibleWidth;
 
     protected override void OnHandleCreated(EventArgs e)
     {
@@ -563,6 +585,113 @@ public sealed class SmoothListView : ListView
         base.OnResize(e);
         FitColumn();
     }
+
+    // ---- For a themed scrollbar (ThinScrollBar) instead of the Windows one, and themed check boxes.
+
+    /// <summary>The list scrolled (or its content changed so the scroll range did).</summary>
+    public event Action? ScrollChanged;
+
+    private (int, int, int, int)? _lastScroll;
+    private UiPalette? _checksFor;
+
+    /// <summary>Vertical scroll range, page and position (pixels in group view); null without a handle.</summary>
+    public (int Min, int Max, int Page, int Pos)? VerticalScrollState()
+    {
+        if (!IsHandleCreated)
+            return null;
+        var info = new SCROLLINFO { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<SCROLLINFO>(), fMask = 0x17 /* SIF_ALL */ };
+        if (!GetScrollInfo(Handle, 1 /* SB_VERT */, ref info))
+            return (0, 0, 0, 0); // no scrollbar: nothing to scroll
+        return (info.nMin, info.nMax, (int)info.nPage, info.nPos);
+    }
+
+    public void ScrollToPosition(int position)
+    {
+        if (VerticalScrollState() is not { } s)
+            return;
+        var target = Math.Clamp(position, s.Min, Math.Max(s.Min, s.Max - s.Page + 1));
+        if (target != s.Pos)
+            SendMessage(Handle, 0x1014 /* LVM_SCROLL */, IntPtr.Zero, target - s.Pos);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        // Check boxes in the theme's colors (Windows draws blue ones); rebuilt when the theme changes.
+        if (m.Msg == 0x000F /* WM_PAINT */ && CheckBoxes && !ReferenceEquals(_checksFor, Theme.Current))
+        {
+            _checksFor = Theme.Current;
+            BeginInvoke(BuildCheckImages); // not while painting
+        }
+
+        base.WndProc(ref m);
+
+        // Every way of scrolling ends in a repaint, so that's where the scrollbar learns about it.
+        if (m.Msg is 0x000F or 0x0115 /* WM_VSCROLL */ or 0x020A /* WM_MOUSEWHEEL */)
+        {
+            var state = VerticalScrollState();
+            var key = state is { } s ? (s.Min, s.Max, s.Page, s.Pos) : ((int, int, int, int)?)null;
+            if (key != _lastScroll)
+            {
+                _lastScroll = key;
+                ScrollChanged?.Invoke();
+            }
+        }
+    }
+
+    private void BuildCheckImages()
+    {
+        var s = DeviceDpi / 96f;
+        var size = (int)Math.Round(16 * s);
+        var images = new ImageList { ImageSize = new Size(size, size), ColorDepth = ColorDepth.Depth32Bit };
+        images.Images.Add(CheckImage(size, s, false));
+        images.Images.Add(CheckImage(size, s, true));
+        var old = StateImageList;
+        StateImageList = images;
+        old?.Dispose();
+    }
+
+    /// <summary>The same look as <see cref="ThemedCheckBox"/>: an accent box with a tick, or a neutral outline.</summary>
+    private static Bitmap CheckImage(int size, float s, bool isChecked)
+    {
+        var bitmap = new Bitmap(size, size);
+        using var g = Graphics.FromImage(bitmap);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var box = new RectangleF(1.5f * s, 1.5f * s, size - 3.5f * s, size - 3.5f * s);
+        using var path = RoundedRect(box, 2.5f * s);
+        if (isChecked)
+        {
+            using var fill = new SolidBrush(Theme.Accent);
+            g.FillPath(fill, path);
+            using var tick = new Pen(Theme.OnAccent, 1.8f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            var u = box.Width / 13f;
+            g.DrawLines(tick, [
+                new PointF(box.X + 3 * u, box.Y + 6.8f * u), new PointF(box.X + 5.6f * u, box.Y + 9.3f * u), new PointF(box.X + 10 * u, box.Y + 4 * u)
+            ]);
+        }
+        else
+        {
+            using var border = new Pen(Theme.Neutral, 1.2f * s);
+            g.DrawPath(border, path);
+        }
+        return bitmap;
+    }
+
+    private static GraphicsPath RoundedRect(RectangleF r, float radius) => Theme.RoundedRect(r, radius);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct SCROLLINFO
+    {
+        public uint cbSize, fMask;
+        public int nMin, nMax;
+        public uint nPage;
+        public int nPos, nTrackPos;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetScrollInfo(IntPtr hwnd, int bar, ref SCROLLINFO info);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, int lParam);
 }
 
 /// <summary>A selectable tile with a miniature preview of a notification theme.</summary>
@@ -578,8 +707,8 @@ public sealed class ThemeTile : Control
         Value = value;
         Text = label;
         Font = Theme.Small;
-        Size = new Size(124, 104);   // three per row
-        Margin = new Padding(0, 0, 10, 10);
+        Size = new Size(112, 94);    // four per row: all themes on two rows
+        Margin = new Padding(0, 0, 8, 8);
         Cursor = Cursors.Hand;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
     }
@@ -609,13 +738,13 @@ public sealed class ThemeTile : Control
             g.DrawPath(pen, path);
 
         // Miniature popup
-        var mini = new RectangleF(10 * s, 10 * s, Width - 20 * s, 54 * s);
+        var mini = new RectangleF(8 * s, 8 * s, Width - 16 * s, 50 * s);
         if (Value == NotificationTheme.WindowsNative)
             PaintNative(g, mini, s);
         else
             PaintCustom(g, mini, s, ZendeskWatcher.UI.Popups.PopupPalette.For(Value));
 
-        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(70 * s), Width, (int)(26 * s)),
+        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(62 * s), Width, (int)(26 * s)),
             Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
 
         // Not in use (e.g. notifications follow the app theme): dimmed.

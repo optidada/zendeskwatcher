@@ -45,7 +45,14 @@ public sealed class Notifier : INotificationSink
     private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups;
 
-    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze, OnPopupClosed, Copy);
+    public Notifier(Action<string, long?> onAction) => _popups = new PopupManager(onAction, Snooze, OnPopupClosed, Copy) { Shown = OnShown };
+
+    /// <summary>A notification appeared on screen: ticket notifications count in the statistics (snoozed repeats don't).</summary>
+    private void OnShown(NotificationContent content)
+    {
+        if (content.IsTicketNotification && !content.IsSnoozedRepeat)
+            Stats.Record(content.Kind, StatOutcome.Shown);
+    }
 
     /// <summary>Recent ticket notifications by id, so "Copy" on a Windows notification knows what it said.</summary>
     private readonly Dictionary<string, NotificationContent> _copyable = [];
@@ -367,12 +374,15 @@ public sealed class Notifier : INotificationSink
 
         try
         {
-            if (content.IsTicketNotification && !content.IsSnoozedRepeat)
-                Stats.Record(content.Kind, StatOutcome.Shown);
+            // Counted as shown once it's really on screen: a notification that waits in line and is dropped
+            // (no longer needed) never counts. The popup manager calls OnShown when it appears.
             if (settings.ActiveNotificationTheme != NotificationTheme.WindowsNative && PopupManager.CanShowPopups())
                 _popups.Show(content, settings);
             else
+            {
                 ShowToast(content, settings);
+                OnShown(content);
+            }
         }
         catch (Exception ex)
         {

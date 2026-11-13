@@ -59,6 +59,14 @@ internal static class Program
             return;
         }
 
+        // Developer helper: the tray menu in each app theme (--render-menu <dir>), then exit.
+        if (args.Length >= 2 && args[0] == "--render-menu")
+        {
+            ApplicationConfiguration.Initialize();
+            UI.ThemedMenu.RenderSamples(args[1]);
+            return;
+        }
+
         // Developer helper: CPU use of an idle Settings page (--measure-settings <page> <seconds> <file>), then exit.
         if (args.Length >= 4 && args[0] == "--measure-settings")
         {

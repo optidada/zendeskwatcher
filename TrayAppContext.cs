@@ -55,6 +55,9 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
+        // In the app theme's colors, taken each time it opens (the theme may have changed in Settings).
+        menu.Opening += (_, _) => ThemedMenu.Apply(menu, UiPalette.For(_settings.AppTheme));
+
         _tray = new TrayIcon(menu, _statusItem, _ui);
         _tray.DoubleClick += (_, _) => ShowSettings();
 

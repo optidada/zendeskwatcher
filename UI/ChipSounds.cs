@@ -48,6 +48,22 @@ public static class ChipSounds
         return notes.Select(n => new Note(n.Midi, n.Steps * step, duty, null, decay)).ToArray();
     }
 
+    /// <summary>
+    /// A tracker "chord channel": one note per chord, cycling through the chord tones every tick (the classic Amiga
+    /// arpeggio shimmer). (root, chord offsets, steps).
+    /// </summary>
+    private static Note[] Chords(int bpm, double decay, params (int Root, int[] Arp, int Steps)[] chords)
+    {
+        var step = 60000 / bpm / 4;
+        return chords.Select(c => new Note(c.Root, c.Steps * step, 0.5, c.Arp, decay)).ToArray();
+    }
+
+    private static readonly int[] Minor = [0, 3, 7, 12];
+    private static readonly int[] Major = [0, 4, 7, 12];
+
+    /// <summary>Songs with a tracker-style echo (a delayed, quieter copy), for a roomier Amiga sound.</summary>
+    private static readonly HashSet<ToastSound> EchoSongs = [ToastSound.SongQuest, ToastSound.SongTurbo, ToastSound.SongStarfield];
+
     private static Note[] Jingle(ToastSound sound) => sound switch
     {
         // Two quick rising blips: light, for frequent notifications.
@@ -106,6 +122,58 @@ public static class ChipSounds
                 (41, 12)), 0.55)
           ], 150, "k.h.k.h.s.h.k.h.k.h.k.h.s.s.s.s.k...........")
         ,
+
+        // Epic minor-key adventure anthem (Dm – Bb – C – A), ending on a bright A major lift. ~7.5 s.
+        ToastSound.SongQuest => ([
+            new Voice(Steps(128, 0.25, 1.6,
+                (74, 3), (76, 1), (77, 4), (76, 2), (74, 2), (72, 2), (69, 2),
+                (70, 2), (74, 2), (77, 4), (79, 2), (77, 2), (74, 4),
+                (72, 2), (76, 2), (79, 4), (81, 2), (79, 2), (76, 2), (72, 2),
+                (73, 2), (76, 2), (79, 2), (81, 10)), 1.0),
+            new Voice(Chords(128, 0.7, (62, Minor, 16), (58, Major, 16), (60, Major, 16), (57, Major, 16)), 0.32),
+            new Voice(Steps(128, 0.5, 3.0,
+                (38, 2), (50, 2), (38, 2), (50, 2), (38, 2), (50, 2), (38, 2), (50, 2),
+                (34, 2), (46, 2), (34, 2), (46, 2), (34, 2), (46, 2), (34, 2), (46, 2),
+                (36, 2), (48, 2), (36, 2), (48, 2), (36, 2), (48, 2), (36, 2), (48, 2),
+                (33, 2), (45, 2), (33, 2), (45, 2), (33, 8)), 0.55)
+          ], 128, "k.h.s.h.k.k.s.h.k.h.s.h.k.k.s.h.k.h.s.h.k.k.s.h.k.h.s.h.k.hssss"),
+
+        // Fast racing tune in E minor (Em – C – D – B) with a driving 16th-note bass. ~7 s.
+        ToastSound.SongTurbo => ([
+            new Voice(Steps(160, 0.25, 1.8,
+                (76, 1), (79, 1), (83, 2), (81, 1), (79, 1), (76, 2), (78, 1), (79, 1), (81, 2), (83, 4),
+                (84, 2), (83, 1), (81, 1), (79, 2), (76, 2), (79, 1), (81, 1), (83, 2), (84, 4),
+                (86, 2), (84, 1), (83, 1), (81, 2), (78, 2), (81, 1), (83, 1), (86, 2), (90, 4),
+                (87, 2), (86, 1), (87, 1), (90, 2), (87, 2), (83, 2), (87, 2), (90, 4),
+                (88, 8)), 1.0),
+            new Voice([new Note(0, 60000 / 160 / 4 * 64), new Note(76, 900, 0.5, Minor, 1.3)], 0.5),
+            new Voice(Steps(160, 0.5, 2.5,
+                (40, 1), (52, 1), (40, 1), (52, 1), (40, 1), (52, 1), (40, 1), (52, 1),
+                (40, 1), (52, 1), (40, 1), (52, 1), (40, 1), (52, 1), (40, 1), (52, 1),
+                (36, 1), (48, 1), (36, 1), (48, 1), (36, 1), (48, 1), (36, 1), (48, 1),
+                (36, 1), (48, 1), (36, 1), (48, 1), (36, 1), (48, 1), (36, 1), (48, 1),
+                (38, 1), (50, 1), (38, 1), (50, 1), (38, 1), (50, 1), (38, 1), (50, 1),
+                (38, 1), (50, 1), (38, 1), (50, 1), (38, 1), (50, 1), (38, 1), (50, 1),
+                (35, 1), (47, 1), (35, 1), (47, 1), (35, 1), (47, 1), (35, 1), (47, 1),
+                (35, 2), (47, 2), (35, 2), (47, 2),
+                (40, 8)), 0.5)
+          ], 160, "k.hhs.hhk.hks.hhk.hhs.hhk.hks.hhk.hhs.hhk.hks.hhk.hhs.hhs.s.ssssk......."),
+
+        // Dreamy space adventure: shimmering chord arpeggios under a thin, singing lead (Am – F – C – G – F – G – C). ~7 s.
+        ToastSound.SongStarfield => ([
+            new Voice(Steps(112, 0.125, 1.0,
+                (76, 4), (74, 2), (72, 2),
+                (72, 6), (69, 2),
+                (67, 2), (72, 2), (76, 4),
+                (74, 6), (71, 2),
+                (72, 2), (74, 2), (77, 4),
+                (79, 4), (83, 4),
+                (84, 4)), 1.0),
+            new Voice(Chords(112, 0.5, (69, Minor, 8), (65, Major, 8), (72, Major, 8), (67, Major, 8), (65, Major, 8), (67, Major, 8), (72, Major, 6)), 0.38),
+            new Voice(Steps(112, 0.5, 2.5,
+                (45, 4), (57, 2), (45, 2), (41, 4), (53, 2), (41, 2), (48, 4), (60, 2), (48, 2), (43, 4), (55, 2), (43, 2),
+                (41, 4), (53, 2), (41, 2), (43, 4), (55, 2), (43, 2), (48, 6)), 0.5)
+          ], 112, "k...h...s...h...k...h...s...h...k...h...s...h.h.k..."),
         _ => null
     };
 
@@ -121,6 +189,8 @@ public static class ChipSounds
             foreach (var voice in song.Voices)
                 AddVoice(mix, voice.Notes, voice.Level);
             AddDrums(mix, song.Drums, 60.0 / song.Bpm / 4);
+            if (EchoSongs.Contains(sound))
+                AddEcho(mix, (int)(SampleRate * 60.0 / song.Bpm / 4 * 3), 0.3); // three 16ths later, quieter
         }
         else
         {
@@ -142,6 +212,13 @@ public static class ChipSounds
         for (var i = 0; i < mix.Length; i++)
             output[i] = (float)(mix[i] / peak * 0.3);
         return output;
+    }
+
+    /// <summary>Feedback echo: each sample comes back <paramref name="delay"/> samples later at <paramref name="feedback"/> strength.</summary>
+    private static void AddEcho(double[] mix, int delay, double feedback)
+    {
+        for (var i = delay; i < mix.Length; i++)
+            mix[i] += mix[i - delay] * feedback;
     }
 
     private static void AddVoice(double[] mix, Note[] notes, double level)
