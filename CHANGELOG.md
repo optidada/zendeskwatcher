@@ -9,6 +9,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - **Send feedback attaches your log**: one zip with the log, settings and app details. Classic Outlook attaches it for you; with other mail apps the zip is shown, ready to drag into the email. Nothing is sent without you seeing it.
 - **Clear customizations** on the Clients page puts every client back to normal in one go.
 - **Check now works every time**: it could be swallowed and only happen at the next regular check (Catch up too). Check now and Catch up are greyed out in the tray menu while the app isn't checking.
+- **Discard no longer signs you out** of Settings: the Account page said "Not signed in" afterwards and Groups and Clients couldn't reload until the window was reopened.
 - **While signed out**, Groups, Clients and Colleagues say so, with a Sign in link, and their lists can't be changed until your session works again (they may be out of date).
 
 ## 1.4.0

@@ -47,15 +47,21 @@ public static class FeedbackPackage
         : "not started yet (not signed in, or still starting)";
 
     /// <summary>
-    /// Writes ZendeskWatcher-feedback.zip into a fresh folder under Temp (replacing an older one) and returns its path.
+    /// Writes ZendeskWatcher-feedback-(date and time).zip into a folder under Temp (removing older ones) and returns its path.
     /// Files that are in use (the log) are read with sharing, so this works while the app is writing to them.
     /// </summary>
     public static string CreateZip(string version, string system, string? folder = null)
     {
         folder ??= Path.Combine(Path.GetTempPath(), "ZendeskWatcher-feedback");
         Directory.CreateDirectory(folder);
-        var zipPath = Path.Combine(folder, "ZendeskWatcher-feedback.zip");
-        File.Delete(zipPath);
+        // Older zips go (a mail app may still hold one open: then it stays), and each new one gets its own name.
+        foreach (var old in Directory.GetFiles(folder, "ZendeskWatcher-feedback*.zip"))
+        {
+            try { File.Delete(old); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        var zipPath = Path.Combine(folder, $"ZendeskWatcher-feedback-{DateTime.Now:yyyy-MM-dd-HHmmss}.zip");
 
         using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
         AddFile(zip, AppPaths.LogFile, "log.txt");

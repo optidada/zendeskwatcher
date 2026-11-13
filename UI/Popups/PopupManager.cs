@@ -232,8 +232,9 @@ public sealed class PopupManager
     {
         // In a deck only the front card (the newest) can be read, so it counts down first.
         var current = _deck ? _visible.LastOrDefault(p => p.TimesOut) : _visible.FirstOrDefault(p => p.TimesOut);
+        // Peek: each one counts down only after it was slid out (and read), so none waits for a tab nobody opened.
         foreach (var popup in _visible)
-            popup.MyTurn = !_takeTurns || popup == current || !popup.TimesOut;
+            popup.MyTurn = !_takeTurns || _peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut;
     }
 
     /// <summary>
@@ -254,14 +255,18 @@ public sealed class PopupManager
 
         if (_peek == PopupForm.PeekEdge.Top)
         {
-            // Tabs along the top edge, side by side and centered, oldest on the left.
+            // Tabs along the top edge, side by side and centered, oldest on the left. When they don't fit (large
+            // notifications on a small screen) they overlap evenly; the one under the mouse comes to the front.
             var width = _visible.Sum(p => p.Width) + gap * Math.Max(0, _visible.Count - 1);
             var x = area.Left + Math.Max(0, (area.Width - width) / 2);
+            var squeeze = width > area.Width && _visible.Count > 1
+                ? (float)(width - area.Width) / (_visible.Count - 1)
+                : 0f;
             foreach (var popup in _visible)
             {
                 popup.RestX = x;
                 popup.TargetY = area.Top;
-                x += popup.Width + gap;
+                x += popup.Width + gap - (int)Math.Ceiling(squeeze);
             }
             return;
         }
