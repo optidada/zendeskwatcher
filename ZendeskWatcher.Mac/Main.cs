@@ -13,6 +13,7 @@ public static class Program
             SynchronizationContext.SetSynchronizationContext(new MainThreadContext());
 
         Log.Info($"Mac app starting ({AppInfo.Version}, {AppInfo.System})");
+        FeedbackPackage.CleanUp(TimeSpan.FromDays(1)); // a feedback zip from an earlier day: the email has its own copy
         var app = NSApplication.SharedApplication;
         app.ActivationPolicy = NSApplicationActivationPolicy.Accessory; // menu bar only, no Dock icon
         app.Delegate = new AppDelegate();

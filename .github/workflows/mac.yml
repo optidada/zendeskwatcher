@@ -44,17 +44,18 @@ jobs:
 
       - name: Zip the app
         run: |
-          find ZendeskWatcher.Mac/bin -name "*.app" -type d -prune
-          app=$(find ZendeskWatcher.Mac/bin -name "*.app" -type d -prune | head -1)
+          find ZendeskWatcher.Mac/bin -name "*.app" -type d -prune | while IFS= read -r a; do echo "::notice::Found: $a ($(lipo -archs "$a/Contents/MacOS/"* 2>/dev/null | head -1))"; done
+          # The universal app (Apple silicon + Intel) sits directly in net10.0-macos; else the Apple silicon one.
+          app=$(ls -d ZendeskWatcher.Mac/bin/Release/net10.0-macos/*.app 2>/dev/null | head -1)
+          [ -n "$app" ] || app=$(ls -d ZendeskWatcher.Mac/bin/Release/net10.0-macos/osx-arm64/*.app 2>/dev/null | head -1)
           if [ -z "$app" ]; then
-            echo "::error::No .app found under ZendeskWatcher.Mac/bin: $(find ZendeskWatcher.Mac/bin -maxdepth 4 | tr '\n' ' ')"
+            echo "::error::No app found: $(find ZendeskWatcher.Mac/bin -maxdepth 4 | tr '
+' ' ')"
             exit 1
           fi
-          echo "::notice::Built: $app"
+          echo "::notice::Using: $app ($(lipo -archs "$app/Contents/MacOS/"* | head -1))"
           mkdir -p out
           ditto "$app" "out/Zendesk Watcher.app"
-          codesign --verify --verbose "out/Zendesk Watcher.app" || true
-          lipo -info "out/Zendesk Watcher.app/Contents/MacOS/ZendeskWatcher" || true
           ditto -c -k --keepParent "out/Zendesk Watcher.app" ZendeskWatcher-mac.zip
 
       - uses: actions/upload-artifact@v4
