@@ -56,8 +56,8 @@ internal sealed class AppearancePage : SettingsPage
     public AppearancePage(SettingsContext context)
         : base(context, "Look & sound", "How notifications look and sound. Try it uses your choices, even before saving.")
     {
-        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below. While you present or use a full-screen app, " +
-            "Windows notifications are used instead, so nothing pops up over your screen.", Kit.CardWidth);
+        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below. While you present or use a full-screen app " +
+            "they wait, silently, and appear when you're done.", Kit.CardWidth);
         style.Body.Controls.Add(_likeApp);
         style.Body.Controls.Add(_ownStyle);
         // Two rows of three tiles.
@@ -107,7 +107,7 @@ internal sealed class AppearancePage : SettingsPage
         content.Body.Controls.Add(privacy);
         Panel.Controls.Add(content);
 
-        var windows = new Card("Windows notifications", "Used with the Windows style, and for every style while you present or use a full-screen app.", Kit.CardWidth);
+        var windows = new Card("Windows notifications", "Used with the Windows style. While you present or use a full-screen app, Windows decides (Do Not Disturb), without sound.", Kit.CardWidth);
         windows.Body.Controls.Add(_showLogo);
         windows.Body.Controls.Add(_groupByType);
         Panel.Controls.Add(windows);

@@ -6,7 +6,7 @@ namespace ZendeskWatcher;
 
 /// <summary>
 /// Shows notifications as custom popups (Neon dark, Terminal, Clean light) or as Windows toasts, depending on the theme.
-/// While presenting or in full screen, Windows toasts are used so nothing pops up over the screen.
+/// While presenting or in full screen, popups wait until it's over, and nothing makes a sound.
 /// </summary>
 public sealed class Notifier : INotificationSink
 {
@@ -446,7 +446,9 @@ public sealed class Notifier : INotificationSink
         {
             // Counted as shown once it's really on screen: a notification that waits in line and is dropped
             // (no longer needed) never counts. The popup manager calls OnShown when it appears.
-            if (settings.ActiveNotificationTheme != NotificationTheme.WindowsNative && PopupManager.CanShowPopups())
+            // Zendesk Watcher's own styles: shown, or held while you present or use a full-screen app (the popup
+            // manager shows them when that's over). The Windows style: Windows decides (Do Not Disturb).
+            if (settings.ActiveNotificationTheme != NotificationTheme.WindowsNative)
                 _popups.Show(content, settings);
             else
             {
@@ -564,7 +566,8 @@ public sealed class Notifier : INotificationSink
                 break;
         }
 
-        if (sound == ToastSound.Silent)
+        // While presenting or full screen: no sound at all (others may hear it, e.g. in a screen share with audio).
+        if (sound == ToastSound.Silent || !PopupManager.CanShowPopups())
             builder.AddAudio(new ToastAudio { Silent = true });
         else if (ChipSounds.IsChip(sound))
         {
