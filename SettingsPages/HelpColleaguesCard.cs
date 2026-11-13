@@ -36,8 +36,9 @@ internal sealed class HelpColleaguesCard
     private readonly Label _peopleHint = Theme.Label("", Theme.Small, Theme.TextMuted, PeopleWidth);
     private readonly ComboBox _workStart = Kit.HourCombo(0, 23);
     private readonly ComboBox _workEnd = Kit.HourCombo(1, 24);
+    private readonly DayChecks _workDays = new("Days", new Padding(0, 2, 0, 0));
     private readonly PriorityChecks _priorities = new(new Padding(0, 8, 0, 0));
-    private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself (same hours, my local time)");
+    private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself (my hours: Notifications page)");
 
     /// <summary>Groups chosen under "Only these groups".</summary>
     private readonly HashSet<long> _chosen = [];
@@ -97,7 +98,8 @@ internal sealed class HelpColleaguesCard
         var hours = Kit.Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
         hours.Margin = new Padding(0, 8, 0, 0);
         options.Controls.Add(hours);
-        options.Controls.Add(Theme.Label("Monday to Friday, in the assignee's own time zone (from their Zendesk profile). " +
+        options.Controls.Add(_workDays.Row);
+        options.Controls.Add(Theme.Label("The same for every assignee, in their own time zone (from their Zendesk profile). " +
             "Assignees without a time zone are skipped.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
         _myHours.Margin = new Padding(0, 8, 0, 0);
         options.Controls.Add(_myHours);
@@ -111,6 +113,7 @@ internal sealed class HelpColleaguesCard
         foreach (var combo in new[] { _workStart, _workEnd })
             combo.SelectedIndexChanged += (_, _) => _context.Changed();
         _myHours.CheckedChanged += (_, _) => _context.Changed();
+        _workDays.Changed += () => _context.Changed();
         _priorities.Changed += () => _context.Changed();
 
         _context.SessionUpdated += reload =>
@@ -141,6 +144,7 @@ internal sealed class HelpColleaguesCard
         _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
         _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
         _myHours.Checked = settings.HelpOnlyDuringMyHours;
+        _workDays.Selected = settings.WorkDays;
         _priorities.Selected = settings.HelpPriorities;
         ShowGroups();
     }
@@ -156,6 +160,7 @@ internal sealed class HelpColleaguesCard
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _myHours.Checked;
+        s.WorkDays = _workDays.Selected;
         s.HelpPriorities = _priorities.Selected;
     }
 
@@ -380,6 +385,7 @@ internal sealed class HelpColleaguesCard
     {
         var on = _help.Checked;
         _same.Enabled = _custom.Enabled = _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = on;
+        _workDays.Enabled = on;
         _priorities.Enabled = on;
         _groupList.Enabled = on && _custom.Checked;
         _peopleList.Enabled = _peopleAll.Enabled = _peopleNone.Enabled = on;

@@ -34,6 +34,27 @@ public class UnassignedTicketTests
     }
 
     [Fact]
+    public async Task New_tickets_outside_my_hours_are_skipped_when_chosen()
+    {
+        var hour = DateTime.Now.Hour; // working hours that are over right now
+        (_settings.MyWorkdayStartHour, _settings.MyWorkdayEndHour) = hour <= 21 ? (hour + 1, hour + 2) : (0, 1);
+        _settings.OnlyNotifyDuringMyHours = true;
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None); // baseline
+
+        _zendesk.AddUnassigned(201);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+        Assert.Equal(1, watcher.UnassignedCount); // still counted
+
+        // Back at work: only tickets that are new from now on notify, the skipped one doesn't come back.
+        _settings.OnlyNotifyDuringMyHours = false;
+        _zendesk.AddUnassigned(202);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("#202 Help!", Assert.Single(TakeShown()).Title);
+    }
+
+    [Fact]
     public async Task Newly_monitored_group_gets_one_summary_of_what_is_waiting()
     {
         _zendesk.AddUnassigned(101);

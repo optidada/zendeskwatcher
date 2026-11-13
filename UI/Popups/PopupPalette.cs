@@ -20,6 +20,9 @@ public sealed class PopupPalette
 
     public bool Dark { get; init; }
 
+    /// <summary>A soft glow next to the stripe and a tinted border on dark themes (off for Night: nothing bright).</summary>
+    public bool Glow { get; init; } = true;
+
     /// <summary>Text on the accent-colored button (dark on pastel accents).</summary>
     public Color OnAccent { get; init; } = Color.White;
 
@@ -34,6 +37,7 @@ public sealed class PopupPalette
         NotificationTheme.CleanLight => CleanLight,
         NotificationTheme.CozyPurple => CozyPurple,
         NotificationTheme.Optimizely => Optimizely,
+        NotificationTheme.Night => Night,
         _ => NeonDark
     };
 
@@ -115,6 +119,33 @@ public sealed class PopupPalette
             "high" => Color.FromArgb(255, 178, 122),    // peach
             "low" => Color.FromArgb(140, 222, 182),     // mint
             _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(236, 150, 222) : Color.FromArgb(184, 148, 255) // pink-lilac, lavender
+        }
+    };
+
+    /// <summary>
+    /// For late evenings: warm near-black (not pure black), dimmed cream text instead of white, and priority colors
+    /// that are still red/amber/olive but dark enough not to flash. Little blue light, no glow.
+    /// </summary>
+    public static readonly PopupPalette Night = new()
+    {
+        ButtonRadius = UiPalette.ButtonRadiusFor(NotificationTheme.Night),
+        Name = "Night",
+        Background = Color.FromArgb(30, 26, 22),
+        BackgroundEnd = Color.FromArgb(24, 21, 18),
+        Border = Color.FromArgb(62, 54, 45),
+        Text = Color.FromArgb(220, 204, 180),
+        Muted = Color.FromArgb(150, 136, 116),
+        OnAccent = Color.FromArgb(28, 24, 20),
+        FontFamily = "Segoe UI",
+        Stripe = true,
+        Dark = true,
+        Glow = false,
+        Accent = (priority, kind) => priority switch
+        {
+            "urgent" => Color.FromArgb(196, 98, 84),   // dim brick red
+            "high" => Color.FromArgb(200, 146, 80),    // amber
+            "low" => Color.FromArgb(136, 146, 108),    // olive
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(178, 140, 122) : Color.FromArgb(170, 152, 112) // dusty rose, sand
         }
     };
 

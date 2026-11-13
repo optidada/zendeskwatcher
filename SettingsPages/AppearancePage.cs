@@ -27,12 +27,13 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ThemeTile[] _themeTiles =
     [
         new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
-        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"),
+        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"), new(NotificationTheme.Night, "Night"),
         new(NotificationTheme.WindowsNative, "Windows")
     ];
     private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme (General page)");
     private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
     private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right")]);
+    private readonly ComboBox _size = Kit.Combo<int>([new(100, "100%"), new(115, "115%"), new(130, "130%"), new(150, "150%"), new(175, "175%")], width: 100);
     private readonly ComboBox _newSound = Kit.Combo(SoundOptions);
     private readonly ComboBox _newDisplay = Kit.Combo(DisplayOptions);
     private readonly ComboBox _mySound = Kit.Combo(SoundOptions);
@@ -65,7 +66,7 @@ internal sealed class AppearancePage : SettingsPage
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(20, 4, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
         style.Body.Controls.Add(tiles);
-        style.Body.Controls.Add(Kit.Row(Theme.Label("Position on screen"), _position));
+        style.Body.Controls.Add(Kit.Row(Theme.Label("Position on screen"), _position, Theme.Label("Size"), _size));
         Panel.Controls.Add(style);
 
         var sound = new Card("Sound and display", "App messages: update ready, welcome and group not found; \"Sign-in required\" uses " +
@@ -109,7 +110,7 @@ internal sealed class AppearancePage : SettingsPage
             tile.Click += (_, _) => { SelectNotificationTheme(tile.Value); Changed(); };
         foreach (var radio in new[] { _likeApp, _ownStyle })
             radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
-        TrackChanges(_position, _newSound, _newDisplay, _mySound, _myDisplay, _ccSound, _ccDisplay, _helpSound, _helpDisplay,
+        TrackChanges(_position, _size, _newSound, _newDisplay, _mySound, _myDisplay, _ccSound, _ccDisplay, _helpSound, _helpDisplay,
             _summarySound, _summaryDisplay, _appSound, _appDisplay, _commentText, _showLogo, _groupByType);
     }
 
@@ -135,6 +136,7 @@ internal sealed class AppearancePage : SettingsPage
         _ownStyle.Checked = !settings.NotificationsLikeApp;
         SelectNotificationTheme(settings.Theme);
         Kit.Select(_position, settings.Position);
+        Kit.Select(_size, settings.NotificationSize, fallback: 100);
         _groupByType.Checked = settings.GroupNotificationsByType;
     }
 
@@ -152,6 +154,7 @@ internal sealed class AppearancePage : SettingsPage
         if (_themeTiles.FirstOrDefault(t => t.Selected) is { } tile)
             s.Theme = tile.Value;
         s.Position = Kit.Selected<PopupPosition>(_position);
+        s.NotificationSize = Kit.Selected<int>(_size);
         s.GroupNotificationsByType = _groupByType.Checked;
     }
 
@@ -172,7 +175,7 @@ internal sealed class AppearancePage : SettingsPage
     {
         foreach (var tile in _themeTiles)
             tile.Enabled = _ownStyle.Checked;
-        _position.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
+        _position.Enabled = _size.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
     }
 
     /// <summary>Sends samples of one kind, or several of both kinds when <paramref name="kind"/> is null.</summary>

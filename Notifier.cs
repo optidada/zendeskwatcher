@@ -109,10 +109,17 @@ public sealed class Notifier : INotificationSink
     private bool _paused;
 
     /// <summary>
-    /// For "only if still needed": whether the snoozed notification's ticket still needs attention. Set by the app;
-    /// without it (or if the check fails) a snoozed popup simply shows again.
+    /// Of the given notifications, the ones still needed (deep: also read what happened on the ticket since, see
+    /// <see cref="Settings.DropAnswered"/>). Set by the app; without it (or if the check fails) everything shows.
+    /// Used for "only if still needed" snoozes and for notifications that waited long.
     /// </summary>
-    public Func<NotificationContent, Task<bool>>? StillNeeded { get; set; }
+    public Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? StillNeeded
+    {
+        get => _stillNeeded;
+        set => _popups.StillNeeded = _stillNeeded = value;
+    }
+
+    private Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? _stillNeeded;
 
     // ------------------------------------------------------------------ snooze
 
@@ -149,7 +156,7 @@ public sealed class Notifier : INotificationSink
         {
             try
             {
-                if (!await check(content))
+                if ((await check([content], true)).Count == 0)
                 {
                     Log.Info($"Snoozed notification no longer needed, not shown again: {content.Title}");
                     return;
@@ -224,6 +231,34 @@ public sealed class Notifier : INotificationSink
         Style = Settings.SummaryStyle
     });
 
+    /// <summary>
+    /// "While you were away": one notification instead of many waiting ones, e.g. "12 new tickets" / "3 updates on your
+    /// tickets" / "2 customers waiting on colleagues' tickets". Click opens Zendesk.
+    /// </summary>
+    internal static NotificationContent AwaySummary(IReadOnlyList<NotificationContent> waiting, int dropped)
+    {
+        int Count(NotificationKind kind) => waiting.Where(c => c.Kind == kind).Sum(c => c.TicketCount);
+        static string Plural(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
+
+        var lines = new List<string>();
+        if (Count(NotificationKind.NewTicket) is > 0 and var fresh)
+            lines.Add(Plural(fresh, "new ticket", "new tickets"));
+        if (Count(NotificationKind.MyTicket) is > 0 and var mine)
+            lines.Add(Plural(mine, "update on your tickets", "updates on your tickets"));
+        if (Count(NotificationKind.CcTicket) is > 0 and var cc)
+            lines.Add(Plural(cc, "update on CC'd tickets", "updates on CC'd tickets"));
+        if (Count(NotificationKind.HelpColleague) is > 0 and var help)
+            lines.Add(Plural(help, "customer waiting on a colleague's ticket", "customers waiting on colleagues' tickets"));
+        if (dropped > 0)
+            lines.Add($"{Plural(dropped, "other is", "others are")} no longer needed (taken, solved or answered)");
+
+        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "While you were away", string.Join("\n", lines))
+        {
+            Action = ActionOpenZendesk,
+            MaxBodyLines = 7
+        };
+    }
+
     /// <summary>The app was started again while running: a short, quiet message with only Close. Shown even when paused.</summary>
     public void ShowAlreadyRunning() => Show(new NotificationContent(
         NotificationKind.MyTicket, "Zendesk Watcher", "Zendesk Watcher is already running",
@@ -272,14 +307,14 @@ public sealed class Notifier : INotificationSink
         ? Samples(single)
         : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(Samples(NotificationKind.HelpColleague)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                $"Robin Client (Northwind) · Created {DateTime.Now.AddMinutes(-2):HH:mm}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
-            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2) });
+                $"Robin Client · Created {DateTime.Now.AddMinutes(-2):HH:mm}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
+            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" });
 
     /// <summary>All samples (for the developer --render-popups helper).</summary>
     public static IEnumerable<NotificationContent> AllSamples() =>
         Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
-                TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true }).Append(
+                TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "Northwind" }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
                 "5 unassigned tickets waiting\nSupport Tier 2: 3 · Premium Support: 2\nOldest: 2 h 10 min ago\nYour tickets: 3 open, 4 pending\n" +
                 "CC / following: 2 tickets\nHelp colleagues: Urgent, High") { MaxBodyLines = 7 }).Append(
@@ -290,15 +325,16 @@ public sealed class Notifier : INotificationSink
     {
         NotificationKind.NewTicket =>
           [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              $"Alex Example (Contoso) · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2") { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7) }],
+              $"Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2")
+              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso" }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
-              "Sam Customer (Northwind) replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
-              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone }],
+              "**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
+              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone, Client = "Northwind" }],
         _ =>
           [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
-              "Jane Doe (Fabrikam)\nJane Doe replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
-              TicketId: 123457, Priority: "normal") { Action = ActionNone }]
+              "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
+              TicketId: 123457, Priority: "normal") { Action = ActionNone, Client = "Fabrikam" }]
     };
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
@@ -354,16 +390,18 @@ public sealed class Notifier : INotificationSink
         var style = content.Style ?? settings.StyleFor(content.Kind);
         var action = content.ResolvedAction;
 
-        var heading = content.Context is null ? content.Heading : $"{content.Heading} · {content.Context}";
         var builder = new ToastContentBuilder()
             .AddArgument("action", action)
-            .AddText(heading)
+            .AddText(content.FullHeading)
             .AddText(content.Title);
 
-        var body = content.DisplayBody(DateTimeOffset.UtcNow);
+        // Windows can't show bold: plain text, with the client first.
+        var body = Markdown.Strip(content.DisplayBody(DateTimeOffset.UtcNow));
+        if (!string.IsNullOrWhiteSpace(content.Client))
+            body = string.IsNullOrWhiteSpace(body) ? $"Client: {content.Client}" : $"Client: {content.Client}\n{body}";
         if (!string.IsNullOrWhiteSpace(body))
             builder.AddText(body);
-        builder.AddAttributionText(content.PriorityLabel is { } priority ? $"Zendesk Watcher · {priority}" : "Zendesk Watcher");
+        builder.AddAttributionText("Zendesk Watcher");
 
         if (content.TicketId is { } id)
             builder.AddArgument("ticketId", id);

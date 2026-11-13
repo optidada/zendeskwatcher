@@ -365,13 +365,12 @@ public sealed class TrayAppContext : ApplicationContext
         OpenUrl(_settings.TicketUrl(ticketId));
     }
 
-    /// <summary>For snoozed popups (see <see cref="TicketRules.StillNeedsAttention"/>). Not signed in yet: assume it's still needed.</summary>
-    private async Task<bool> StillNeededAsync(NotificationContent content)
+    /// <summary>For snoozed and long-waiting notifications (see <see cref="TicketWatcher.StillNeededAsync"/>). Not signed in yet: all still needed.</summary>
+    private async Task<List<NotificationContent>> StillNeededAsync(IReadOnlyList<NotificationContent> waiting, bool deep)
     {
-        if (_taker is not { } taker || content.TicketId is not { } id)
-            return true;
-        var ticket = (await taker.Client.GetTicketsAsync([id], CancellationToken.None)).FirstOrDefault();
-        return TicketRules.StillNeedsAttention(content.Kind, ticket);
+        if (_taker is not { } taker)
+            return waiting.ToList();
+        return await TicketWatcher.StillNeededAsync(taker.Client, taker.MeId, waiting, _settings.DropAnswered, deep, CancellationToken.None);
     }
 
     private void SendFeedback() => FeedbackMail.Send(_updates.CurrentVersion, _notifier);

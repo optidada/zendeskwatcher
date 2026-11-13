@@ -48,9 +48,15 @@ public sealed class Settings
     public IReadOnlyList<WatchedGroup> EffectiveHelpGroups =>
         !HelpColleagues ? [] : (HelpSameAsMonitored ? WatchedGroups : HelpGroups).Where(g => !g.IsNoGroup).ToList();
 
-    /// <summary>Working hours, Monday to Friday, applied in each colleague's own time zone.</summary>
+    /// <summary>Colleagues' working hours, applied in each colleague's own time zone.</summary>
     public int WorkdayStartHour { get; set; } = 8;
     public int WorkdayEndHour { get; set; } = 17;
+
+    /// <summary>Colleagues' working days (one set for everyone; Zendesk doesn't know each person's schedule).</summary>
+    public List<DayOfWeek> WorkDays { get; set; } = [.. Tracking.TicketRules.Weekdays];
+
+    /// <summary>My own working days.</summary>
+    public List<DayOfWeek> MyWorkDays { get; set; } = [.. Tracking.TicketRules.Weekdays];
 
     /// <summary>
     /// "Help colleagues" only for these Zendesk priorities (urgent, high, normal, low). Tickets without a priority
@@ -60,6 +66,24 @@ public sealed class Settings
 
     /// <summary>"Help colleagues" only notifies while it's within the same working hours on this PC (your own time).</summary>
     public bool HelpOnlyDuringMyHours { get; set; } = true;
+
+    /// <summary>New tickets and changes on my own and CC'd tickets only notify within my working hours; outside them they're skipped (colleagues' tickets: <see cref="HelpOnlyDuringMyHours"/>).</summary>
+    public bool OnlyNotifyDuringMyHours { get; set; }
+
+    private int? _myWorkdayStartHour, _myWorkdayEndHour;
+
+    /// <summary>My own working hours (on <see cref="MyWorkDays"/>, this PC's time). Until chosen, the colleagues' hours (they were one setting before 1.3.13).</summary>
+    public int MyWorkdayStartHour
+    {
+        get => _myWorkdayStartHour ??= WorkdayStartHour;
+        set => _myWorkdayStartHour = value;
+    }
+
+    public int MyWorkdayEndHour
+    {
+        get => _myWorkdayEndHour ??= WorkdayEndHour;
+        set => _myWorkdayEndHour = value;
+    }
 
     /// <summary>After the first check of each start: a short summary of what's being watched and what's waiting.</summary>
     public bool ShowStartSummary { get; set; } = true;
@@ -131,11 +155,30 @@ public sealed class Settings
     public NotificationTheme ActiveNotificationTheme => NotificationsLikeApp ? AppTheme : Theme;
     public PopupPosition Position { get; set; } = PopupPosition.BottomRight;
 
+    /// <summary>Size of Zendesk Watcher's own notifications in percent (text, buttons and spacing together).</summary>
+    public int NotificationSize { get; set; } = 100;
+
     /// <summary>Several popups take turns: one counts down at a time, the others wait.</summary>
     public bool PopupsTakeTurns { get; set; } = true;
 
     /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
     public bool PausePopupsWhenAway { get; set; } = true;
+
+    /// <summary>
+    /// Notifications that waited this long (in the line, or on screen while away) are checked against Zendesk before
+    /// they show, and dropped when no longer needed. 0: never checked.
+    /// </summary>
+    public int RecheckWaitingAfterMinutes { get; set; } = 15;
+
+    /// <summary>Coming back to more than this many waiting notifications: one summary instead. 0: never.</summary>
+    public int SummarizeWaitingAbove { get; set; } = 5;
+
+    /// <summary>
+    /// A customer reply counts as handled once an agent answered it publicly (colleagues' tickets), and changes on
+    /// your own / CC'd tickets once you've acted on the ticket yourself. Used by the checks above, Snooze, and
+    /// "Customer waiting" (no notification when a colleague already answered).
+    /// </summary>
+    public bool DropAnswered { get; set; } = true;
     public bool ShowAppLogo { get; set; } = true;
     public bool GroupNotificationsByType { get; set; } = true;
 
@@ -189,7 +232,10 @@ public sealed class Settings
         if (!Enum.IsDefined(AppTheme)) AppTheme = Theme;
         WorkdayStartHour = Math.Clamp(WorkdayStartHour, 0, 23);
         WorkdayEndHour = Math.Clamp(WorkdayEndHour, WorkdayStartHour + 1, 24);
+        MyWorkdayStartHour = Math.Clamp(MyWorkdayStartHour, 0, 23);
+        MyWorkdayEndHour = Math.Clamp(MyWorkdayEndHour, MyWorkdayStartHour + 1, 24);
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
+        NotificationSize = Math.Clamp(NotificationSize, 100, 200);
         if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Default;
         if (!Enum.IsDefined(NewTicketStyle.Display)) NewTicketStyle.Display = ToastDisplay.Standard;
         if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Mail;
@@ -289,7 +335,10 @@ public enum NotificationTheme
     CozyPurple,
 
     /// <summary>The optimizely.com look: dark fir green with lime accents. (Added last: settings store the number.)</summary>
-    Optimizely
+    Optimizely,
+
+    /// <summary>For late evenings: warm near-black, dimmed cream text, muted colors, no glow. (Added last: settings store the number.)</summary>
+    Night
 }
 
 public enum PopupPosition { BottomRight, TopRight }

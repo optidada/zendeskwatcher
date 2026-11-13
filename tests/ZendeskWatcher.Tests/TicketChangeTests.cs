@@ -1,3 +1,4 @@
+using ZendeskWatcher.UI;
 namespace ZendeskWatcher.Tests;
 
 /// <summary>
@@ -65,12 +66,12 @@ public class TicketChangeTests
         Assert.Equal(NotificationKind.MyTicket, shown.Kind);
         Assert.True(shown.IsTicketNotification); // counted in the statistics
         Assert.Equal("#500 Login broken", shown.Title);
-        Assert.Equal("Jane Customer replied: Still broken for us", shown.Body);
+        Assert.Equal("**Jane Customer** replied: Still broken for us", shown.Body);
         Assert.Null(shown.Context);
     }
 
     [Fact]
-    public async Task Requester_and_organization_come_first()
+    public async Task Organization_is_the_client_and_the_requester_isnt_repeated()
     {
         _zendesk.Organizations[900] = "Acme Corp";
         var ticket = _zendesk.AddAssigned(510, "high", subject: "Login broken");
@@ -81,7 +82,27 @@ public class TicketChangeTests
         _zendesk.Reply(510, Customer, "Still broken for us");
         await watcher.PollAsync(CancellationToken.None);
 
-        Assert.Equal("Jane Customer (Acme Corp)\nJane Customer replied: Still broken for us", Assert.Single(TakeShown()).Body);
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal("Acme Corp", shown.Client);
+        Assert.Equal("**Jane Customer** replied: Still broken for us", shown.Body); // already named: no extra line
+
+        _zendesk.Change(510, Colleague, "status", "open", "pending");
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("Jane Customer\nStatus Open → Pending (Sam Colleague)", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
+    public async Task Text_from_zendesk_never_turns_bold()
+    {
+        _zendesk.AddAssigned(520, "high");
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(520, Customer, "This is **really** urgent");
+        await watcher.PollAsync(CancellationToken.None);
+
+        var body = Assert.Single(TakeShown()).Body;
+        Assert.Equal("Jane Customer replied: This is **really** urgent", Markdown.Strip(body));
+        Assert.Equal([new Markdown.Run("Jane Customer", true), new Markdown.Run(" replied: This is **really** urgent", false)], Markdown.Parse(body));
     }
 
     [Fact]
@@ -127,7 +148,7 @@ public class TicketChangeTests
 
         _zendesk.Reply(504, Customer, "Another one");
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("Jane Customer replied: Another one", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Jane Customer** replied: Another one", Assert.Single(TakeShown()).Body);
     }
 
     // ---------------------------------------------------------------- CC / following

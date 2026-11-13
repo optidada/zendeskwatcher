@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using ZendeskWatcher.UI;
 using ZendeskWatcher.UI.Popups;
 
 namespace ZendeskWatcher;
@@ -15,7 +16,10 @@ public static class TicketShare
     {
         var metaParts = new[] { content.PriorityLabel, content.Context }.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).ToList();
         var meta = string.Join(" · ", metaParts);
-        var lines = content.Body.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // The body is markdown (**bold**); the client comes first, as in the notification.
+        var lines = content.Body.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (!string.IsNullOrWhiteSpace(content.Client))
+            lines.Insert(0, $"Client: **{Markdown.Escape(content.Client)}**");
 
         var html = new StringBuilder();
         var title = WebUtility.HtmlEncode(content.Title);
@@ -23,7 +27,7 @@ public static class TicketShare
         if (meta.Length > 0)
             html.Append(" · ").Append(string.Join(" · ", metaParts.Select(WebUtility.HtmlEncode)));
         foreach (var line in lines)
-            html.Append("<br>").Append(WebUtility.HtmlEncode(line));
+            html.Append("<br>").Append(Markdown.ToHtml(line));
 
         var text = new StringBuilder(content.Title);
         if (meta.Length > 0)
@@ -31,7 +35,7 @@ public static class TicketShare
         if (ticketUrl is not null)
             text.Append("\r\n").Append(ticketUrl);
         foreach (var line in lines)
-            text.Append("\r\n").Append(line);
+            text.Append("\r\n").Append(Markdown.Strip(line));
 
         return (html.ToString(), text.ToString());
     }

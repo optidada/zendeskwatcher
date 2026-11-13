@@ -4,7 +4,7 @@ namespace ZendeskWatcher.UI.Popups;
 /// <param name="Kind">Decides the sound and display settings that apply.</param>
 /// <param name="Heading">Short label, e.g. "New ticket" or "Ticket updated".</param>
 /// <param name="Title">Main line, e.g. "#123456 Customer cannot log in".</param>
-/// <param name="Body">Details; may contain line breaks.</param>
+/// <param name="Body">Details; may contain line breaks and **bold** (see <see cref="UI.Markdown"/>; escape text from Zendesk).</param>
 /// <param name="TicketId">The ticket to open on click, if any.</param>
 /// <param name="Priority">Zendesk priority (low, normal, high, urgent), used for the accent color.</param>
 /// <param name="Context">Where it comes from, e.g. the group name.</param>
@@ -42,6 +42,12 @@ public sealed record NotificationContent(
         _ => (int)span.TotalDays == 1 ? "1 day ago" : $"{(int)span.TotalDays} days ago"
     };
 
+    /// <summary>When the newest change it reports happened (not shown): to check later whether someone has answered since.</summary>
+    public DateTimeOffset? ChangedAt { get; init; }
+
+    /// <summary>How many tickets it's about (more than 1 for "5 new unassigned tickets"); for the "while you were away" summary.</summary>
+    public int TicketCount { get; init; } = 1;
+
     /// <summary>Fixed sound and display time for app messages (updates, welcome, …), instead of the user's ticket styles.</summary>
     public NotificationStyle? Style { get; init; }
 
@@ -57,8 +63,25 @@ public sealed record NotificationContent(
     /// <summary>A snoozed notification coming back (not counted as shown again).</summary>
     public bool IsSnoozedRepeat { get; init; }
 
+    /// <summary>The customer's organization, shown prominently as "Client: Contoso". Null when the ticket has none.</summary>
+    public string? Client { get; init; }
+
     /// <summary>The priority for display, e.g. "High (P2)".</summary>
     public string? PriorityLabel => LabelForPriority(Priority);
+
+    /// <summary>The priority in the heading: "P1" … "P4"; null for no priority.</summary>
+    public string? PriorityShort => Priority?.ToLowerInvariant() switch
+    {
+        null or "" => null,
+        "urgent" => "P1",
+        "high" => "P2",
+        "normal" => "P3",
+        "low" => "P4",
+        _ => LabelForPriority(Priority)
+    };
+
+    /// <summary>"New ticket · P2 · Support Tier 2": kind, priority and where it's from.</summary>
+    public string FullHeading => string.Join(" · ", new[] { Heading, PriorityShort, Context }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
     /// <summary>"urgent" → "Urgent (P1)", … ; null for no priority.</summary>
     public static string? LabelForPriority(string? priority) => priority?.ToLowerInvariant() switch

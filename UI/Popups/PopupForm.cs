@@ -26,12 +26,15 @@ public sealed class PopupForm : Form
     private readonly Font _titleFont;
     private readonly Font _bodyFont;
     private readonly Font _smallFont;
+    private readonly Font _bodyBoldFont;
+    private readonly Font _clientFont;
+    private readonly RichText _rich;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 15 };
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _chipRect;
-    private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _chipLabel = "", _dismissLabel = "";
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _clientRect;
+    private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _dismissLabel = "";
 
     // State
     private enum Phase { Entering, Showing, Leaving }
@@ -94,11 +97,13 @@ public sealed class PopupForm : Form
     private double _copiedUntil;
     private Font? _iconFont;
 
-    public PopupForm(NotificationContent content, PopupPalette palette, ToastDisplay display, float scale)
+    /// <param name="scale">Screen DPI scale.</param>
+    /// <param name="size">The user's notification size (1 = 100%): text, buttons and spacing grow together.</param>
+    public PopupForm(NotificationContent content, PopupPalette palette, ToastDisplay display, float scale, float size = 1f)
     {
         _content = content;
         _palette = palette;
-        _s = scale;
+        _s = scale * size;
         _durationMs = display switch
         {
             ToastDisplay.Long => 25_000,
@@ -109,10 +114,14 @@ public sealed class PopupForm : Form
         _accent = palette.Accent(content.Priority, content.Kind);
 
         var family = FontExists(palette.FontFamily) ? palette.FontFamily : (palette.Terminal ? "Consolas" : "Segoe UI");
-        _headingFont = new Font(family, palette.FontSize - 1f, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
-        _titleFont = new Font(family, palette.FontSize + (palette.Terminal ? 0.5f : 1.5f), FontStyle.Bold);
-        _bodyFont = new Font(family, palette.FontSize);
-        _smallFont = new Font(family, palette.FontSize - 1f, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
+        // Font sizes are in points (Windows applies the DPI); only the user's size is added here.
+        _headingFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
+        _titleFont = new Font(family, (palette.FontSize + (palette.Terminal ? 0.5f : 1.5f)) * size, FontStyle.Bold);
+        _bodyFont = new Font(family, palette.FontSize * size);
+        _smallFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
+        _bodyBoldFont = new Font(family, palette.FontSize * size, FontStyle.Bold);
+        _clientFont = new Font(family, (palette.FontSize + (palette.Terminal ? 1f : 2.5f)) * size, FontStyle.Bold);
+        _rich = new RichText(_bodyFont, _bodyBoldFont);
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -159,7 +168,7 @@ public sealed class PopupForm : Form
 
         var border = _palette.Terminal
             ? unchecked((int)DWMWA_COLOR_NONE)                                           // we paint our own border
-            : ColorTranslator.ToWin32(_palette.Stripe && _palette.Dark ? Blend(_palette.Border, _accent, 0.35f) : _palette.Border);
+            : ColorTranslator.ToWin32(_palette.Stripe && _palette.Dark && _palette.Glow ? Blend(_palette.Border, _accent, 0.35f) : _palette.Border);
         DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref border, sizeof(int));
     }
 
@@ -293,11 +302,23 @@ public sealed class PopupForm : Form
         _headingRect = new Rectangle(left, y, (_copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
         y += headingHeight + Px(6);
 
+        // "Client: Contoso", large: the first thing to see.
+        if (!string.IsNullOrWhiteSpace(_content.Client))
+        {
+            var clientHeight = TextRenderer.MeasureText("Ag", _clientFont).Height;
+            _clientRect = new Rectangle(left, y, width, clientHeight);
+            y += clientHeight + Px(2);
+        }
+        else
+        {
+            _clientRect = Rectangle.Empty;
+        }
+
         var titleHeight = Measure(_content.Title, _titleFont, width, maxLines: 2);
         _titleRect = new Rectangle(left, y, width, titleHeight);
         y += titleHeight + Px(4);
 
-        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : Measure(Body, _bodyFont, width, maxLines: _content.MaxBodyLines);
+        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : _rich.Measure(Body, width, _content.MaxBodyLines);
         _bodyRect = new Rectangle(left, y, width, bodyHeight);
         y += bodyHeight + (bodyHeight > 0 ? Px(12) : Px(8));
 
@@ -308,13 +329,6 @@ public sealed class PopupForm : Form
             _barRect = new Rectangle(left, y, width, lineHeight);
             y += lineHeight + Px(6);
         }
-
-        // Priority chip: left of the buttons, or on its own line above them when it doesn't fit.
-        _chipLabel = _content.PriorityLabel is { } priority
-            ? (_palette.Terminal ? $"prio:{priority.ToUpperInvariant().Replace(" ", "")}" : $"● {priority.ToUpperInvariant()}")
-            : "";
-        var chipText = _chipLabel.Length > 0 ? TextRenderer.MeasureText(_chipLabel, _smallFont) : Size.Empty;
-        var chipSize = chipText.IsEmpty ? Size.Empty : new Size(chipText.Width + Px(_palette.Terminal ? 0 : 12), chipText.Height + Px(6));
 
         // The main button says what a click does.
         _openLabel = _content.ResolvedAction switch
@@ -364,21 +378,6 @@ public sealed class PopupForm : Form
         _dismissRect = dismissWidth == 0 ? new Rectangle(_snoozeRect.Left, y, 0, buttonHeight)
             : new Rectangle(_snoozeRect.Left - Px(8) - dismissWidth, y, dismissWidth, buttonHeight);
 
-        if (!chipSize.IsEmpty && left + chipSize.Width + Px(8) > _dismissRect.Left)
-        {
-            _chipRect = new Rectangle(new Point(left, y), chipSize);
-            var shift = chipSize.Height + Px(8);
-            y += shift;
-            _footerRect.Offset(0, shift);
-            _openRect.Offset(0, shift);
-            _takeRect.Offset(0, _content.CanTake ? shift : 0);
-            _snoozeRect.Offset(0, shift);
-            _dismissRect.Offset(0, shift);
-        }
-        else if (!chipSize.IsEmpty)
-        {
-            _chipRect = new Rectangle(new Point(left, y + (buttonHeight - chipSize.Height) / 2), chipSize);
-        }
         y += buttonHeight + pad;
 
         if (!_palette.Terminal)
@@ -413,8 +412,8 @@ public sealed class PopupForm : Form
 
         // Heading + close
         var heading = _palette.Terminal
-            ? $"> zendesk-watcher --{(_content.Kind == NotificationKind.NewTicket ? "new" : "update")}{(_content.Context is null ? "" : $"  grp:{_content.Context}")}"
-            : (_content.Context is null ? _content.Heading : $"{_content.Heading} · {_content.Context}").ToUpperInvariant();
+            ? $"> zendesk-watcher --{(_content.Kind == NotificationKind.NewTicket ? "new" : "update")}{(_content.PriorityShort is { } p ? $" {p.Replace(" ", "")}" : "")}{(_content.Context is null ? "" : $"  grp:{_content.Context}")}"
+            : _content.FullHeading.ToUpperInvariant();
         var headingColor = _palette.Terminal ? _palette.Muted : _palette.Dark ? _accent : Blend(_accent, Color.Black, 0.1f);
         DrawText(g, heading, _headingFont, _headingRect, headingColor, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
 
@@ -447,12 +446,19 @@ public sealed class PopupForm : Form
         }
 
         // Title and body (typed out in the terminal theme)
+        if (!_clientRect.IsEmpty)
+            PaintClient(g);
         var (title, body, typing) = Typed();
         DrawText(g, title, _titleFont, _titleRect, _palette.Text, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
         if (_bodyRect.Height > 0)
-            DrawText(g, body, _bodyFont, _bodyRect, _palette.Terminal ? _palette.Text : _palette.Muted, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+            _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text);
         if (_palette.Terminal && (typing || (_clock.ElapsedMilliseconds / 500) % 2 == 0))
-            PaintCursor(g, typing ? (body.Length > 0 ? body : title) : (_bodyRect.Height > 0 ? body : title), typing && body.Length == 0 ? _titleRect : (_bodyRect.Height > 0 ? _bodyRect : _titleRect));
+        {
+            if (body.Length > 0 || (!typing && _bodyRect.Height > 0))
+                PaintCursorAt(g, _rich.End(body, _bodyRect, _content.MaxBodyLines), _rich.LineHeight);
+            else
+                PaintCursor(g, title, _titleRect);
+        }
 
         PaintFooter(g);
         PaintCountdown(g);
@@ -464,7 +470,7 @@ public sealed class PopupForm : Form
         using (var brush = new SolidBrush(_accent))
             g.FillRectangle(brush, 0, 0, stripe, bounds.Height);
 
-        if (_palette.Dark)
+        if (_palette.Dark && _palette.Glow)
         {
             // Soft neon glow next to the stripe.
             for (var i = 1; i <= 6; i++)
@@ -487,6 +493,26 @@ public sealed class PopupForm : Form
         g.DrawRectangle(border, 0, 0, bounds.Width - 1, bounds.Height - 1);
     }
 
+    /// <summary>"Client:" small and muted, the name large in the text color (bottoms aligned, so they share a baseline).</summary>
+    private void PaintClient(Graphics g)
+    {
+        var label = _palette.Terminal ? "client:" : "Client:";
+        var labelSize = TextRenderer.MeasureText(g, label, _bodyFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+        var nameHeight = _clientRect.Height;
+        var baselineShift = nameHeight - labelSize.Height - Px(2);
+        DrawText(g, label, _bodyFont, new Rectangle(_clientRect.Left, _clientRect.Top + baselineShift, labelSize.Width, labelSize.Height),
+            _palette.Muted, TextFormatFlags.SingleLine);
+        var nameLeft = _clientRect.Left + labelSize.Width + Px(6);
+        DrawText(g, _content.Client!, _clientFont, new Rectangle(nameLeft, _clientRect.Top, _clientRect.Right - nameLeft, nameHeight),
+            _palette.Text, TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+    }
+
+    private void PaintCursorAt(Graphics g, Point at, int lineHeight)
+    {
+        using var brush = new SolidBrush(_palette.Text);
+        g.FillRectangle(brush, at.X + Px(1), at.Y + Px(2), Px(7), lineHeight - Px(4));
+    }
+
     private void PaintCursor(Graphics g, string text, Rectangle rect)
     {
         // Approximate the end of the last line of text.
@@ -504,20 +530,6 @@ public sealed class PopupForm : Form
 
     private void PaintFooter(Graphics g)
     {
-        // Priority chip on the left.
-        if (_chipLabel.Length > 0)
-        {
-            var chip = _chipRect;
-            var label = _chipLabel;
-            if (!_palette.Terminal)
-            {
-                using var path = Theme.RoundedRect(chip, chip.Height / 2f);
-                using var fill = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 24, _accent));
-                g.FillPath(fill, path);
-            }
-            DrawText(g, label, _smallFont, chip, _accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-        }
-
         if (_dismissRect.Width > 0)
             PaintButton(g, _dismissRect, DismissLabel, primary: false);
         if (_snoozeRect.Width > 0)
@@ -601,12 +613,13 @@ public sealed class PopupForm : Form
         var shown = (int)((_clock.Elapsed.TotalMilliseconds) / 1000 * TypingCharsPerSecond);
         var title = _content.Title;
         var body = Body;
-        if (shown >= title.Length + body.Length)
+        var bodyLength = Markdown.Strip(body).Length; // what shows, without the ** markers
+        if (shown >= title.Length + bodyLength)
             return (title, body, false);
 
         return shown <= title.Length
             ? (title[..shown], "", true)
-            : (title, body[..(shown - title.Length)], true);
+            : (title, Markdown.Truncate(body, shown - title.Length), true);
     }
 
     private static void DrawText(Graphics g, string text, Font font, Rectangle rect, Color color, TextFormatFlags flags) =>
@@ -663,7 +676,7 @@ public sealed class PopupForm : Form
     public static void RenderSamples(string dir)
     {
         Directory.CreateDirectory(dir);
-        foreach (var theme in new[] { NotificationTheme.Optimizely, NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple })
+        foreach (var theme in new[] { NotificationTheme.Optimizely, NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple, NotificationTheme.Night })
         {
             var i = 0;
             foreach (var content in Notifier.AllSamples())
@@ -696,6 +709,8 @@ public sealed class PopupForm : Form
             _titleFont.Dispose();
             _bodyFont.Dispose();
             _smallFont.Dispose();
+            _bodyBoldFont.Dispose();
+            _clientFont.Dispose();
         }
         base.Dispose(disposing);
     }

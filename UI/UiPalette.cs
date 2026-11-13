@@ -43,6 +43,7 @@ public sealed record UiPalette(
         NotificationTheme.WindowsNative => WindowsNative(),
         NotificationTheme.CozyPurple => CozyPurple,
         NotificationTheme.Optimizely => Optimizely,
+        NotificationTheme.Night => Night,
         _ => CleanLight
     }).Distinct() with { ButtonRadius = ButtonRadiusFor(theme) };
 
@@ -80,6 +81,14 @@ public sealed record UiPalette(
         Accent: Rgb(184, 148, 255), AccentHover: Rgb(202, 174, 255), AccentSoft: Rgb(70, 52, 100), OnAccent: Rgb(34, 22, 52),
         Success: Rgb(140, 222, 182), Warning: Rgb(255, 178, 122), Danger: Rgb(255, 122, 144), Neutral: Rgb(124, 108, 146),
         Sidebar: Rgb(25, 18, 36), SidebarHover: Rgb(54, 40, 76), SidebarText: Rgb(206, 190, 224), SidebarTitle: Rgb(255, 236, 222),
+        Dark: true);
+
+    /// <summary>For late evenings: warm near-black, dimmed cream text, an amber accent; little blue light.</summary>
+    private static readonly UiPalette Night = new(
+        Window: Rgb(20, 17, 14), Surface: Rgb(30, 26, 22), Border: Rgb(60, 52, 44), Text: Rgb(220, 204, 180), TextMuted: Rgb(150, 136, 116),
+        Accent: Rgb(200, 146, 80), AccentHover: Rgb(216, 166, 102), AccentSoft: Rgb(56, 44, 32), OnAccent: Rgb(24, 20, 16),
+        Success: Rgb(136, 156, 100), Warning: Rgb(212, 160, 82), Danger: Rgb(196, 98, 84), Neutral: Rgb(110, 98, 84),
+        Sidebar: Rgb(15, 13, 11), SidebarHover: Rgb(36, 31, 26), SidebarText: Rgb(188, 172, 148), SidebarTitle: Rgb(222, 186, 128),
         Dark: true);
 
     /// <summary>Follows the Windows light/dark app mode and accent color.</summary>

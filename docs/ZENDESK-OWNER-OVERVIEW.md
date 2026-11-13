@@ -31,7 +31,8 @@ Checks run every 60 seconds by default (the agent can choose 30 s – 1 h). Per 
 | CC / follower tickets (optional, off by default) | 3 (30 most recent CC'd and followed tickets + `show_many`) |
 | Help colleagues (optional, off by default) | 1 search per chosen group, only tickets updated since the last check |
 | Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes) |
-| Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned) |
+| Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned), plus 1 audit request to see whether it was answered since |
+| Only for notifications that waited long (default 15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change |
 
 **Measured** on an agent's PC with 2 groups, CC tracking and Help colleagues all switched on: **3–11 requests per
 minute** (11-minute averages; the higher one includes opening the Settings window). With default settings it's about
@@ -55,8 +56,8 @@ internal APIs and live-update connections), so the Watcher adds about the load o
     is cleared at every start.
 - **Nothing is sent anywhere except to Zendesk.** No telemetry, no analytics.
 - **Colleagues' time zones** (for "Help colleagues") come from their Zendesk profiles, which agents can already see.
-  "Outside working hours" is the agent's own setting (default Monday–Friday 08:00–17:00 in the colleague's time zone);
-  it is not tracked or stored.
+  "Outside working hours" is the agent's own setting (working days and hours, default Monday–Friday 08:00–17:00, in
+  the colleague's time zone); it is not tracked or stored.
 
 ## Technology
 

@@ -41,8 +41,17 @@ public class SettingsWindowTests
         AppTheme = NotificationTheme.Terminal,
         PopupsTakeTurns = false,
         PausePopupsWhenAway = false,
+        RecheckWaitingAfterMinutes = 60,
+        SummarizeWaitingAbove = 0,
+        DropAnswered = false,
+        OnlyNotifyDuringMyHours = true,
+        MyWorkdayStartHour = 7,
+        MyWorkdayEndHour = 15,
+        MyWorkDays = [DayOfWeek.Tuesday, DayOfWeek.Saturday],
+        WorkDays = [DayOfWeek.Monday, DayOfWeek.Sunday],
         NotificationsLikeApp = false,
         Position = PopupPosition.TopRight,
+        NotificationSize = 130,
         ShowAppLogo = false,
         GroupNotificationsByType = false
     };

@@ -54,6 +54,14 @@ public class TicketRulesTests
     public void Outside_hours(string local, bool expected)
         => Assert.Equal(expected, TicketRules.IsOutsideHours(DateTime.Parse(local), 8, 17));
 
+    [Theory]
+    [InlineData("2026-11-09 12:00", true)]  // Monday: not a working day here
+    [InlineData("2026-11-10 12:00", false)] // Tuesday
+    [InlineData("2026-11-14 12:00", false)] // Saturday is
+    [InlineData("2026-11-14 18:00", true)]  // but not after hours
+    public void Weekend_work_days(string local, bool expected) => Assert.Equal(expected, TicketRules.IsOutsideHours(
+        DateTime.Parse(local), 8, 17, [DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday]));
+
     // ---------------------------------------------------------------- help colleagues priorities
 
     [Theory]
@@ -118,15 +126,6 @@ public class TicketRulesTests
     [Fact]
     public void Greeting_without_a_name()
         => Assert.Equal("Good day", TicketRules.Greeting(new DateTime(2026, 11, 12, 12, 0, 0), null));
-
-    [Theory]
-    [InlineData("Jane Doe", "Acme Corp", "Jane Doe (Acme Corp)")]
-    [InlineData("Jane Doe", null, "Jane Doe")]
-    [InlineData(null, "Acme Corp", "Acme Corp")]
-    [InlineData(null, null, null)]
-    [InlineData(" ", "", null)]
-    public void Requester_label(string? name, string? org, string? expected)
-        => Assert.Equal(expected, TicketRules.RequesterLabel(name, org));
 
     [Theory]
     [InlineData("pending", "Pending")]

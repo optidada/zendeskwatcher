@@ -9,7 +9,17 @@ public sealed class PopupManager
     private const int MaxVisible = 4;
 
     private readonly List<PopupForm> _visible = [];
-    private readonly Queue<(NotificationContent Content, Settings Settings)> _pending = new();
+    private readonly List<Waiting> _pending = [];
+    private readonly Dictionary<PopupForm, DateTime> _shownAt = [];
+    private readonly System.Windows.Forms.Timer _awayWatch = new() { Interval = 1000 };
+    private bool _wasAway;
+    private bool _draining;
+    private Settings _lastSettings = new();
+
+    private sealed record Waiting(NotificationContent Content, Settings Settings, DateTime Since);
+
+    /// <summary>Which of these notifications are still needed (bool: also read the ticket's changes). Set by the notifier.</summary>
+    public Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? StillNeeded { get; set; }
     private readonly Action<string, long?> _onAction;
     private readonly Action<NotificationContent> _onSnooze;
     private readonly Action<NotificationContent, PopupForm.Result> _onClosed;
@@ -29,27 +39,36 @@ public sealed class PopupManager
         _onSnooze = onSnooze;
         _onClosed = onClosed;
         _onCopy = onCopy;
+        _awayWatch.Tick += (_, _) => WatchAway();
     }
 
-    public void Show(NotificationContent content, Settings settings)
+    public void Show(NotificationContent content, Settings settings) => Show(content, settings, overLimit: false);
+
+    /// <param name="overLimit">Show it even when the stack is full (the "while you were away" summary).</param>
+    private void Show(NotificationContent content, Settings settings, bool overLimit)
     {
-        if (_visible.Count >= MaxVisible)
+        _lastSettings = settings;
+        if (_visible.Count >= MaxVisible && !overLimit)
         {
-            _pending.Enqueue((content, settings));
+            _pending.Add(new Waiting(content, settings, DateTime.UtcNow));
+            _awayWatch.Start();
             return;
         }
 
         var style = content.Style ?? settings.StyleFor(content.Kind);
         var palette = PopupPalette.For(settings.ActiveNotificationTheme);
         var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
-        var scale = DpiScale();
+        var size = Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
+        var scale = DpiScale() * size; // margins and gaps grow with the notifications
 
-        var popup = new PopupForm(content, palette, style.Display, scale);
+        var popup = new PopupForm(content, palette, style.Display, DpiScale(), size);
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
         _takeTurns = settings.PopupsTakeTurns;
         _visible.Add(popup);
+        _shownAt[popup] = DateTime.UtcNow;
+        _awayWatch.Start();
         UpdateTurns();
 
         var restX = screen.WorkingArea.Right - popup.Width - (int)(16 * scale);
@@ -62,6 +81,7 @@ public sealed class PopupManager
     private void OnFinished(PopupForm popup, Settings settings)
     {
         _visible.Remove(popup);
+        _shownAt.Remove(popup);
         UpdateTurns();
         _onClosed(popup.Content, popup.Outcome);
 
@@ -78,12 +98,103 @@ public sealed class PopupManager
                 break;
         }
 
-        Layout(settings.Position, DpiScale());
+        Layout(settings.Position, DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f);
+        _ = DrainAsync();
+    }
 
-        if (_pending.Count > 0)
+    // ------------------------------------------------------------------ waiting notifications
+
+    /// <summary>Shows waiting notifications while there's room; ones that waited long are checked first (see <see cref="Settings.RecheckWaitingAfterMinutes"/>).</summary>
+    private async Task DrainAsync()
+    {
+        if (_draining)
+            return;
+        _draining = true;
+        try
         {
-            var (content, pendingSettings) = _pending.Dequeue();
-            Show(content, pendingSettings);
+            while (_visible.Count < MaxVisible && _pending.Count > 0)
+            {
+                var next = _pending[0];
+                _pending.RemoveAt(0);
+                if (WaitedLong(next.Content, next.Settings, next.Since) && (await CheckAsync([next.Content], deep: true)).Count == 0)
+                    continue;
+                Show(next.Content, next.Settings);
+            }
+        }
+        finally
+        {
+            _draining = false;
+        }
+    }
+
+    private static bool WaitedLong(NotificationContent content, Settings settings, DateTime since) =>
+        settings.RecheckWaitingAfterMinutes > 0 && content.IsTicketNotification && content.TicketId is not null &&
+        DateTime.UtcNow - since >= TimeSpan.FromMinutes(settings.RecheckWaitingAfterMinutes);
+
+    /// <summary>The still needed ones; everything if there's no check or it fails.</summary>
+    private async Task<List<NotificationContent>> CheckAsync(IReadOnlyList<NotificationContent> contents, bool deep)
+    {
+        if (StillNeeded is not { } check || contents.Count == 0)
+            return contents.ToList();
+        try
+        {
+            return await check(contents, deep);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not check waiting notifications; showing them anyway", ex);
+            return contents.ToList();
+        }
+    }
+
+    /// <summary>Once a second while notifications are on screen or waiting: notices when the user comes back.</summary>
+    private void WatchAway()
+    {
+        var away = PopupForm.UserAway();
+        if (_wasAway && !away)
+            _ = CameBackAsync(_lastSettings);
+        _wasAway = away;
+        if (_visible.Count == 0 && _pending.Count == 0)
+        {
+            _awayWatch.Stop();
+            _wasAway = false;
+        }
+    }
+
+    /// <summary>
+    /// The user is back: outdated notifications on screen close quietly, and more than
+    /// <see cref="Settings.SummarizeWaitingAbove"/> waiting ones become one "while you were away" summary.
+    /// </summary>
+    private async Task CameBackAsync(Settings settings)
+    {
+        var tickets = _pending.Where(w => w.Content.IsTicketNotification).ToList();
+        if (settings.SummarizeWaitingAbove > 0 && tickets.Count > settings.SummarizeWaitingAbove)
+        {
+            foreach (var w in tickets)
+                _pending.Remove(w);
+            var contents = tickets.Select(w => w.Content).ToList();
+            var kept = settings.RecheckWaitingAfterMinutes > 0 ? await CheckAsync(contents, deep: false) : contents;
+            if (kept.Count > settings.SummarizeWaitingAbove)
+            {
+                Log.Info($"Back after being away: {contents.Count} waiting notifications, {kept.Count} still needed; showing a summary");
+                Show(Notifier.AwaySummary(kept, contents.Count - kept.Count) with { Style = settings.SummaryStyle }, settings, overLimit: true);
+            }
+            else
+            {
+                var keep = kept.ToHashSet(ReferenceEqualityComparer.Instance);
+                _pending.InsertRange(0, tickets.Where(w => keep.Contains(w.Content)));
+                _ = DrainAsync();
+            }
+        }
+
+        var old = _visible.Where(p => _shownAt.TryGetValue(p, out var at) && WaitedLong(p.Content, settings, at)).ToList();
+        if (old.Count == 0)
+            return;
+        var stillNeeded = (await CheckAsync(old.Select(p => p.Content).ToList(), deep: true)).ToHashSet(ReferenceEqualityComparer.Instance);
+        foreach (var popup in old.Where(p => !stillNeeded.Contains(p.Content) && _visible.Contains(p)))
+        {
+            Log.Info($"No longer needed, closed: {popup.Content.Title}");
+            popup.Dismiss(PopupForm.Result.None);
         }
     }
 
@@ -98,7 +209,10 @@ public sealed class PopupManager
             popup.MyTurn = !_takeTurns || popup == current || !popup.TimesOut;
     }
 
-    /// <summary>Newest popup nearest the corner; older ones are pushed away from it.</summary>
+    /// <summary>
+    /// Oldest at the top, in both corners: people read top to bottom, and the oldest counts down first (take turns).
+    /// Bottom right: the newest is nearest the corner and pushes the older ones up. Top right: the newest is added below.
+    /// </summary>
     private void Layout(PopupPosition position, float scale)
     {
         var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
@@ -108,7 +222,7 @@ public sealed class PopupManager
         if (position == PopupPosition.TopRight)
         {
             var y = area.Top + margin;
-            for (var i = _visible.Count - 1; i >= 0; i--)
+            for (var i = 0; i < _visible.Count; i++)
             {
                 _visible[i].TargetY = y;
                 y += _visible[i].Height + gap;

@@ -11,7 +11,7 @@ internal sealed class GeneralPage : SettingsPage
     private readonly ThemeTile[] _appThemeTiles =
     [
         new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
-        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"),
+        new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"), new(NotificationTheme.Night, "Night"),
         new(NotificationTheme.WindowsNative, "Windows")
     ];
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");

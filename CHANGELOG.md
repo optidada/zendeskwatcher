@@ -3,6 +3,19 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.13
+
+- **Client first**: ticket notifications show "Client: Contoso" large and bold, and the priority moved into the top line ("NEW TICKET · P2 · SUPPORT TIER 2"). Names of people who replied are bold.
+- **Coming back after a long time away**: more than 5 waiting notifications become one "While you were away" summary, and notifications that waited are checked first: dropped when the ticket was taken, solved, or a colleague already answered the customer. Settings → Notifications → Behavior.
+- **Night**: a new theme for late evenings, with warm dark colors, dimmed text and no glow. For the app (General) and for notifications (Look & sound).
+- **Working hours and days** for yourself (Notifications page), with a switch to only get notified while you're working. Colleagues' working days can include weekends too.
+- **Notification size**: 100% to 175%, under Look & sound.
+- "Customer waiting" isn't shown when a colleague has already replied to the customer.
+- Several notifications are read top to bottom: the oldest is always at the top and counts down first, also in the top-right corner.
+- Check boxes and option buttons follow the theme colors instead of Windows blue.
+- Snoozed notifications are also dropped once someone has answered the customer or you've acted on your own ticket.
+- Settings texts: "How often to check" (was Checking), and the Groups page says that Colleagues can use the same groups.
+
 ## 1.3.12
 
 - **Requester and organization** on ticket notifications: "Jane Doe (Acme Corp)" on new tickets, ticket updates and colleagues' tickets.

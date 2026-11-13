@@ -15,9 +15,16 @@ public static class TicketRules
     public static bool IsReallyUnassigned(Ticket ticket, WatchedGroup group) =>
         ticket.AssigneeId is null && ticket.IsOpen && ticket.GroupId == (group.IsNoGroup ? null : group.Id);
 
-    /// <summary>Weekend, or before/after the working hours (start inclusive, end exclusive), for a local time.</summary>
-    public static bool IsOutsideHours(DateTime local, int startHour, int endHour) =>
-        local.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ||
+    /// <summary>Monday to Friday: the working days unless chosen otherwise.</summary>
+    public static readonly DayOfWeek[] Weekdays =
+        [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];
+
+    /// <summary>
+    /// Not a working day (<paramref name="workDays"/>, Monday to Friday if not given), or before/after the working hours
+    /// (start inclusive, end exclusive), for a local time.
+    /// </summary>
+    public static bool IsOutsideHours(DateTime local, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays = null) =>
+        !(workDays ?? Weekdays).Contains(local.DayOfWeek) ||
         local.Hour < startHour || local.Hour >= endHour;
 
     /// <summary>Whether a ticket's priority is one of the chosen ones. No priority counts as normal.</summary>
@@ -36,6 +43,21 @@ public static class TicketRules
     public static bool StillNeedsAttention(NotificationKind kind, Ticket? ticket) =>
         ticket is not null && (kind == NotificationKind.NewTicket ? ticket.IsOpen && ticket.AssigneeId is null : ticket.IsOpen);
 
+    /// <summary>
+    /// Whether what a notification reports has been dealt with by the changes made after it (<paramref name="after"/>,
+    /// each with its author's Zendesk role): a customer reply on a colleague's ticket once an agent replied publicly;
+    /// a change on my own or a CC'd ticket once I changed or commented on the ticket myself. New tickets: never (see
+    /// <see cref="StillNeedsAttention"/>).
+    /// </summary>
+    public static bool HandledSince(NotificationKind kind, IEnumerable<(Audit Audit, string? AuthorRole)> after, long me) => kind switch
+    {
+        NotificationKind.HelpColleague => after.Any(a =>
+            a.Audit.AuthorId > 0 && a.AuthorRole is "agent" or "admin" &&
+            a.Audit.Events.Any(e => e.Type == "Comment" && e.Public == true)),
+        NotificationKind.MyTicket or NotificationKind.CcTicket => after.Any(a => a.Audit.AuthorId == me),
+        _ => false
+    };
+
     /// <summary>"Good morning, Daniel" (05-10), "Good day, Daniel" (10-18), "Good evening, Daniel" (otherwise).</summary>
     public static string Greeting(DateTime localTime, string? fullName)
     {
@@ -48,16 +70,6 @@ public static class TicketRules
         var firstName = fullName?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
         return firstName is null ? greeting : $"{greeting}, {firstName}";
     }
-
-    /// <summary>"Jane Doe (Acme Corp)", "Jane Doe", "Acme Corp", or null when neither is known.</summary>
-    public static string? RequesterLabel(string? name, string? organization) =>
-        (string.IsNullOrWhiteSpace(name), string.IsNullOrWhiteSpace(organization)) switch
-        {
-            (false, false) => $"{name} ({organization})",
-            (false, true) => name,
-            (true, false) => organization,
-            _ => null
-        };
 
     /// <summary>"pending" → "Pending", "hold" → "On-hold", as Zendesk shows them.</summary>
     public static string? StatusLabel(string? status) => status?.ToLowerInvariant() switch

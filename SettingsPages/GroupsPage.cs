@@ -73,7 +73,8 @@ internal sealed class GroupsPage : SettingsPage
     {
         var card = new Card("Monitored groups",
             $"Only groups visible to your account are listed. \"{WatchedGroup.NoGroupName}\" covers tickets that have neither a group nor an assignee. " +
-            "Whether you get notifications is set under Notifications.", Kit.CardWidth);
+            "Whether you get notifications is set under Notifications. Notifications → Colleagues can use the same groups " +
+            "for helping colleagues whose customers reply while they're off work.", Kit.CardWidth);
         _list.Columns.Add("Group");
         _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         _listHost.Size = _list.Size;
