@@ -414,11 +414,13 @@ internal sealed class HelpColleaguesCard
     private void UpdateOptions()
     {
         var on = _help.Checked;
-        _same.Enabled = _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = _grace.Enabled = on;
-        _custom.Enabled = on && (_hasGroupsToChoose || _custom.Checked); // nothing to choose: greyed out (unless it's the current choice)
+        var signedIn = !_context.SignedOut; // signed out: the lists from Zendesk can't be changed
+        _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = _grace.Enabled = on;
+        // Which groups: a choice between lists from Zendesk, so it waits for sign-in too (the current choice stays).
+        _same.Enabled = on && signedIn;
+        _custom.Enabled = on && signedIn && _hasGroupsToChoose; // nothing to choose: greyed out
         _workDays.Enabled = on;
         _priorities.Enabled = on;
-        var signedIn = !_context.SignedOut; // signed out: the lists from Zendesk can't be changed
         _groupList.Enabled = on && _custom.Checked && signedIn;
         _peopleList.Enabled = on;
         _peopleAll.Enabled = _peopleNone.Enabled = on && signedIn;
