@@ -210,7 +210,9 @@ public sealed class WebSession : NSObject, IZendeskSession, IWKNavigationDelegat
     /// </summary>
     private Task<ApiResponse> FetchAsync(string url, string? method, string? jsonBody)
     {
-        const string ToResult = ".then(async r => JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: await r.text() }))";
+        // Trimmed to the fields the app reads before it crosses into the app (as on Windows: ResponseSlimming).
+        var ToResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.Script + "(body); " +
+                       "return JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: body }); })";
         var script = "return " + (method is null
             ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + ToResult
             : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
