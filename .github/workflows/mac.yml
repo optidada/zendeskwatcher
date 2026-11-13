@@ -1,0 +1,43 @@
+# Builds the Mac test app (ZendeskWatcher.Mac) on a macOS runner: Mac apps can only be built on a Mac.
+# The result is a zip with "Zendesk Watcher.app" (Apple silicon + Intel, ad-hoc signed, no Apple account) under the
+# run's Artifacts. Not part of releases yet.
+name: Mac test build
+
+on:
+  push:
+    branches: [main, mac]
+    paths: ['ZendeskWatcher.Mac/**', 'Core/**', '.github/workflows/mac.yml']
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install the macOS workload
+        run: dotnet workload install macos
+
+      - name: Build
+        env:
+          DEFAULT_SUBDOMAIN: ${{ secrets.DEFAULT_SUBDOMAIN }}
+        run: dotnet build ZendeskWatcher.Mac/ZendeskWatcher.Mac.csproj -c Release "-p:DefaultSubdomain=$DEFAULT_SUBDOMAIN"
+
+      - name: Zip the app
+        run: |
+          app=$(find ZendeskWatcher.Mac/bin/Release -maxdepth 3 -name "ZendeskWatcher.app" -type d | head -1)
+          echo "Built: $app"
+          mkdir -p out
+          ditto "$app" "out/Zendesk Watcher.app"
+          codesign --verify --verbose "out/Zendesk Watcher.app" || true
+          lipo -info "out/Zendesk Watcher.app/Contents/MacOS/ZendeskWatcher" || true
+          ditto -c -k --keepParent "out/Zendesk Watcher.app" ZendeskWatcher-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZendeskWatcher-mac
+          path: ZendeskWatcher-mac.zip

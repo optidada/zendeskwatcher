@@ -23,9 +23,9 @@
 
   <ItemGroup>
     <!-- The test project lives in tests/, the shared code in Core/ (its own project, referenced below). -->
-    <Compile Remove="tests/**;Core/**" />
-    <None Remove="tests/**;Core/**" />
-    <EmbeddedResource Remove="tests/**;Core/**" />
+    <Compile Remove="tests/**;Core/**;ZendeskWatcher.Mac/**" />
+    <None Remove="tests/**;Core/**;ZendeskWatcher.Mac/**" />
+    <EmbeddedResource Remove="tests/**;Core/**;ZendeskWatcher.Mac/**" />
   </ItemGroup>
 
   <ItemGroup>
