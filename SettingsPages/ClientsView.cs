@@ -153,6 +153,7 @@ internal sealed class ClientsView
         foreach (var client in settings.Clients.Where(c => !c.IsDefaultAt(DateTimeOffset.UtcNow)))
             _choices[client.Id] = client.Copy();
         _list.Invalidate();
+        UpdateHint();
     }
 
     public void Apply(Settings settings) =>
@@ -166,6 +167,37 @@ internal sealed class ClientsView
     {
         if (_lastGroups.Count > 0)
             Arrange(_lastGroups, _loaded ? _cache?.Groups : null, keepScroll: true);
+    }
+
+    /// <summary>While signed out: greyed, no ticking or client menu, still scrolls.</summary>
+    public bool ReadOnly
+    {
+        get => _list.ReadOnly;
+        set => _list.ReadOnly = value;
+    }
+
+    /// <summary>
+    /// How many clients in the list have a choice other than Normal. Choices for clients not in the list (their group
+    /// isn't monitored right now) don't count: they're kept for when the group comes back.
+    /// </summary>
+    public int CustomizedCount => ShownCustomized().Count;
+
+    private List<long> ShownCustomized()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return _shown.SelectMany(s => s.Clients).Select(c => c.Id).Distinct()
+            .Where(id => _choices.GetValueOrDefault(id) is { } c && !c.IsDefaultAt(now)).ToList();
+    }
+
+    /// <summary>"Clear customizations": the clients in the list back to Normal (Save keeps it, Discard brings them back).</summary>
+    public void ClearAll()
+    {
+        foreach (var id in ShownCustomized())
+            _choices.Remove(id);
+        Resort();
+        _list.Invalidate();
+        UpdateHint();
+        Changed?.Invoke();
     }
 
     /// <summary>A choice made from a notification while Settings is open.</summary>

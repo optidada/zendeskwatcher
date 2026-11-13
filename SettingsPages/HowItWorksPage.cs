@@ -52,7 +52,7 @@ internal sealed class HowItWorksPage : SettingsPage
         ]),
         ("On screen",
         [
-            "How long a ticket notification stays depends on its priority (Behavior → On screen). Hover over it to pause the countdown.",
+            "How long a ticket notification stays depends on its priority (Behavior → On screen). Hover over it to pause the countdown. With “Peek from the edge” (Look & sound) a notification waits as a tab until you've slid it out once; urgent and important ones come out by themselves.",
             "Several take turns, and while you're away (screen locked, or no mouse or keyboard for a minute) they wait for you. " +
             "When you're back, ones that waited are checked again and dropped if they're no longer needed."
         ]),

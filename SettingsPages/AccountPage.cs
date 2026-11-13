@@ -244,6 +244,8 @@ internal sealed class AccountPage : SettingsPage
     {
         if (state != AccountState.SignedIn)
             Context.SetSession(null, null);
+        if (state != AccountState.Checking)
+            Context.SetSignedOut(state == AccountState.SignedOut);
         _status.Text = text;
         _dot.DotColor = state switch
         {

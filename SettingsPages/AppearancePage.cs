@@ -31,7 +31,8 @@ internal sealed class AppearancePage : SettingsPage
     private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
     private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
         new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.LeftCenter, "Left, middle"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
-    private readonly ComboBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards")], width: PlacementWidth);
+    private readonly ComboBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge")], width: PlacementWidth);
+    private readonly Label _peekNote = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 60);
 
     /// <summary>The same width for the position, stacking and size choices, so they line up.</summary>
     private const int PlacementWidth = 200;
@@ -75,6 +76,14 @@ internal sealed class AppearancePage : SettingsPage
             placement.Controls.Add(combo);
         }
         style.Body.Controls.Add(placement);
+        _peekNote.Margin = new Padding(0, 6, 0, 0);
+        _peekNote.Visible = false;
+        style.Body.Controls.Add(_peekNote);
+        // Peek waits at a screen edge: Center has none, so it's greyed out (and left) while Peek is chosen.
+        ((RoomyComboBox)_position).IsItemDisabled = i =>
+            Kit.Selected<PopupStacking>(_stacking) == PopupStacking.Peek && _position.Items[i] is Option<PopupPosition> { Value: PopupPosition.Center };
+        _stacking.SelectedIndexChanged += (_, _) => UpdatePeekNote(userChoice: true);
+        _position.SelectedIndexChanged += (_, _) => UpdatePeekNote(userChoice: false);
         Panel.Controls.Add(style);
 
         var sound = new Card("Sound", "App messages: update ready, welcome, group not found and \"Sign-in required\". Replies to " +
@@ -133,10 +142,30 @@ internal sealed class AppearancePage : SettingsPage
         _likeApp.Checked = settings.NotificationsLikeApp;
         _ownStyle.Checked = !settings.NotificationsLikeApp;
         SelectNotificationTheme(settings.Theme);
+        Kit.Select(_stacking, settings.Stacking); // first: with Peek, Center can't be chosen
         Kit.Select(_position, settings.Position);
-        Kit.Select(_stacking, settings.Stacking);
+        UpdatePeekNote(userChoice: false);
         Kit.Select(_size, settings.NotificationSize, fallback: 100);
         _groupByType.Checked = settings.GroupNotificationsByType;
+    }
+
+    /// <summary>
+    /// With Peek: a short line on how it works; choosing Peek while on Center moves to Top center and says so.
+    /// </summary>
+    private void UpdatePeekNote(bool userChoice)
+    {
+        var peek = Kit.Selected<PopupStacking>(_stacking) == PopupStacking.Peek;
+        var moved = false;
+        if (peek && Kit.Selected<PopupPosition>(_position) == PopupPosition.Center)
+        {
+            Kit.Select(_position, PopupPosition.TopCenter);
+            moved = userChoice;
+        }
+        _peekNote.Text = !peek ? ""
+            : moved ? "Peek needs a screen edge, so the position moved to Top center."
+            : "Notifications wait at the screen edge with a tab showing; point at it to slide one out. Center isn't available with Peek.";
+        _peekNote.Visible = peek;
+        _position.Invalidate();
     }
 
     public override void Apply(Settings s)
@@ -173,7 +202,7 @@ internal sealed class AppearancePage : SettingsPage
     {
         foreach (var tile in _themeTiles)
             tile.Enabled = _ownStyle.Checked;
-        _position.Enabled = _size.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
+        _position.Enabled = _stacking.Enabled = _size.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
     }
 
     /// <summary>Sends samples of one kind, or several of both kinds when <paramref name="kind"/> is null.</summary>

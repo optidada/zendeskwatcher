@@ -562,5 +562,11 @@ public enum PopupStacking
     List,
 
     /// <summary>Like a deck of cards: the newest in front, older ones behind it with their edge peeking out.</summary>
-    Deck
+    Deck,
+
+    /// <summary>
+    /// Tucked away at the screen edge with only a tab showing; the mouse over it slides it out. Needs an edge, so not
+    /// with <see cref="PopupPosition.Center"/> (Top center is used then).
+    /// </summary>
+    Peek
 }

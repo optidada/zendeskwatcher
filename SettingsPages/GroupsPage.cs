@@ -140,6 +140,12 @@ internal sealed class GroupsPage : SettingsPage
             e.SuppressKeyPress = true; // no beep
             Find(next: true);
         };
+        UseSignedOutStrip(readOnly => _list.ForeColor = readOnly ? Theme.TextMuted : Theme.Text);
+        _list.ItemCheck += (_, e) =>
+        {
+            if (Context.SignedOut && !_suppressEvents)
+                e.NewValue = e.CurrentValue; // read-only while signed out (see the strip)
+        };
         _list.ItemChecked += (_, e) =>
         {
             if (_suppressEvents)

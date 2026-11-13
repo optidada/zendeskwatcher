@@ -1,3 +1,4 @@
+using ZendeskWatcher.UI;
 using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher.SettingsPages;
@@ -27,6 +28,25 @@ internal sealed class SettingsContext(Form window, Panel content, Notifier notif
 
     /// <summary>Signed in or out. True when the user asked to reload, so cached Zendesk data is fetched again.</summary>
     public event Action<bool>? SessionUpdated;
+
+    /// <summary>
+    /// True when the Account page found no working session (not while it's still checking): lists from Zendesk on
+    /// Groups, Clients and Colleagues may be out of date and can't be changed then.
+    /// </summary>
+    public bool SignedOut { get; private set; }
+
+    public event Action? SignedOutChanged;
+
+    public void SetSignedOut(bool signedOut)
+    {
+        if (signedOut == SignedOut)
+            return;
+        SignedOut = signedOut;
+        SignedOutChanged?.Invoke();
+    }
+
+    /// <summary>Opens the Account page (the "Sign in" link on the signed-out strip).</summary>
+    public Action ShowAccount { get; set; } = () => { };
 
     public void SetSession(ZendeskClient? client, User? me, bool reload = false)
     {
@@ -67,6 +87,38 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     public virtual void OnShowing() { }
 
     protected void Changed() => Context.Changed();
+
+    /// <summary>
+    /// For pages with lists from Zendesk: a strip under the subtitle while signed out ("Not signed in … Sign in"), and
+    /// <paramref name="setReadOnly"/> to stop changes until a session works again.
+    /// </summary>
+    protected void UseSignedOutStrip(Action<bool> setReadOnly)
+    {
+        var text = Theme.Label("Not signed in: these lists may be out of date and can't be changed until you sign in.",
+            Theme.Small, Theme.Warning);
+        var link = Kit.LinkLabel("Sign in", Theme.Small);
+        text.Margin = new Padding(0, 0, 10, 0);
+        link.Margin = Padding.Empty;
+        text.Anchor = link.Anchor = AnchorStyles.Left;
+        var strip = new TableLayoutPanel
+        {
+            ColumnCount = 2, RowCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Theme.Window, Margin = new Padding(0, 0, 0, 14), Visible = false
+        };
+        strip.Controls.Add(text, 0, 0);
+        strip.Controls.Add(link, 1, 0);
+        link.Click += (_, _) => Context.ShowAccount();
+        Panel.Controls.Add(strip);
+        Panel.Controls.SetChildIndex(strip, 2); // under the title and subtitle
+
+        void Update()
+        {
+            strip.Visible = Context.SignedOut;
+            setReadOnly(Context.SignedOut);
+        }
+        Context.SignedOutChanged += Update;
+        Update();
+    }
 
     /// <summary>Reports a change whenever one of these controls changes.</summary>
     protected void TrackChanges(params Control[] controls)
