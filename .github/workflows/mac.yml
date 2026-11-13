@@ -49,8 +49,7 @@ jobs:
           app=$(ls -d ZendeskWatcher.Mac/bin/Release/net10.0-macos/*.app 2>/dev/null | head -1)
           [ -n "$app" ] || app=$(ls -d ZendeskWatcher.Mac/bin/Release/net10.0-macos/osx-arm64/*.app 2>/dev/null | head -1)
           if [ -z "$app" ]; then
-            echo "::error::No app found: $(find ZendeskWatcher.Mac/bin -maxdepth 4 | tr '
-' ' ')"
+            echo "::error::No app found: $(find ZendeskWatcher.Mac/bin -maxdepth 4 | tr '\n' ' ')"
             exit 1
           fi
           echo "::notice::Using: $app ($(lipo -archs "$app/Contents/MacOS/"* | head -1))"
