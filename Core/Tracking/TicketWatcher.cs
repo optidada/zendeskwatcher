@@ -123,24 +123,21 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _lastRequestReport = DateTime.UtcNow;
         }
 
+        // The parts of a check run side by side: each waits mostly for Zendesk, and they keep separate state (new
+        // tickets, my tickets, CC, colleagues). On the app's UI thread their steps never run at the same instant.
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var parts = new List<string>();
-        var total = 0.0;
-        void Lap(string name)
+        async Task Timed(string name, Func<Task> check)
         {
-            total += clock.Elapsed.TotalSeconds;
-            parts.Add($"{name} {clock.Elapsed.TotalSeconds:0.0}s");
-            clock.Restart();
+            var own = System.Diagnostics.Stopwatch.StartNew();
+            await check();
+            lock (parts)
+                parts.Add($"{name} {own.Elapsed.TotalSeconds:0.0}s");
         }
-
-        await CheckUnassignedAsync(ct);
-        Lap("unassigned");
+        var checks = new List<Task> { Timed("unassigned", () => CheckUnassignedAsync(ct)) };
 
         if (settings.TrackMyTickets)
-        {
-            await CheckMyTicketsAsync(ct);
-            Lap("my tickets");
-        }
+            checks.Add(Timed("my tickets", () => CheckMyTicketsAsync(ct)));
         else if (_state.MyTicketsBaselined)
         {
             // Rebuild the baseline when tracking is switched on again, instead of reporting stale changes.
@@ -148,21 +145,20 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.MyTicketsBaselined = false;
         }
 
-        try
+        checks.Add(Timed("help colleagues", async () =>
         {
-            await CheckHelpColleaguesAsync(ct);
-            Lap("help colleagues");
-        }
-        catch (Exception ex) when (ex is not (AuthRequiredException or OperationCanceledException))
-        {
-            Log.Error("Help colleagues check failed", ex); // never let it stop the other notifications
-        }
+            try
+            {
+                await CheckHelpColleaguesAsync(ct);
+            }
+            catch (Exception ex) when (ex is not (AuthRequiredException or OperationCanceledException))
+            {
+                Log.Error("Help colleagues check failed", ex); // never let it stop the other notifications
+            }
+        }));
 
         if (settings.TrackCcTickets)
-        {
-            await CheckCcTicketsAsync(ct);
-            Lap("cc");
-        }
+            checks.Add(Timed("cc", () => CheckCcTicketsAsync(ct)));
         else if (_state.CcTicketsBaselined)
         {
             _state.CcTickets.Clear();
@@ -170,11 +166,13 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.CcBaselineFull = false;
         }
 
+        await Task.WhenAll(checks);
         _state.Save();
 
         // Slow checks are logged with a breakdown, to see which part takes the time.
+        var total = clock.Elapsed.TotalSeconds;
         if (total > 5)
-            Log.Info($"Slow check ({total:0.0}s): {string.Join(", ", parts)}");
+            Log.Info($"Slow check ({total:0.0}s, parts side by side): {string.Join(", ", parts)}");
     }
 
     private async Task CheckUnassignedAsync(CancellationToken ct)
@@ -186,9 +184,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         // Search finds the candidates, but its index can be stale for hours: a ticket assigned long ago may still
         // match "assignee:none". Re-read every candidate (exact, no index) and keep only the really unassigned ones.
-        var found = new List<(WatchedGroup Group, List<Ticket> Tickets)>();
-        foreach (var group in settings.WatchedGroups)
-            found.Add((group, await zendesk.GetUnassignedTicketsAsync(group.Id, ct)));
+        // One search per group, all at once.
+        var found = (await Task.WhenAll(settings.WatchedGroups.Select(async group =>
+            (Group: group, Tickets: await zendesk.GetUnassignedTicketsAsync(group.Id, ct))))).ToList();
 
         var allIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).Distinct().ToList();
         var live = allIds.Count > 0 ? (await zendesk.GetTicketsAsync(allIds, ct)).ToDictionary(t => t.Id) : [];
@@ -301,7 +299,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         // 1. Newly assigned: open tickets at the top of my assigned list that are not tracked yet.
         var previousWatermark = _state.MyTicketsWatermark;
-        var recent = await zendesk.GetRecentlyUpdatedAssignedAsync(me, ct);
+        // Both lists at once: what's newly assigned, and the tracked tickets as they are now.
+        var recentTask = zendesk.GetRecentlyUpdatedAssignedAsync(me, ct);
+        var currentTask = _state.MyTickets.Count > 0 ? zendesk.GetTicketsAsync(_state.MyTickets.Keys.ToList(), ct) : Task.FromResult(new List<Ticket>());
+        var recent = await recentTask;
         var newlyAssigned = recent
             .Where(t => t.IsOpen && !_state.MyTickets.ContainsKey(t.Id) && t.UpdatedAt > previousWatermark)
             .ToList();
@@ -309,9 +310,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.MyTicketsWatermark = recent.Max(t => t.UpdatedAt);
 
         // 2. Changes on tickets already tracked. show_many also covers tickets that left my assigned list.
-        var current = _state.MyTickets.Count > 0
-            ? await zendesk.GetTicketsAsync(_state.MyTickets.Keys.ToList(), ct)
-            : [];
+        var current = await currentTask;
 
         foreach (var missing in _state.MyTickets.Keys.Except(current.Select(t => t.Id)).ToList())
         {
@@ -362,7 +361,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         // 1. Newly CC'd/followed: updated since the last poll and not tracked yet.
         var previousWatermark = _state.CcTicketsWatermark;
-        var recent = await zendesk.GetRecentlyUpdatedInvolvedAsync(me, ct);
+        var recentTask = zendesk.GetRecentlyUpdatedInvolvedAsync(me, ct);
+        var currentTask = _state.CcTickets.Count > 0 ? zendesk.GetTicketsAsync(_state.CcTickets.Keys.ToList(), ct) : Task.FromResult(new List<Ticket>());
+        var recent = await recentTask;
         var added = recent
             .Where(t => Relevant(t) && !_state.CcTickets.ContainsKey(t.Id) && t.UpdatedAt > previousWatermark)
             .ToList();
@@ -370,7 +371,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.CcTicketsWatermark = recent.Max(t => t.UpdatedAt);
 
         // 2. Changes on tracked tickets.
-        var current = _state.CcTickets.Count > 0 ? await zendesk.GetTicketsAsync(_state.CcTickets.Keys.ToList(), ct) : [];
+        var current = await currentTask;
         foreach (var missing in _state.CcTickets.Keys.Except(current.Select(t => t.Id)).ToList())
             _state.CcTickets.Remove(missing);
 
@@ -422,10 +423,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         // Outside your own working hours: keep track (so nothing old pops up later) but don't notify.
         var iAmWorking = !settings.HelpOnlyDuringMyHours || !IAmOffWork();
 
-        foreach (var group in groups)
+        // One search per covered group, all at once; then the tickets are looked at group by group.
+        var fetched = await Task.WhenAll(groups.Select(group => zendesk.GetAssignedOpenTicketsUpdatedSinceAsync(group.Id, since, ct)));
+        foreach (var (group, tickets) in groups.Zip(fetched))
         {
             var baseline = _state.HelpBaselinedGroups.Add(group.Id);
-            var tickets = await zendesk.GetAssignedOpenTicketsUpdatedSinceAsync(group.Id, since, ct);
 
             foreach (var ticket in tickets)
             {

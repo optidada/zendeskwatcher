@@ -26,6 +26,13 @@ internal sealed class RepaintOnScrollPanel : Panel
         base.OnMouseWheel(e);
         Invalidate(true);
     }
+
+    /// <summary>
+    /// A control that gets the focus by a click stays where it is (Windows would scroll the page to show all of it,
+    /// e.g. jump to the top of a long list). Tabbing to a control still scrolls it into view.
+    /// </summary>
+    protected override Point ScrollToControl(Control activeControl) =>
+        MouseButtons != MouseButtons.None ? DisplayRectangle.Location : base.ScrollToControl(activeControl);
 }
 
 internal static class Kit

@@ -141,6 +141,12 @@ internal sealed class GroupsPage : SettingsPage
             Find(next: true);
         };
         UseSignedOutStrip(_ => ColorAll());
+        UpdateCheckImages();
+        _list.HandleCreated += (_, _) =>
+        {
+            _checkImagesFor = null; // set again now that the list exists (and its real DPI is known)
+            UpdateCheckImages();
+        };
         context.SignedOutChanged += () =>
         {
             if (Context.SignedOut)
@@ -234,6 +240,7 @@ internal sealed class GroupsPage : SettingsPage
     /// <summary>Sizes the group list so the page fits the window: only the list scrolls, not the page.</summary>
     public override void OnShowing()
     {
+        UpdateCheckImages(); // the theme may have changed on the General page
         var content = Context.Content;
         Panel.PerformLayout();
         var available = content.ClientSize.Height - content.Padding.Vertical;
@@ -516,8 +523,57 @@ internal sealed class GroupsPage : SettingsPage
         item.ForeColor = group.Missing || readOnly ? Theme.TextMuted : Theme.Text;
     }
 
+    private (UiPalette Palette, int Size, bool ReadOnly)? _checkImagesFor;
+
+    /// <summary>
+    /// The tick boxes drawn in the theme's colors, like the other lists: Windows' own boxes are faint on dark themes
+    /// (e.g. Optimizely). Greyed while signed out.
+    /// </summary>
+    private void UpdateCheckImages()
+    {
+        var size = (int)Math.Round(16 * _list.DeviceDpi / 96f);
+        var key = (Theme.Current, size, Context.SignedOut);
+        if (_checkImagesFor == key)
+            return;
+        _checkImagesFor = key;
+        // A new image list each time; the previous one isn't disposed while the list may still use it (disposing it
+        // left the boxes blank after a theme change), only when the page goes.
+        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(size, size) };
+        images.Images.Add(CheckImage(size, on: false, Context.SignedOut));
+        images.Images.Add(CheckImage(size, on: true, Context.SignedOut));
+        if (_list.StateImageList is { } previous)
+            _list.Disposed += (_, _) => previous.Dispose();
+        _list.StateImageList = images;
+        _list.Invalidate();
+    }
+
+    private static Bitmap CheckImage(int size, bool on, bool readOnly)
+    {
+        var bitmap = new Bitmap(size, size);
+        using var g = Graphics.FromImage(bitmap);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var s = size / 16f;
+        var box = new RectangleF(1 * s, 1 * s, size - 2.5f * s, size - 2.5f * s);
+        using var path = Theme.RoundedRect(box, 3 * s);
+        if (on)
+        {
+            using var fill = new SolidBrush(readOnly ? Theme.TextMuted : Theme.Accent); // grey but still clearly ticked
+            g.FillPath(fill, path);
+            using var tick = new Pen(readOnly ? Theme.Surface : Theme.OnAccent, 2 * s)
+                { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+            g.DrawLines(tick, [new PointF(box.X + 3 * s, box.Y + 7.5f * s), new PointF(box.X + 6 * s, box.Y + 10.5f * s), new PointF(box.X + 11 * s, box.Y + 4 * s)]);
+        }
+        else
+        {
+            using var border = new Pen(Theme.TextMuted, 1.4f * s);
+            g.DrawPath(border, path);
+        }
+        return bitmap;
+    }
+
     private void ColorAll()
     {
+        UpdateCheckImages();
         _list.BeginUpdate();
         foreach (ListViewItem item in _list.Items)
             if (item.Tag is GroupItem group)
@@ -542,8 +598,10 @@ internal sealed class GroupsPage : SettingsPage
     {
         try
         {
-            var memberOf = (await client.GetMyGroupIdsAsync(meId, CancellationToken.None)).ToHashSet();
-            var myTickets = await client.GetMyOpenTicketsAsync(CancellationToken.None);
+            var memberOfTask = client.GetMyGroupIdsAsync(meId, CancellationToken.None); // both at once
+            var myTicketsTask = client.GetMyOpenTicketsAsync(CancellationToken.None);
+            var memberOf = (await memberOfTask).ToHashSet();
+            var myTickets = await myTicketsTask;
             var ticketCounts = myTickets.Where(t => t.GroupId is not null).GroupBy(t => t.GroupId!.Value).ToDictionary(g => g.Key, g => g.Count());
 
             _suggestions = memberOf.Union(ticketCounts.Keys)

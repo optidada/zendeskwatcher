@@ -30,7 +30,35 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
     /// <summary>A request the hidden browser doesn't answer within this time restarts the browser.</summary>
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
+    /// <summary>Held for anything that navigates or sleeps the browser (sign-in, recovery, suspend): nothing else runs then.</summary>
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>Requests running at once in the hidden page (a check sends several side by side).</summary>
+    private const int ParallelRequests = 4;
+    private readonly SemaphoreSlim _slots = new(ParallelRequests, ParallelRequests);
+
+    /// <summary>When a silent sign-in last worked: requests that failed at the same moment don't each sign in again.</summary>
+    private DateTime _recoveredAt;
+    private DateTime _recoveryFailedAt;
+
+    /// <summary>Waits until no request is running (for navigating or suspending); give the slots back with <see cref="ReleaseAll"/>.</summary>
+    private async Task WaitForRequestsAsync(CancellationToken ct)
+    {
+        var taken = 0;
+        try
+        {
+            for (; taken < ParallelRequests; taken++)
+                await _slots.WaitAsync(ct);
+        }
+        catch
+        {
+            if (taken > 0)
+                _slots.Release(taken); // cancelled halfway: give back what was taken
+            throw;
+        }
+    }
+
+    private void ReleaseAll() => _slots.Release(ParallelRequests);
     private Task? _initialization;
     private string _baseUrl = "";
 
@@ -90,26 +118,50 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     public Task<ApiResponse> SendAsync(string method, string url, string jsonBody, CancellationToken ct) =>
         RequestAsync(url, method, jsonBody, ct);
 
+    /// <summary>
+    /// Several requests may run at once (up to <see cref="ParallelRequests"/>): fetch() calls in one page don't get in
+    /// each other's way. Getting the page ready (start, wake, onto the Zendesk domain) happens one at a time, and
+    /// never while a sign-in or recovery navigates the page.
+    /// </summary>
     private async Task<ApiResponse> RequestAsync(string url, string? method, string? jsonBody, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
+        var slot = false;
         try
         {
             await EnsureInitializedAsync();
             Wake();
-            await EnsureOnZendeskAsync(ct);
+            if (!IsOnZendesk())
+            {
+                await WaitForRequestsAsync(ct); // navigating would break requests that are still running
+                try { await EnsureOnZendeskAsync(ct); }
+                finally { ReleaseAll(); }
+            }
+            await _slots.WaitAsync(ct);
+            slot = true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        try
+        {
             return await FetchAsync(url, ct, method, jsonBody).WaitAsync(RequestTimeout, ct);
         }
         catch (TimeoutException)
         {
             // The hidden browser stopped answering (e.g. stuck while waking up): start over with a fresh one.
             Log.Error("Browser session: the hidden browser did not respond; restarting it");
-            ResetBrowser();
+            await _gate.WaitAsync(CancellationToken.None);
+            try { ResetBrowser(); }
+            finally { _gate.Release(); }
             throw new HttpRequestException("The embedded browser did not respond and was restarted.");
         }
         finally
         {
-            _gate.Release();
+            if (slot)
+                _slots.Release();
             SuspendSoon();
         }
     }
@@ -124,6 +176,14 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             return false; // signed out on purpose: wait for an explicit sign-in
 
         await _gate.WaitAsync(ct);
+        // Requests run side by side: several can find the session expired at once. One silent sign-in serves them all.
+        if (DateTime.UtcNow - _recoveredAt < TimeSpan.FromSeconds(30) || DateTime.UtcNow - _recoveryFailedAt < TimeSpan.FromSeconds(30))
+        {
+            _gate.Release();
+            return _recoveredAt > _recoveryFailedAt; // the answer the last attempt just gave
+        }
+        try { await WaitForRequestsAsync(ct); } // the page navigates: no request may be running
+        catch { _gate.Release(); throw; }
         try
         {
             await EnsureInitializedAsync();
@@ -141,6 +201,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                     Log.Info("Browser session: silent sign-in succeeded");
                     await NavigateAsync(HomeUrl, ct);
                     await ClearCacheAsync(); // the sign-in redirect ended on users/me
+                    _recoveredAt = DateTime.UtcNow;
                     return true;
                 }
 
@@ -151,10 +212,12 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
             Log.Info("Browser session: silent sign-in needs user interaction");
             await NavigateAsync(HomeUrl, ct);
+            _recoveryFailedAt = DateTime.UtcNow;
             return false;
         }
         finally
         {
+            ReleaseAll();
             _gate.Release();
             SuspendSoon();
         }
@@ -164,6 +227,8 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     public async Task SignInAsync(object? owner, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
+        try { await WaitForRequestsAsync(ct); } // the sign-in navigates: no request may be running
+        catch { _gate.Release(); throw; }
         try
         {
             await EnsureInitializedAsync();
@@ -226,12 +291,15 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                 throw new OperationCanceledException("The sign-in window was closed.");
 
             Log.Info("Browser session: signed in");
+            _recoveredAt = DateTime.UtcNow;
+            _recoveryFailedAt = default;
             File.Delete(SignedOutMarker);
             await NavigateAsync(HomeUrl, CancellationToken.None);
             await ClearCacheAsync(); // the sign-in redirect ended on users/me
         }
         finally
         {
+            ReleaseAll();
             _gate.Release();
             SuspendSoon();
         }
@@ -252,8 +320,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
     private async Task InitializeAsync()
     {
-        // No GPU process: the hidden page only runs fetch(), and the sign-in page renders fine in software.
-        var options = new CoreWebView2EnvironmentOptions("--disable-gpu");
+        // As light as it can be: no GPU (the hidden page only runs fetch(), the sign-in renders fine in software), and
+        // none of the browser's background work (component and safe-browsing updates, sync, extensions).
+        var options = new CoreWebView2EnvironmentOptions(
+            "--disable-gpu --disable-background-networking --disable-component-update --disable-sync --disable-extensions");
         var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
         await _web.EnsureCoreWebView2Async(environment);
         _web.CoreWebView2.NavigationCompleted += (_, _) => _lastNavigation = DateTime.UtcNow;
@@ -263,6 +333,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         await ClearCacheAsync();
         _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        // Only Zendesk and Okta pages: no SmartScreen lookups, no form autofill.
+        _web.CoreWebView2.Settings.IsReputationCheckingRequired = false;
+        _web.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
+        _web.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
         UseLowMemory(true);
     }
 
@@ -313,6 +387,11 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                 // Hold the gate while suspending, so a request can't start while the browser is going to sleep.
                 if (_window.Visible || !_gate.Wait(0))
                     return;
+                if (_slots.CurrentCount < ParallelRequests)
+                {
+                    _gate.Release(); // a request is still running; it schedules the next attempt when it ends
+                    return;
+                }
                 try
                 {
                     if (_web.CoreWebView2 is { IsSuspended: false } core)
@@ -397,14 +476,16 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     {
         ct.ThrowIfCancellationRequested();
 
-        const string ToResult = ".then(async r => JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: await r.text() }))";
+        // The response as an object (one copy of the text, not JSON inside JSON), trimmed to the fields the app reads.
+        var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.Script + "(body); " +
+                       "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body }; })";
         var script = method is null
-            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + ToResult
+            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + toResult
             : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
               ".then(r => r.json()).then(me => " +
               $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
               "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': (me.user && me.user.authenticity_token) || '' }, " +
-              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + ToResult;
+              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + toResult;
 
         var parameters = JsonSerializer.Serialize(new { expression = script, awaitPromise = true, returnByValue = true });
         var resultJson = await _web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters);
@@ -413,11 +494,11 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         if (result.RootElement.TryGetProperty("exceptionDetails", out var exception))
             throw new HttpRequestException($"Request failed in the browser: {exception.GetRawText()}");
 
-        var value = result.RootElement.GetProperty("result").GetProperty("value").GetString()!;
-        using var response = JsonDocument.Parse(value);
-        var status = response.RootElement.GetProperty("status").GetInt32();
-        var body = response.RootElement.GetProperty("body").GetString() ?? "";
-        TimeSpan? retryAfter = int.TryParse(response.RootElement.GetProperty("retryAfter").GetString(), out var seconds)
+        var value = result.RootElement.GetProperty("result").GetProperty("value");
+        var status = value.GetProperty("status").GetInt32();
+        var body = value.GetProperty("body").GetString() ?? "";
+        TimeSpan? retryAfter = value.GetProperty("retryAfter").ValueKind == JsonValueKind.String &&
+                               int.TryParse(value.GetProperty("retryAfter").GetString(), out var seconds)
             ? TimeSpan.FromSeconds(seconds)
             : null;
 

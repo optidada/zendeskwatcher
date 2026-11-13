@@ -3,6 +3,15 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.4.4
+
+- **Settings opens much faster**: about 0.1 s instead of 0.75 s, by building each page the first time you open it; no white flash, less memory while it's open.
+- **Faster checks**: the parts of a check and the searches per group now run side by side (up to 4 requests at once), so notifications arrive sooner. Settings loads Clients and colleagues the same way.
+- **Tick boxes on the Groups page are clearly visible in every theme**: drawn in the theme's colors like the other lists, instead of Windows' own boxes that were faint on dark themes. Drop-downs match the theme too.
+- **Keyboard in the Clients and Colleagues lists**: Tab into the list, arrow keys move, Space ticks or unticks (or All / None), Enter opens a client's menu.
+- **Less memory and work per check**: the built-in browser now passes on only the ticket fields the app uses (not the whole first message, custom fields and tags), often a fraction of the size.
+- **The built-in browser does less in the background**: no component updates, sync, extensions or safety lookups, which the Zendesk and Okta pages don't need.
+
 ## 1.4.3
 
 - **Update checks try again sooner**: if GitHub can't be reached or is busy, the app tries again after 15 minutes (then 30, 60 … up to 6 hours) instead of the next day, and says so in plain words.
