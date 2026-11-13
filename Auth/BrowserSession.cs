@@ -252,8 +252,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
     private async Task InitializeAsync()
     {
-        // No GPU process: the hidden page only runs fetch(), and the sign-in page renders fine in software.
-        var options = new CoreWebView2EnvironmentOptions("--disable-gpu");
+        // As light as it can be: no GPU (the hidden page only runs fetch(), the sign-in renders fine in software), and
+        // none of the browser's background work (component and safe-browsing updates, sync, extensions).
+        var options = new CoreWebView2EnvironmentOptions(
+            "--disable-gpu --disable-background-networking --disable-component-update --disable-sync --disable-extensions");
         var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
         await _web.EnsureCoreWebView2Async(environment);
         _web.CoreWebView2.NavigationCompleted += (_, _) => _lastNavigation = DateTime.UtcNow;
@@ -263,6 +265,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         await ClearCacheAsync();
         _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        // Only Zendesk and Okta pages: no SmartScreen lookups, no form autofill.
+        _web.CoreWebView2.Settings.IsReputationCheckingRequired = false;
+        _web.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
+        _web.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
         UseLowMemory(true);
     }
 
