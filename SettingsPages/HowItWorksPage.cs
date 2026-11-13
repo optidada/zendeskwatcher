@@ -31,7 +31,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "except the person who opened it.",
             "Waiting: the customer's message is the newest public comment. An internal note isn't an answer.",
             "Any status counts (Pending, On-hold, Escalated, …), except “In progress” and “Scheduled”: they're trusted for a while first (4 hours by default).",
-            "Colleagues in your own region are left out to begin with: they usually work when you do."
+            "Colleagues in your own region are left out to begin with: they usually work when you do.",
+            "Only while you're working yourself, if you chose that on the Colleagues page; Catch up brings up what was held back."
         ]),
         ("Catch up",
         [

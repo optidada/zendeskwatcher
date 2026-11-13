@@ -4,8 +4,10 @@
 
 - new unassigned tickets in groups they choose,
 - changes on their own tickets (and, optionally, tickets they're CC'd on or follow),
-- optionally ("Help colleagues"), a customer reply on a colleague's open ticket while that colleague is outside
-  working hours, so someone can step in.
+- "Help colleagues" (on by default, the agent can switch it off): a customer waiting for an answer on a colleague's
+  ticket while that colleague is outside working hours, so someone can step in,
+- "Catch up": on request (and once when the agent's working day starts), what still needs attention since they last
+  worked: tickets still unassigned, customers still waiting.
 
 It's a notification layer on top of Zendesk; all work is still done in Zendesk itself.
 
@@ -29,10 +31,13 @@ Checks run every 60 seconds by default (the agent can choose 30 s – 1 h). Per 
 | New unassigned tickets | 1 search per monitored group + 1 ticket lookup (`show_many`) |
 | The agent's own tickets | 2 (30 most recently updated assigned tickets + `show_many`) |
 | CC / follower tickets (optional, off by default) | 3 (30 most recent CC'd and followed tickets + `show_many`) |
-| Help colleagues (optional, off by default) | 1 search per chosen group, only tickets updated since the last check |
+| Help colleagues (on by default) | 1 search per chosen group, only tickets updated since the last check |
+| Only for a ticket "In progress" or "Scheduled" whose customer has waited the agent's trust time (4 h by default) | 1 ticket lookup (`show_many`) for all due ones, plus 1 audit request each |
 | Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes) |
 | Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned), plus 1 audit request to see whether it was answered since |
 | Only for notifications that waited long (default 15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change |
+| Catch up (on request, and once at the start of the agent's working day) | 1 ticket lookup for the agent's own and CC'd tickets, 1 search per covered group, and 1 audit request per ticket updated since the agent last worked |
+| Once at start | the custom ticket statuses (`/api/v2/custom_statuses.json`), to show them by name |
 
 **Measured** on an agent's PC with 2 groups, CC tracking and Help colleagues all switched on: **3–11 requests per
 minute** (11-minute averages; the higher one includes opening the Settings window). With default settings it's about
@@ -46,10 +51,11 @@ internal APIs and live-update connections), so the Watcher adds about the load o
 ## Data handling
 
 - **Read from Zendesk:** the API returns complete objects; the app keeps only what it needs, in memory: ticket ID,
-  subject, status, priority, group, assignee, CC/follower IDs, timestamps, change types, user names, roles and time
-  zones, and – for notifications – the first 140 characters of a comment (the agent can turn that off).
+  subject, status (and custom status names), priority, group, assignee, CC/follower IDs, timestamps, change types,
+  user names, roles, time zones and email addresses (only to tell the agent's own company from customers), and – for
+  notifications – the first 140 characters of a comment (the agent can turn that off).
 - **Stored on disk** (only in the agent's Windows profile, `%LOCALAPPDATA%`):
-  - settings (subdomain, chosen groups, preferences),
+  - settings (subdomain, chosen groups, preferences), with a backup copy of the previous version,
   - ticket IDs, status and timestamps already seen (no subjects or other ticket content),
   - a log with ticket IDs, names and change types, but never comment text,
   - the embedded browser profile with the login cookies. API responses are not cached (`no-store`), and the cache

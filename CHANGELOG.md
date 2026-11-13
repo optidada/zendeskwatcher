@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.21
+
+- **How it works** also explains the "only while I'm working myself" switch for colleagues' tickets, and that Catch up brings up what it held back.
+- The install guide links straight to the newest installer, and it, the README and the overview for the Zendesk owner describe Help colleagues, Catch up and the status rules.
+
 ## 1.3.20
 
 - **"Scheduled" is trusted like "In progress"**: a customer's reply on a Scheduled ticket (often just "Thanks, see you Tuesday") only notifies once it has gone unanswered for the time you set on the Colleagues page (4 hours by default). Also in Catch up.

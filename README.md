@@ -2,9 +2,11 @@
 
 A Windows tray app that watches Zendesk with **your own agent permissions**:
 
-- toast notifications for **new unassigned tickets** in the groups you pick
-- toast notifications when **someone else changes a ticket assigned to you**: public replies, internal notes, status, reassignment or group moves, priority
+- notifications for **new unassigned tickets** in the groups you pick
+- notifications when **someone else changes a ticket assigned to you**: public replies, internal notes, status (also custom statuses such as "In progress â†’ Escalated"), reassignment or group moves, priority
 - optionally the same for tickets where you're **CC'd or a follower**
+- **Help colleagues** (on by default): a notification when a customer is waiting for an answer on a colleague's ticket while that colleague is off work
+- **Catch up**: what still needs you since you stopped working last time (still unassigned, customers still waiting); from the tray menu, the morning summary, or by itself when your working day starts
 
 Clicking a notification opens the ticket in the browser. New-ticket notifications also have **Take it**, which assigns the ticket to you and opens it. If a colleague was faster, you're told who has it and the ticket opens anyway. Taking a ticket is the only thing the app ever changes in Zendesk.
 
@@ -24,15 +26,18 @@ dotnet run -c Release
 
 Or build and start `bin\Release\net10.0-windows10.0.17763.0\ZendeskWatcher.exe`.
 
-**Tests:** `dotnet test tests/ZendeskWatcher.Tests`. They cover the notification rules (`Tracking/TicketRules.cs`) and
-the unassigned-ticket check end to end against a fake Zendesk, in a temp data folder (never your real state). The
-release workflow runs them first; a failing test stops the release.
+**Tests:** `dotnet test tests/ZendeskWatcher.Tests`. They cover the notification rules (`Tracking/TicketRules.cs`), the
+checks end to end against a fake Zendesk (unassigned tickets, ticket changes, Help colleagues, Catch up), the Settings
+pages and the settings file, in a temp data folder (never your real state). The release workflow runs them first; a
+failing test stops the release.
 
 On first start the **Settings** window opens:
 
 1. **Account:** enter the subdomain (`yourcompany` for yourcompany.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
 2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon.
-3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, and how often to check.
+3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, your working hours, and how often to check. Below it: **Colleagues**, **Behavior** (how long notifications stay, snooze) and **Look & sound**.
+
+**How it works**, the last page, explains in plain words when and why each notification appears.
 
 **Save** stores your changes and applies them right away; the window stays open, so you can continue on other pages. **Close** asks before discarding unsaved changes.
 
@@ -52,6 +57,9 @@ To reopen Settings, click the tray icon or right-click it and choose **Settingsâ
 - **Unassigned check:** search results are re-read directly before notifying, because the search index can still list tickets that were assigned long ago.
 - **Your tickets:** your assigned-tickets list plus the ticket audits. These are exact, with no search lag. Changes you make yourself are ignored.
 - **CC / follower:** your CC'd and followed ticket lists plus audits, the same way. Tickets assigned to you are left to "Your tickets", so nothing is reported twice.
+- **Help colleagues:** one search per covered group for assigned tickets updated since the last check (any status before solved). A notification when the newest public comment is from the customer (an end-user who isn't from your own email domain; the requester always counts) and the assignee is outside working hours in their own time zone. "In progress" and "Scheduled" (custom status names) are trusted for a while first (4 hours by default) and looked at again afterwards.
+- **Catch up:** since the end of your previous working day: tickets still unassigned, and customers still waiting on your own, CC'd and colleagues' tickets (same rules). Up to 5 waiting customers as separate notifications, the rest in one summary.
+- **Status changes:** custom statuses are read once at start (`/api/v2/custom_statuses.json`) and shown by name; New â†’ Open and Solved â†’ Closed don't notify.
 - **First run:** the first poll only records what already exists, so you're not flooded with notifications.
 - **Pause notifications:** changes are still recorded but no toasts are shown, so nothing floods in when you resume.
 
@@ -59,12 +67,12 @@ To reopen Settings, click the tray icon or right-click it and choose **Settingsâ
 
 | File | Content |
 |---|---|
-| `settings.json` | Settings written by the Settings window |
+| `settings.json` | Settings written by the Settings window. `settings.json.bak` is the version before the last save; a damaged file is kept as `settings.json.bad` and the backup is used |
 | `WebView2\` | Browser profile with your Zendesk/Okta cookies. API responses are not cached (`no-store`), and the cache is cleared at every start |
 | `state.json` | Ticket IDs, status and timestamps of tickets already seen. No subjects or other ticket content |
 | `log.txt` | Log, useful when something doesn't work. Ticket IDs, names and change types, but never comment text, so it's safe to share |
 
-**What is read from Zendesk:** the API always returns complete objects (tickets with their description, audits with comment text, user profiles); the app keeps only what it needs in memory (ticket ID, subject, status, priority, group, assignee, CC/follower IDs, timestamps; change types and, for notifications, the first 140 characters of a comment; user names) and discards the rest. The only change it ever makes is **Take it** (assigning a ticket to you). Turn off *Show the comment text in notifications* under Notifications to keep comment text out of notifications too.
+**What is read from Zendesk:** the API always returns complete objects (tickets with their description, audits with comment text, user profiles); the app keeps only what it needs in memory (ticket ID, subject, status, priority, group, assignee, CC/follower IDs, timestamps; change types and, for notifications, the first 140 characters of a comment; user names, roles, time zones and email addresses, the last only to tell your company's people from customers; the names of custom statuses) and discards the rest. The only change it ever makes is **Take it** (assigning a ticket to you). Turn off *Show the comment text in notifications* under Notifications to keep comment text out of notifications too.
 
 Delete `state.json` to reset what has been seen. Use **Sign out** in Settings to clear the cookies.
 
