@@ -362,12 +362,26 @@ public sealed class Notifier : INotificationSink
     /// What "Try it" shows: the samples of one kind, or several at once (<paramref name="kind"/> null). Never marked as
     /// ticket notifications, so they don't count in the statistics.
     /// </summary>
-    internal static IEnumerable<NotificationContent> TestSamples(NotificationKind? kind) => kind is { } single
+    internal static IEnumerable<NotificationContent> TestSamples(NotificationKind? kind) => (kind is { } single
         ? Samples(single)
         : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(Samples(NotificationKind.HelpColleague)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
                 $"Robin Client · Created {DateTime.Now.AddMinutes(-2):HH:mm}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
-            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" });
+            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" }))
+        .Select(sample => sample with { Priority = RandomPriority() }).ToList();
+
+    /// <summary>
+    /// A random priority for each sample (sometimes none), so "Try it" shows the colors and how long each priority stays
+    /// (Behavior → On screen) instead of always the same.
+    /// </summary>
+    private static string? RandomPriority() => Random.Shared.Next(5) switch
+    {
+        0 => "urgent",
+        1 => "high",
+        2 => "normal",
+        3 => "low",
+        _ => null
+    };
 
     /// <summary>All samples (for the developer --render-popups helper).</summary>
     public static IEnumerable<NotificationContent> AllSamples() =>
