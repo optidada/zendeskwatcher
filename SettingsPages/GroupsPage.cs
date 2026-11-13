@@ -60,6 +60,11 @@ internal sealed class GroupsPage : SettingsPage
     private readonly Button _reload = Theme.SecondaryButton("Reload");
 
     private List<GroupItem> _allGroups = [];
+
+    /// <summary>The account's groups have been loaded (signed in); until then only the saved ones are shown.</summary>
+    private bool _groupsLoaded;
+
+    private const string SignInText = "Sign in on the Account page to see your groups.";
     private readonly HashSet<long> _selected = [];
     private Dictionary<long, Suggestion> _suggestions = [];
     private bool _suppressEvents;
@@ -149,6 +154,7 @@ internal sealed class GroupsPage : SettingsPage
         // Show the saved groups until the real list is loaded, so they are not lost when offline.
         foreach (var group in settings.WatchedGroups)
             _selected.Add(group.Id);
+        _groupsLoaded = false;
         SetGroups(settings.WatchedGroups.Where(g => !g.IsNoGroup).Select(g => new GroupItem(g.Id, g.Name)));
         _reload.Enabled = false;
     }
@@ -191,6 +197,7 @@ internal sealed class GroupsPage : SettingsPage
         if (!force && _cache is { } cache && cache.Subdomain == subdomain && DateTime.UtcNow - cache.At < CacheLifetime)
         {
             _suggestions = cache.Suggestions;
+            _groupsLoaded = true;
             SetGroups(WithMissing(cache.Groups));
             _reload.Enabled = true;
             return;
@@ -201,6 +208,7 @@ internal sealed class GroupsPage : SettingsPage
         var groups = (await client.GetGroupsAsync(CancellationToken.None)).Select(g => new GroupItem(g.Id, g.Name)).ToList();
         if (stale())
             return;
+        _groupsLoaded = true;
         SetGroups(WithMissing(groups));
         SetLoading(false);
         _reload.Enabled = true;
@@ -217,6 +225,7 @@ internal sealed class GroupsPage : SettingsPage
 
     public void SetLoading(bool loading)
     {
+        _loading.Text = "Loading your groups\u2026";
         _loading.Visible = loading;
         _list.Visible = !loading;
         if (loading)
@@ -225,13 +234,31 @@ internal sealed class GroupsPage : SettingsPage
         if (loading)
             _hint.Text = "Loading…";
         else
+        {
             UpdateHint();
+            ShowSignInIfEmpty();
+        }
+    }
+
+    /// <summary>Not signed in and nothing saved: the list says how to get groups instead of standing empty.</summary>
+    private void ShowSignInIfEmpty()
+    {
+        var empty = !_groupsLoaded && _allGroups.Count == 0;
+        if (empty)
+        {
+            _loading.Text = SignInText;
+            _loading.Visible = true;
+            _loading.BringToFront();
+        }
+        else if (_loading.Text == SignInText)
+            _loading.Visible = false;
     }
 
     /// <summary>For the screenshot tool: sample groups and suggestions, as if loaded.</summary>
     internal void ShowSample(Dictionary<long, Suggestion> suggestions, IEnumerable<GroupItem> groups)
     {
         _suggestions = suggestions;
+        _groupsLoaded = true;
         SetGroups(groups);
     }
 
@@ -251,15 +278,20 @@ internal sealed class GroupsPage : SettingsPage
         return loaded.Concat(missing).ToList();
     }
 
-    /// <summary>Sets the available groups; the "(No group)" entry is always listed first.</summary>
+    /// <summary>
+    /// Sets the available groups, with the "(No group)" entry first: once the account's groups are loaded, or when
+    /// it's ticked already (so it can be unticked). Before signing in it would be the only entry, which looks odd.
+    /// </summary>
     private void SetGroups(IEnumerable<GroupItem> groups)
     {
-        _allGroups = groups
+        var sorted = groups
             .Where(g => g.Id != WatchedGroup.NoGroupId)
-            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Prepend(new GroupItem(WatchedGroup.NoGroupId, WatchedGroup.NoGroupName))
-            .ToList();
+            .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase);
+        _allGroups = (_groupsLoaded || _selected.Contains(WatchedGroup.NoGroupId)
+            ? sorted.Prepend(new GroupItem(WatchedGroup.NoGroupId, WatchedGroup.NoGroupName))
+            : sorted).ToList();
         ShowList();
+        ShowSignInIfEmpty();
     }
 
     /// <summary>Monitored groups first (highlighted), then suggestions, then the rest; all filtered by the search box.</summary>

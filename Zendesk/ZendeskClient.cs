@@ -190,6 +190,20 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     private readonly Dictionary<long, string?> _organizations = [];
 
     /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
+    /// <summary>The account's custom ticket statuses ("In progress", "Escalated", …); empty if it doesn't use them.</summary>
+    public async Task<List<CustomStatus>> GetCustomStatusesAsync(CancellationToken ct)
+    {
+        try
+        {
+            return (await GetAsync<CustomStatusesResponse>("/api/v2/custom_statuses.json", ct)).CustomStatuses;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        {
+            Log.Info("Custom ticket statuses are not available; using the basic ones");
+            return [];
+        }
+    }
+
     public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct)
     {
         if (_organizations.TryGetValue(organizationId, out var cached))
@@ -235,7 +249,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// which can lag 1-3 minutes, so callers should look back a little further than their last check.
     /// </summary>
     public Task<List<Ticket>> GetAssignedOpenTicketsUpdatedSinceAsync(long groupId, DateTimeOffset since, CancellationToken ct) =>
-        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status:open updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
+        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
 
     private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct) =>
         await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct);

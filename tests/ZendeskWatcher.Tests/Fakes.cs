@@ -55,6 +55,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
     public Dictionary<long, List<Audit>> Audits { get; } = [];
 
     public Dictionary<long, User> Users { get; } = [];
+    public List<CustomStatus> CustomStatuses { get; } = [];
     public Dictionary<long, string> Organizations { get; } = [];
 
     private DateTimeOffset _clock = DateTimeOffset.UtcNow.AddHours(-2);
@@ -94,12 +95,22 @@ internal sealed partial class FakeZendesk : IZendeskSession
             Tickets[ticketId].Priority = to;
     }
 
-    private void AddAudit(long ticketId, long authorId, AuditEvent ev)
+    /// <summary>Several field changes in one update, e.g. "status" and "custom_status_id" together.</summary>
+    public void ChangeTogether(long ticketId, long authorId, params (string Field, string From, string To)[] changes)
+    {
+        AddAudit(ticketId, authorId, changes.Select(c => new AuditEvent
+        {
+            Type = "Change", FieldName = c.Field,
+            PreviousValue = JsonSerializer.SerializeToElement(c.From), Value = JsonSerializer.SerializeToElement(c.To)
+        }).ToArray());
+    }
+
+    private void AddAudit(long ticketId, long authorId, params AuditEvent[] events)
     {
         var at = Tick();
         if (!Audits.TryGetValue(ticketId, out var audits))
             Audits[ticketId] = audits = [];
-        audits.Add(new Audit { Id = audits.Count + 1, AuthorId = authorId, CreatedAt = at, Events = [ev] });
+        audits.Add(new Audit { Id = audits.Count + 1, AuthorId = authorId, CreatedAt = at, Events = [.. events] });
         Tickets[ticketId].UpdatedAt = at;
     }
 
@@ -116,6 +127,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
         {
             "/api/v2/users/me.json" => new { user = Me },
             "/api/v2/groups.json" => new { groups = Groups },
+            "/api/v2/custom_statuses.json" => new { custom_statuses = CustomStatuses },
             "/api/v2/search.json" => new { results = Search(query) },
             "/api/v2/tickets/show_many.json" => new { tickets = ShowMany(query) },
             _ when path == $"/api/v2/users/{me}/tickets/assigned.json" => new { tickets = Recent(t => t.AssigneeId == me) },
@@ -142,6 +154,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
         var match = GroupQuery().Match(query);
+        if (query.Contains("-assignee:none") && match.Success) // Help colleagues: assigned tickets before solved, in a group
+            return Tickets.Values.Where(t => t.AssigneeId is not null && t.IsOpen && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
         if (!match.Success || !query.Contains("assignee:none"))
             return [];
         long? group = match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value);

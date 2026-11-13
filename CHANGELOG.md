@@ -3,6 +3,17 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.19
+
+- **Catch up**: what still needs you since you stopped working last time: tickets still unassigned in your groups, and customers still waiting on your own, CC'd and colleagues' tickets. From the tray menu, the morning summary, and by itself when your working day starts (Notifications → Working hours).
+- **Customer waiting, whatever the status**: Pending, On-hold, Escalated and your own statuses count too, and the status is shown. "In progress" is trusted for a while first (4 hours; change it on the Colleagues page).
+- **How it works**: a new page at the end of Settings that explains, in plain words, when and why you get each notification.
+- Colleagues from your own company on a ticket (also CC'd with an end-user account) no longer count as the customer; their public replies count as answers.
+- Status changes on your tickets show your own statuses ("In progress → Escalated"); New → Open and Solved → Closed no longer notify.
+- New installs: no sounds by default, and Help colleagues is on, using your monitored groups, with colleagues in your own region left out. Existing settings are kept.
+- Colleagues page: clearer when no groups are chosen yet. Groups page: says "sign in" instead of showing a lone "(No group)".
+- Tray: the menu's top line says just "Sign-in required"; the icon's tooltip says to click it. The sign-in window no longer flashes a blank Zendesk page.
+
 ## 1.3.18
 
 - **One click on the tray icon opens Settings** (it was a double-click), like Teams and OneDrive. Right-click still shows the menu.

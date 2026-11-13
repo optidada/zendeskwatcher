@@ -193,13 +193,33 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
             Wake();
             UseLowMemory(false); // visible: render the sign-in pages normally
-            // Show a short "opening" page first; otherwise the window briefly shows whatever the hidden browser was
-            // resting on (robots.txt) until the Okta page has loaded.
-            await NavigateToStringAsync(LoadingPage());
+            // A cover in the app's colors until the sign-in page has loaded. A hidden browser doesn't paint, so when
+            // the window appears it can briefly show the last thing it drew (the robots.txt it rests on).
+            using var cover = CreateCover();
+            _window.Controls.Add(cover);
+            cover.BringToFront();
+            void Uncover(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+            {
+                _web.CoreWebView2.NavigationCompleted -= Uncover;
+                // A moment for the new page to paint before the cover goes.
+                var later = new System.Windows.Forms.Timer { Interval = 250 };
+                later.Tick += (_, _) => { later.Dispose(); cover.Visible = false; };
+                later.Start();
+            }
+            _web.CoreWebView2.NavigationCompleted += Uncover;
             _web.CoreWebView2.Navigate(LoginUrl);
             timer.Start();
-            var result = _window.ShowDialog(owner); // closing a modal form only hides it; the WebView2 stays alive
-            timer.Stop();
+            DialogResult result;
+            try
+            {
+                result = _window.ShowDialog(owner); // closing a modal form only hides it; the WebView2 stays alive
+            }
+            finally
+            {
+                timer.Stop();
+                _web.CoreWebView2.NavigationCompleted -= Uncover;
+                _window.Controls.Remove(cover);
+            }
             UseLowMemory(true);
 
             if (result != DialogResult.OK)
@@ -342,41 +362,16 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         }
     }
 
-    private async Task NavigateToStringAsync(string html)
+    /// <summary>"Opening the Zendesk sign-in…" in the app's colors, over the browser until the sign-in page has loaded.</summary>
+    private static Label CreateCover() => new()
     {
-        var core = _web.CoreWebView2;
-        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Handler(object? sender, CoreWebView2NavigationCompletedEventArgs e) => completed.TrySetResult();
-        core.NavigationCompleted += Handler;
-        try
-        {
-            core.NavigateToString(html);
-            await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        }
-        catch (TimeoutException)
-        {
-            // Not important enough to wait for.
-        }
-        finally
-        {
-            core.NavigationCompleted -= Handler;
-        }
-    }
-
-    /// <summary>A minimal page in the app's colors, shown while the sign-in page loads.</summary>
-    private static string LoadingPage()
-    {
-        static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
-        var back = Hex(ZendeskWatcher.UI.Theme.Window);
-        var text = Hex(ZendeskWatcher.UI.Theme.TextMuted);
-        var accent = Hex(ZendeskWatcher.UI.Theme.Accent);
-        return "<!doctype html><html><head><meta charset=\"utf-8\"><style>" +
-               $"html,body{{height:100%;margin:0;background:{back};color:{text};font:15px 'Segoe UI',sans-serif}}" +
-               "body{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}" +
-               $".dot{{width:10px;height:10px;border-radius:50%;background:{accent};animation:p 1s ease-in-out infinite}}" +
-               "@keyframes p{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}" +
-               "</style></head><body><div class=\"dot\"></div><div>Opening the Zendesk sign-in…</div></body></html>";
-    }
+        Text = "Opening the Zendesk sign-in\u2026",
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleCenter,
+        Font = ZendeskWatcher.UI.Theme.Body,
+        ForeColor = ZendeskWatcher.UI.Theme.TextMuted,
+        BackColor = ZendeskWatcher.UI.Theme.Window
+    };
 
     private async Task<bool> IsSignedInSafeAsync(CancellationToken ct)
     {

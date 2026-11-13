@@ -31,6 +31,7 @@ public sealed class SettingsForm : Form
     private readonly AppearancePage _appearance;
     private readonly StatisticsPage _statistics;
     private readonly GeneralPage _general;
+    private readonly HowItWorksPage _howItWorks;
     private readonly SettingsPage[] _pages;
     private readonly List<NavItem> _nav = [];
 
@@ -104,7 +105,8 @@ public sealed class SettingsForm : Form
         _appearance = new AppearancePage(_context);
         _statistics = new StatisticsPage(_context);
         _general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
-        _pages = [_account, _groups, _notifications, _help, _behavior, _appearance, _statistics, _general];
+        _howItWorks = new HowItWorksPage(_context);
+        _pages = [_account, _groups, _notifications, _help, _behavior, _appearance, _statistics, _general, _howItWorks];
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();

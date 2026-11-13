@@ -26,17 +26,29 @@ public class NotificationStyleTests
         var loaded = Settings.FromJson(settings.ToJson());
 
         Assert.Equal(ToastSound.Sms, loaded.CcTicketStyle.Sound);
-        Assert.Equal(ToastSound.Mail, loaded.MyTicketStyle.Sound);
+        Assert.Equal(ToastSound.Silent, loaded.MyTicketStyle.Sound);
     }
 
     [Fact]
-    public void Defaults_match_the_behavior_before_they_were_configurable()
+    public void No_sounds_by_default()
     {
         var settings = new Settings();
 
-        Assert.Equal(ToastSound.Mail, settings.CcTicketStyle.Sound);
-        Assert.Equal((ToastSound.Silent, ToastDisplay.Medium), (settings.SummaryStyle.Sound, settings.SummaryStyle.Display));
-        Assert.Equal((ToastSound.Default, ToastDisplay.Long), (settings.AppMessageStyle.Sound, settings.AppMessageStyle.Display));
+        Assert.All(new[] { settings.NewTicketStyle, settings.MyTicketStyle, settings.CcTicketStyle, settings.HelpStyle, settings.SummaryStyle, settings.AppMessageStyle },
+            style => Assert.Equal(ToastSound.Silent, style.Sound));
+        Assert.Equal(ToastDisplay.Medium, settings.SummaryStyle.Display);
+        Assert.Equal(ToastDisplay.Long, settings.AppMessageStyle.Display);
+    }
+
+    [Fact]
+    public void Sounds_chosen_before_are_kept()
+    {
+        // Saved by an older version, when sounds were on by default.
+        var json = new Settings { NewTicketStyle = new NotificationStyle { Sound = ToastSound.Default }, MyTicketStyle = new NotificationStyle { Sound = ToastSound.Mail } }.ToJson();
+        var loaded = Settings.FromJson(json);
+
+        Assert.Equal(ToastSound.Default, loaded.NewTicketStyle.Sound);
+        Assert.Equal(ToastSound.Mail, loaded.MyTicketStyle.Sound);
     }
 
     [Theory]
@@ -75,7 +87,13 @@ public class NotificationStyleTests
     [InlineData(NotificationKind.HelpColleague, ToastSound.Reminder)]
     public void Each_kind_uses_its_own_style(NotificationKind kind, ToastSound expected)
     {
-        var settings = new Settings { CcTicketStyle = new NotificationStyle { Sound = ToastSound.Sms } };
+        var settings = new Settings
+        {
+            NewTicketStyle = new NotificationStyle { Sound = ToastSound.Default },
+            MyTicketStyle = new NotificationStyle { Sound = ToastSound.Mail },
+            CcTicketStyle = new NotificationStyle { Sound = ToastSound.Sms },
+            HelpStyle = new NotificationStyle { Sound = ToastSound.Reminder }
+        };
         Assert.Equal(expected, settings.StyleFor(kind).Sound);
     }
 

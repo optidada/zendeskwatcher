@@ -28,9 +28,15 @@ public sealed class Settings
 
     /// <summary>
     /// "Help colleagues": notify when a customer replies on a colleague's open ticket while the colleague is outside
-    /// working hours (in their own time zone).
+    /// working hours (in their own time zone). On for new installs (since 1.3.19); saved files keep their choice.
     /// </summary>
-    public bool HelpColleagues { get; set; }
+    public bool HelpColleagues { get; set; } = true;
+
+    /// <summary>
+    /// Colleagues in your own region have been unticked once (the default; they usually work when you do). Null in
+    /// files from before 1.3.19: <see cref="Normalize"/> works it out from what was saved then.
+    /// </summary>
+    public bool? HelpRegionDefaultDone { get; set; }
 
     /// <summary>Use the monitored groups for "Help colleagues" (default), or <see cref="HelpGroups"/>.</summary>
     public bool HelpSameAsMonitored { get; set; } = true;
@@ -63,6 +69,12 @@ public sealed class Settings
     /// count as normal. Default: urgent (P1) and high (P2).
     /// </summary>
     public List<string> HelpPriorities { get; set; } = ["urgent", "high"];
+
+    /// <summary>
+    /// A ticket whose status is "In progress" is trusted this many hours after the customer wrote: only then does a
+    /// waiting customer notify (Colleagues, and Catch up). Other statuses notify right away.
+    /// </summary>
+    public int InProgressGraceHours { get; set; } = 4;
 
     /// <summary>"Help colleagues" only notifies while it's within the same working hours on this PC (your own time).</summary>
     public bool HelpOnlyDuringMyHours { get; set; } = true;
@@ -109,9 +121,11 @@ public sealed class Settings
 
     // Appearance of the notifications
     // Ticket notifications: the sound by type; how long they stay is by priority (TicketDisplay), so their Display isn't used.
-    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Default };
-    public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Mail };
-    public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Reminder };
+    // Silent by default (since 1.3.19): most people turn sounds off; they're one click away under Look & sound.
+    // Saved settings keep the sounds chosen before.
+    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Silent };
+    public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Silent };
+    public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Silent };
 
     private NotificationStyle? _ccTicketStyle;
 
@@ -126,10 +140,16 @@ public sealed class Settings
     public NotificationStyle SummaryStyle { get; set; } = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Medium };
 
     /// <summary>Update ready, welcome, monitored group not found, and the sound of "Sign-in required".</summary>
-    public NotificationStyle AppMessageStyle { get; set; } = new() { Sound = ToastSound.Default, Display = ToastDisplay.Long };
+    public NotificationStyle AppMessageStyle { get; set; } = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Long };
 
     /// <summary>The sound: app messages and the summary by their style, ticket notifications by type.</summary>
     public ToastSound SoundFor(UI.Popups.NotificationContent content) => (content.Style ?? StyleFor(content.Kind)).Sound;
+
+    /// <summary>
+    /// When your working day starts, Catch up runs once by itself: what came in while you were off and still needs
+    /// attention (still unassigned, customers still waiting). On by default; Notifications → Working hours.
+    /// </summary>
+    public bool CatchUpAtDayStart { get; set; } = true;
 
     /// <summary>How long ticket notifications stay on screen, by the ticket's priority (all ticket types).</summary>
     public TicketDisplayTimes TicketDisplay { get; set; } = new();
@@ -276,9 +296,12 @@ public sealed class Settings
         MyWorkdayEndHour = Math.Clamp(MyWorkdayEndHour, MyWorkdayStartHour + 1, 24);
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
         NotificationSize = Math.Clamp(NotificationSize, 100, 200);
-        if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Default;
-        if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Mail;
-        if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Reminder;
+        if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Silent;
+        if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Silent;
+        if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Silent;
+        // Before 1.3.19 the own-region untick happened when Help colleagues was first switched on.
+        HelpRegionDefaultDone ??= HelpColleagues || HelpExcludedAssignees.Count > 0 ? true : null;
+        InProgressGraceHours = Math.Clamp(InProgressGraceHours, 1, 24);
         TicketDisplay ??= new TicketDisplayTimes();
         TicketDisplay.Normalize();
     }
@@ -340,7 +363,7 @@ public sealed class Colleague
 
 public sealed class NotificationStyle
 {
-    public ToastSound Sound { get; set; } = ToastSound.Default;
+    public ToastSound Sound { get; set; } = ToastSound.Silent;
     public ToastDisplay Display { get; set; } = ToastDisplay.Standard;
 }
 

@@ -96,6 +96,9 @@ public sealed class PopupManager
             case PopupForm.Result.Take:
                 _onAction(Notifier.ActionTake, popup.Content.TicketId);
                 break;
+            case PopupForm.Result.CatchUp:
+                _onAction(Notifier.ActionCatchUp, null);
+                break;
             case PopupForm.Result.Snooze:
                 _onSnooze(popup.Content);
                 break;

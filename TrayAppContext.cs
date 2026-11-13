@@ -25,6 +25,10 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _pauseItem = new("Pause notifications") { CheckOnClick = true };
     private readonly ToolStripMenuItem _updateItem = new("Check for updates");
     private readonly SemaphoreSlim _wakeUp = new(0);
+    private readonly ToolStripMenuItem _catchUpItem = new("Catch up");
+
+    /// <summary>Catch up was asked for: runs right after the next check (which is started at once).</summary>
+    private bool _catchUpRequested;
 
     private Settings _settings = Settings.Load();
     private BrowserSession? _browser;
@@ -46,6 +50,8 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open Zendesk", null, (_, _) => OpenUrl(_settings.IsConnectionConfigured ? $"{_settings.BaseUrl}/agent" : null));
         menu.Items.Add("Check now", null, (_, _) => _wakeUp.Release());
+        menu.Items.Add(_catchUpItem);
+        _catchUpItem.Click += (_, _) => RequestCatchUp();
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
@@ -56,7 +62,13 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
         // In the app theme's colors, taken each time it opens (the theme may have changed in Settings).
-        menu.Opening += (_, _) => ThemedMenu.Apply(menu, UiPalette.For(_settings.AppTheme));
+        menu.Opening += (_, _) =>
+        {
+            // "Catch up since yesterday 17:00": when you stopped working last time (your hours: Notifications page).
+            var since = TicketRules.CatchUpStart(DateTime.Now, _settings.MyWorkdayStartHour, _settings.MyWorkdayEndHour, _settings.MyWorkDays);
+            _catchUpItem.Text = "Catch up " + TicketRules.CatchUpSince(since, DateTime.Now);
+            ThemedMenu.Apply(menu, UiPalette.For(_settings.AppTheme));
+        };
 
         _tray = new TrayIcon(menu, _statusItem, _ui);
         _tray.LeftClick += (_, _) => ShowSettings();
@@ -140,7 +152,22 @@ public sealed class TrayAppContext : ApplicationContext
             case Notifier.ActionUpdate:
                 _updates.RestartToUpdate();
                 break;
+            case Notifier.ActionCatchUp:
+                RequestCatchUp();
+                break;
         }
+    }
+
+    /// <summary>Catch up: checks now and then shows what still needs attention since you stopped working last time.</summary>
+    private void RequestCatchUp()
+    {
+        if (_loopCts is null || _taker is null)
+        {
+            _notifier.ShowInfo("Can't catch up yet", "Sign in first: click the Zendesk Watcher icon in the tray.");
+            return;
+        }
+        _catchUpRequested = true;
+        _wakeUp.Release();
     }
 
     // ------------------------------------------------------------------ checking
@@ -153,7 +180,7 @@ public sealed class TrayAppContext : ApplicationContext
 
         if (!_settings.IsConnectionConfigured)
         {
-            _tray.SetStatus("Not set up yet – click this icon to open Settings", TrayState.Off);
+            _tray.SetStatus("Not set up yet", TrayState.Off, iconHint: "click this icon to open Settings");
             WatchStatus.Stopped("Not checking: no Zendesk account set up yet (Account page).");
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome();
@@ -165,7 +192,7 @@ public sealed class TrayAppContext : ApplicationContext
         var session = CreateSession(_settings);
         if (!session.MightBeSignedIn)
         {
-            _tray.SetStatus("Sign-in required – click this icon to sign in", TrayState.Off);
+            _tray.SetStatus("Sign-in required", TrayState.Off, iconHint: "click this icon to sign in");
             WatchStatus.Stopped("Not checking: sign in on the Account page.");
             if (openSettingsIfNeeded && Settings.IsFirstRun)
                 _notifier.ShowWelcome(); // the subdomain came pre-filled
@@ -240,6 +267,18 @@ public sealed class TrayAppContext : ApplicationContext
                 }
 
                 WatchStatus.Update(watcher.Snapshot());
+                // Asked for, or by itself once when your working day starts (Notifications → Working hours).
+                if (_catchUpRequested || watcher.DayStartCatchUpDue())
+                {
+                    var requested = _catchUpRequested;
+                    _catchUpRequested = false;
+                    try { await watcher.CatchUpAsync(ct, requestedByUser: requested); }
+                    catch (Exception ex) when (ex is not (OperationCanceledException or AuthRequiredException))
+                    {
+                        Log.Error("Catch up failed", ex);
+                        _notifier.ShowInfo("Catch up didn't work", ex.Message);
+                    }
+                }
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
                 _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
                     watcher.UnassignedCount > 0 ? TrayState.Attention : TrayState.Ok);
@@ -251,7 +290,7 @@ public sealed class TrayAppContext : ApplicationContext
             catch (AuthRequiredException)
             {
                 Log.Info("Sign-in required");
-                _tray.SetStatus("Sign-in required – click this icon to sign in", TrayState.Off);
+                _tray.SetStatus("Sign-in required", TrayState.Off, iconHint: "click this icon to sign in");
                 WatchStatus.Stopped("Not checking: your Zendesk session expired. Sign in on the Account page.");
                 PromptSignIn();
                 return; // Restarted after signing in via Settings.

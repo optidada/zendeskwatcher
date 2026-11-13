@@ -57,6 +57,12 @@ public sealed record NotificationContent(
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 
+    /// <summary>Show a "Catch up" button (the start summary), in the place of "Take it".</summary>
+    public bool CanCatchUp { get; init; }
+
+    /// <summary>The user asked for it (Catch up): shown even while notifications are paused.</summary>
+    public bool RequestedByUser { get; init; }
+
     /// <summary>About tickets (not an app message or sample): counted in the statistics.</summary>
     public bool IsTicketNotification { get; init; }
 

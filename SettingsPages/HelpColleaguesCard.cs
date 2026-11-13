@@ -24,6 +24,9 @@ internal sealed class HelpColleaguesCard
     private readonly ToggleSwitch _help = new("Customer replies on colleagues' tickets outside their working hours");
     private readonly RadioButton _same = Kit.Radio("Same as my monitored groups");
     private readonly RadioButton _custom = Kit.Radio("Only these groups:");
+
+    /// <summary>"Only these groups" has groups to offer (monitored, or ones you're a member of); greyed out otherwise.</summary>
+    private bool _hasGroupsToChoose = true;
     private readonly FlowLayoutPanel _groupList = new()
     {
         FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(20, 0, 0, 4)
@@ -38,6 +41,7 @@ internal sealed class HelpColleaguesCard
     private readonly ComboBox _workEnd = Kit.HourCombo(1, 24);
     private readonly DayChecks _workDays = new("Days", new Padding(0, 2, 0, 0));
     private readonly PriorityChecks _priorities = new(new Padding(0, 8, 0, 0));
+    private readonly ComboBox _grace = Kit.Combo<int>([new(1, "1 hour"), new(2, "2 hours"), new(4, "4 hours"), new(8, "8 hours"), new(24, "1 day")], width: 130);
     private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself (my hours: Notifications page)");
 
     /// <summary>Groups chosen under "Only these groups".</summary>
@@ -99,6 +103,11 @@ internal sealed class HelpColleaguesCard
         options.Controls.Add(_peopleHint);
         options.Controls.Add(_priorities.Row);
         options.Controls.Add(Theme.Label("Tickets without a priority count as Normal (P3).", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
+        var graceRow = Kit.Row(Theme.Label("Trust \u201cIn progress\u201d for"), _grace);
+        graceRow.Margin = new Padding(0, 8, 0, 0);
+        options.Controls.Add(graceRow);
+        options.Controls.Add(Theme.Label("Any status counts while the customer waits for a public answer (Pending, On-hold, Escalated, …). " +
+            "Only \u201cIn progress\u201d waits this long first. Also used by Catch up.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
 
         var hours = Kit.Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
         hours.Margin = new Padding(0, 8, 0, 0);
@@ -120,13 +129,14 @@ internal sealed class HelpColleaguesCard
         _myHours.CheckedChanged += (_, _) => _context.Changed();
         _workDays.Changed += () => { _peopleList.Invalidate(); _context.Changed(); };
         _priorities.Changed += () => _context.Changed();
+        _grace.SelectedIndexChanged += (_, _) => _context.Changed();
 
         _context.SessionUpdated += reload =>
         {
             if (reload)
                 _memberCache = null; // Reload fetches the group members again too
             if (_context.Me is { } me)
-                _myRegion = TimeRegions.Of(ZoneOf(me) ?? LocalZone());
+                _myRegion = TimeRegions.Mine(me);
             RefreshPeople();
         };
     }
@@ -136,7 +146,7 @@ internal sealed class HelpColleaguesCard
         _help.Checked = settings.HelpColleagues;
         _same.Checked = settings.HelpSameAsMonitored;
         _custom.Checked = !settings.HelpSameAsMonitored;
-        _applyRegionDefault = !settings.HelpColleagues && settings.HelpExcludedAssignees.Count == 0;
+        _applyRegionDefault = settings.HelpRegionDefaultDone != true && settings.HelpExcludedAssignees.Count == 0;
         _chosen.Clear();
         _excluded.Clear();
         foreach (var group in settings.HelpGroups)
@@ -151,6 +161,7 @@ internal sealed class HelpColleaguesCard
         _myHours.Checked = settings.HelpOnlyDuringMyHours;
         _workDays.Selected = settings.WorkDays;
         _priorities.Selected = settings.HelpPriorities;
+        Kit.Select(_grace, settings.InProgressGraceHours, fallback: 4);
         ShowGroups();
     }
 
@@ -162,11 +173,13 @@ internal sealed class HelpColleaguesCard
             .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         s.HelpExcludedAssignees = _excluded.Select(kv => new Colleague { Id = kv.Key, Name = kv.Value })
             .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
+        s.HelpRegionDefaultDone = _applyRegionDefault ? null : true; // done once applied, or when it was already
         s.WorkdayStartHour = _workStart.SelectedIndex;
         s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
         s.HelpOnlyDuringMyHours = _myHours.Checked;
         s.WorkDays = _workDays.Selected;
         s.HelpPriorities = _priorities.Selected;
+        s.InProgressGraceHours = Kit.Selected<int>(_grace);
     }
 
     /// <summary>For the screenshot tool: sample group members (cached, so nothing is requested), as if signed in.</summary>
@@ -187,6 +200,9 @@ internal sealed class HelpColleaguesCard
             _names[group.Id] = group.Name;
 
         var selected = _groups.SelectedIds;
+        // Says right on the option when it covers nothing, instead of only a hint under the assignee list.
+        var monitored = selected.Count(id => id != WatchedGroup.NoGroupId);
+        _same.Text = monitored == 0 ? "Same as my monitored groups (none yet: Groups page)" : $"Same as my monitored groups ({monitored})";
         var suggestions = _groups.Suggestions;
         var offered = selected.Where(id => id != WatchedGroup.NoGroupId)
             .Concat(suggestions.Where(kv => kv.Value.Member).Select(kv => kv.Key))
@@ -203,8 +219,10 @@ internal sealed class HelpColleaguesCard
         foreach (var old in _groupList.Controls.Cast<Control>().ToList())
             old.Dispose();
         _groupList.Controls.Clear();
-        if (offered.Count == 0)
-            _groupList.Controls.Add(Theme.Label("Monitor a group on the Groups page first.", Theme.Small, Theme.TextMuted));
+        _hasGroupsToChoose = offered.Count > 0;
+        if (!_hasGroupsToChoose)
+            _groupList.Controls.Add(Theme.Label("No groups to choose from yet: they come from the Groups page (monitored, or ones you're a member of).",
+                Theme.Small, Theme.TextMuted, Kit.CardWidth - 130));
         foreach (var (id, name) in offered)
         {
             var why = selected.Contains(id) ? "monitored"
@@ -225,17 +243,6 @@ internal sealed class HelpColleaguesCard
     }
 
     // ------------------------------------------------------------------ assignees
-
-    /// <summary>The IANA id of a profile's time zone, if it can be used (the same rule "Help colleagues" applies).</summary>
-    private static string? ZoneOf(User user) =>
-        IanaId(TicketRules.ResolveTimeZone(user.IanaTimeZone) ?? TicketRules.ResolveTimeZone(user.TimeZone));
-
-    private static string? LocalZone() => IanaId(TimeZoneInfo.Local);
-
-    private static string? IanaId(TimeZoneInfo? zone) =>
-        zone is null ? null
-        : zone.HasIanaId ? zone.Id
-        : TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana) ? iana : null;
 
     /// <summary>The groups "Help colleagues" covers with the choices as they are right now.</summary>
     private List<long> CoveredGroupIds() =>
@@ -281,7 +288,7 @@ internal sealed class HelpColleaguesCard
                     {
                         groups[id] = (await client.GetGroupMembersAsync(id, CancellationToken.None))
                             .Where(u => u.Role != "end-user")
-                            .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", ZoneOf(u)))
+                            .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", TimeRegions.ZoneOf(u)))
                             .ToList();
                     }
                     catch (AuthRequiredException)
@@ -368,7 +375,9 @@ internal sealed class HelpColleaguesCard
         var everyone = excludedShown == 0 ? "Everyone in these groups." : "Everyone in these groups except the ones unticked above.";
         string text;
         if (CoveredGroupIds().Count == 0)
-            text = "Choose a group first.";
+            text = _same.Checked
+                ? "No groups to cover yet: tick groups on the Groups page, or choose \"Only these groups\"."
+                : "Tick at least one group above.";
         else if (!loaded)
             text = _help.Checked ? everyone + " Sign in to choose from the group members." : everyone;
         else if (_peopleShown.Count == 0)
@@ -390,7 +399,8 @@ internal sealed class HelpColleaguesCard
     private void UpdateOptions()
     {
         var on = _help.Checked;
-        _same.Enabled = _custom.Enabled = _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = on;
+        _same.Enabled = _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = _grace.Enabled = on;
+        _custom.Enabled = on && (_hasGroupsToChoose || _custom.Checked); // nothing to choose: greyed out (unless it's the current choice)
         _workDays.Enabled = on;
         _priorities.Enabled = on;
         _groupList.Enabled = on && _custom.Checked;

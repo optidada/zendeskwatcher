@@ -110,6 +110,24 @@ public class SettingsFileTests : IDisposable
     }
 
     [Fact]
+    public void Help_colleagues_is_on_for_new_installs_but_older_files_keep_their_choice()
+    {
+        var fresh = new Settings();
+        Assert.True(fresh.HelpColleagues);
+        Assert.True(fresh.HelpSameAsMonitored);
+        Assert.Null(fresh.HelpRegionDefaultDone); // own-region colleagues get unticked once their list loads
+
+        File.WriteAllText(FilePath, From1310.Replace("\"HelpColleagues\": true", "\"HelpColleagues\": false")
+            .Replace("\"HelpExcludedAssignees\": [ { \"Id\": 9, \"Name\": \"Alex Example\" } ]", "\"HelpExcludedAssignees\": []"));
+        var off = Settings.Load(FilePath);
+        Assert.False(off.HelpColleagues);
+        Assert.Null(off.HelpRegionDefaultDone); // switching it on later still unticks the own region, as before
+
+        File.WriteAllText(FilePath, From1310);
+        Assert.True(Settings.Load(FilePath).HelpRegionDefaultDone); // already in use: their ticks are kept as they are
+    }
+
+    [Fact]
     public void No_file_is_the_first_start()
     {
         Settings.Load(FilePath);

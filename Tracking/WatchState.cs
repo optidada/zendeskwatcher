@@ -27,6 +27,9 @@ public sealed class WatchState
 
     public bool CcTicketsBaselined { get; set; }
 
+    /// <summary>When Catch up last ran (local time), so it runs by itself once per working day.</summary>
+    public DateTime LastCatchUp { get; set; }
+
     /// <summary>The baseline hit the size of a CC'd/followed list (30): older open ones may be missing from the count.</summary>
     public bool CcBaselineFull { get; set; }
 
@@ -35,6 +38,10 @@ public sealed class WatchState
 
     /// <summary>"Help colleagues": ticket id -> the updated_at already looked at.</summary>
     public Dictionary<long, DateTimeOffset> HelpSeen { get; set; } = [];
+
+    /// <summary>"Help colleagues": tickets "In progress" whose customer is waiting -> when the customer wrote. Looked at
+    /// again once they've waited <see cref="Settings.InProgressGraceHours"/>.</summary>
+    public Dictionary<long, DateTimeOffset> HelpInProgress { get; set; } = [];
 
     /// <summary>Groups whose current tickets were recorded silently on their first check.</summary>
     public HashSet<long> HelpBaselinedGroups { get; set; } = [];

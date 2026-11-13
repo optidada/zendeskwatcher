@@ -39,6 +39,7 @@ public sealed class Notifier : INotificationSink
     public const string ActionInfo = "info"; // information only: the button says OK, a click just dismisses it
     public const string ActionUpdate = "update";
     public const string ActionTake = "take";
+    public const string ActionCatchUp = "catchup";
     public const string ActionSettings = "settings";
     public const string ActionCopy = "copy";
 
@@ -189,7 +190,7 @@ public sealed class Notifier : INotificationSink
 
     public void Show(NotificationContent content)
     {
-        if (!Paused)
+        if (!Paused || content.RequestedByUser)
             Show(content, Settings);
     }
 
@@ -246,6 +247,7 @@ public sealed class Notifier : INotificationSink
     {
         Action = ActionOpenZendesk,
         MaxBodyLines = 9, // running text: a few more lines than a list
+        CanCatchUp = true,
         Style = Settings.SummaryStyle
     });
 
@@ -336,7 +338,7 @@ public sealed class Notifier : INotificationSink
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
                 Tracking.TicketRules.SummaryText(Tracking.WatchSnapshot.Sample(),
                     [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
-                    ["urgent", "high"], DateTimeOffset.UtcNow)) { MaxBodyLines = 9 }).Append(
+                    ["urgent", "high"], DateTimeOffset.UtcNow)) { MaxBodyLines = 9, CanCatchUp = true }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
                 { Action = ActionSettings });
 
@@ -443,6 +445,9 @@ public sealed class Notifier : INotificationSink
             };
             builder.AddHeader(headerId, headerTitle, new ToastArguments().Add("action", ActionOpenZendesk));
         }
+
+        if (content.CanCatchUp)
+            builder.AddButton(new ToastButton().SetContent("Catch up").AddArgument("action", ActionCatchUp));
 
         if (content.CanTake && content.TicketId is { } takeTicket)
         {

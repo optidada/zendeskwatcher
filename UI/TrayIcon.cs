@@ -44,10 +44,11 @@ public sealed class TrayIcon : IDisposable
     }
 
     /// <summary>Shows a status text, and switches the icon if <paramref name="state"/> is given.</summary>
-    public void SetStatus(string text, TrayState? state = null) => _ui.Post(_ =>
+    /// <param name="iconHint">Only in the icon's tooltip, e.g. "click this icon to sign in" (in the menu it would be confusing).</param>
+    public void SetStatus(string text, TrayState? state = null, string? iconHint = null) => _ui.Post(_ =>
     {
         _statusItem.Text = text;
-        var tooltip = $"Zendesk Watcher\n{text}";
+        var tooltip = iconHint is null ? $"Zendesk Watcher\n{text}" : $"Zendesk Watcher\n{text} \u2013 {iconHint}";
         _tray.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
         if (state is { } s)
         {

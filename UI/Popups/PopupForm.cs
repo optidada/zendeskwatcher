@@ -10,7 +10,10 @@ namespace ZendeskWatcher.UI.Popups;
 /// </summary>
 public sealed class PopupForm : Form
 {
-    public enum Result { None, Open, Take, Snooze, Dismiss, Timeout }
+    public enum Result { None, Open, Take, CatchUp, Snooze, Dismiss, Timeout }
+
+    /// <summary>The button between Open and Snooze/Close: "Take it" on new tickets, "Catch up" on the start summary.</summary>
+    private bool HasExtraButton => _content.CanTake || _content.CanCatchUp;
 
     private const int BaseWidth = 380;
     private const double EnterMs = 260;
@@ -343,14 +346,14 @@ public sealed class PopupForm : Form
         };
         var buttonHeight = Px(30);
         _footerRect = new Rectangle(left, y, width, buttonHeight);
-        _takeLabel = _palette.Terminal ? "[ take ]" : "Take it";
+        _takeLabel = _content.CanCatchUp ? (_palette.Terminal ? "[ catch up ]" : "Catch up") : (_palette.Terminal ? "[ take ]" : "Take it");
         _dismissLabel = _palette.Terminal ? "[ close ]" : "Close";
 
         // Right to left: Open, Take it, Snooze (or Close), and on ticket notifications also Close (the same as ✕ and
         // right-click). If they don't fit, slimmer buttons; if still not, no extra Close (✕ is there anyway).
         var withDismiss = SecondButton == Result.Snooze;
         int Fit(int padding, bool dismiss) =>
-            new[] { _openLabel, _content.CanTake ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
+            new[] { _openLabel, HasExtraButton ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
                 .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8);
         var padding = _palette.Terminal ? 8 : 28;
         if (Fit(padding, withDismiss) > width && !_palette.Terminal)
@@ -364,9 +367,9 @@ public sealed class PopupForm : Form
         var openWidth = WidthOf(_openLabel);
         var snoozeWidth = WidthOf(_snoozeLabel);
         _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
-        var takeWidth = _content.CanTake ? WidthOf(_takeLabel) : 0;
-        _takeRect = _content.CanTake ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
-        var snoozeRight = _content.CanTake ? _takeRect.Left : _openRect.Left;
+        var takeWidth = HasExtraButton ? WidthOf(_takeLabel) : 0;
+        _takeRect = HasExtraButton ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
+        var snoozeRight = HasExtraButton ? _takeRect.Left : _openRect.Left;
         _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight) : new Rectangle(snoozeRight - Px(8) - snoozeWidth, y, snoozeWidth, buttonHeight);
         var dismissWidth = withDismiss ? WidthOf(DismissLabel) : 0;
         _dismissRect = dismissWidth == 0 ? new Rectangle(_snoozeRect.Left, y, 0, buttonHeight)
@@ -528,7 +531,7 @@ public sealed class PopupForm : Form
             PaintButton(g, _dismissRect, DismissLabel, primary: false);
         if (_snoozeRect.Width > 0)
             PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
-        if (_content.CanTake)
+        if (HasExtraButton)
             PaintButton(g, _takeRect, _takeLabel, primary: false);
         PaintButton(g, _openRect, _openLabel, primary: true);
     }
@@ -658,8 +661,8 @@ public sealed class PopupForm : Form
         }
         else if (_snoozeRect.Contains(e.Location))
             Dismiss(SecondButton);
-        else if (_content.CanTake && _takeRect.Contains(e.Location))
-            Dismiss(Result.Take);
+        else if (HasExtraButton && _takeRect.Contains(e.Location))
+            Dismiss(_content.CanCatchUp ? Result.CatchUp : Result.Take);
         else
             Dismiss(Result.Open); // the Open button or anywhere on the card
     }

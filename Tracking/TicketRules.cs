@@ -11,6 +11,96 @@ namespace ZendeskWatcher.Tracking;
 public static class TicketRules
 {
     /// <summary>
+    /// Status changes not worth a notification: New → Open (it just got picked up; the assignment says so) and
+    /// Solved → Closed (Zendesk closes solved tickets by itself after a few days). Also no real change.
+    /// </summary>
+    public static bool IsNoiseStatusChange(string? from, string? to) =>
+        string.Equals(from, to, StringComparison.OrdinalIgnoreCase)
+        || (string.Equals(from, "New", StringComparison.OrdinalIgnoreCase) && string.Equals(to, "Open", StringComparison.OrdinalIgnoreCase))
+        || (string.Equals(from, "Solved", StringComparison.OrdinalIgnoreCase) && string.Equals(to, "Closed", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether a status name means someone is working on it ("In progress"): then the customer may wait a while.</summary>
+    public static bool IsInProgress(string? statusLabel) =>
+        statusLabel?.Contains("in progress", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>
+    /// A customer who wrote last is worth a notification whatever the status (pending, on-hold, escalated, …): they
+    /// still need an answer. Only "In progress" is trusted for <paramref name="grace"/> after their reply.
+    /// </summary>
+    public static bool CustomerWaitingNeedsNotice(string? statusLabel, DateTimeOffset repliedAt, DateTimeOffset now, TimeSpan grace) =>
+        !IsInProgress(statusLabel) || now - repliedAt >= grace;
+
+    /// <summary>
+    /// Whether a comment's author is the customer: an end-user, but not someone from your own company (an end-user
+    /// with your email domain, e.g. a salesperson CC'd from their mailbox). The requester always counts as the
+    /// customer, so internal tickets opened by a colleague still work. Agents and admins are never the customer.
+    /// </summary>
+    public static bool IsCustomer(User? author, Ticket ticket, string? myEmail) =>
+        author?.Role == "end-user" && (author.Id == ticket.RequesterId || !SameDomain(author.Email, myEmail));
+
+    private static bool SameDomain(string? a, string? b)
+    {
+        static string? Domain(string? email) => email?.LastIndexOf('@') is > 0 and var at ? email[(at + 1)..].Trim().ToLowerInvariant() : null;
+        return Domain(a) is { Length: > 0 } x && x == Domain(b);
+    }
+
+    /// <summary>
+    /// Where Catch up starts: when you stopped working last time, i.e. the end of your previous working day (yesterday
+    /// 17:00; Friday 17:00 on a Monday or the weekend). So replies that came in while you were off count too.
+    /// </summary>
+    public static DateTime CatchUpStart(DateTime localNow, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays = null)
+    {
+        var days = workDays is { Count: > 0 } ? workDays : Weekdays;
+        startHour = Math.Clamp(startHour, 0, 23);
+        endHour = Math.Clamp(endHour, startHour + 1, 24);
+        // The latest end of a working day that's already past; while you're working, the one before today.
+        var working = days.Contains(localNow.DayOfWeek) && localNow >= localNow.Date.AddHours(startHour) && localNow < localNow.Date.AddHours(endHour);
+        var day = working ? localNow.Date.AddDays(-1) : localNow.Date;
+        for (var i = 0; i < 8; i++, day = day.AddDays(-1))
+            if (days.Contains(day.DayOfWeek) && day.AddHours(endHour) <= localNow)
+                return day.AddHours(endHour);
+        return localNow.AddHours(-16); // no working days found: about since last evening
+    }
+
+    /// <summary>"since 17:00", "since yesterday 17:00" or "since Fri 17:00".</summary>
+    public static string CatchUpSince(DateTime since, DateTime localNow)
+    {
+        var time = since.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        return since.Date == localNow.Date ? $"since {time}"
+            : since.Date == localNow.Date.AddDays(-1) ? $"since yesterday {time}"
+            : $"since {since.ToString("ddd", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))} {time}";
+    }
+
+    /// <summary>
+    /// The Catch up summary: always both questions, unassigned tickets and waiting customers, e.g.
+    /// "**11 unassigned tickets** in your groups." and "No customer is waiting for an answer since yesterday 17:00."
+    /// or "**2 customers** wrote since yesterday 17:00 and are waiting for your reply."
+    /// </summary>
+    public static string CatchUpText(DateTime since, DateTime localNow, int unassigned, int mine, int cc, int colleagues)
+    {
+        var when = CatchUpSince(since, localNow);
+        var lines = new List<string>
+        {
+            unassigned switch
+            {
+                0 => "No unassigned tickets in your groups.",
+                1 => "**1 unassigned ticket** in your groups.",
+                _ => $"**{unassigned} unassigned tickets** in your groups."
+            }
+        };
+        string Waiting(int n, string where) => n == 1 ? $"**1 customer** wrote {when} and is waiting {where}." : $"**{n} customers** wrote {when} and are waiting {where}.";
+        if (mine + cc + colleagues == 0)
+            lines.Add($"No customer is waiting for an answer {when}.");
+        if (mine > 0)
+            lines.Add(Waiting(mine, "for your reply"));
+        if (cc > 0)
+            lines.Add(Waiting(cc, "on tickets you're CC'd on or follow"));
+        if (colleagues > 0)
+            lines.Add(Waiting(colleagues, "on off-work colleagues' tickets"));
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>
     /// The start summary as running text, e.g. "**5 unassigned tickets** are waiting: 3 in Support Tier 2 and 2 in
     /// Premium Support. The oldest was created 2 h ago. You have 3 open and 4 pending tickets, and you're CC'd on or
     /// following 2 more. You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues

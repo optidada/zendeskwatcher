@@ -11,6 +11,20 @@ public class TicketRulesTests
     private static WatchSnapshot Snapshot(int tier2, int premium, (int, int, int)? mine, int? cc, bool ccAtLeast = false) =>
         new(DateTime.Now, [new(Tier2, tier2), new(Premium, premium)], tier2 + premium > 0 ? Now.AddMinutes(-130) : null, mine, cc, ccAtLeast);
 
+    [Theory]
+    [InlineData("end-user", "sam@contoso.com", false, true)]       // a customer
+    [InlineData("end-user", "kim@acme.com", false, false)]         // someone from your company, CC'd as end-user
+    [InlineData("end-user", "kim@ACME.com ", false, false)]        // the domain in any case
+    [InlineData("end-user", "kim@acme.com", true, true)]           // ... unless they opened the ticket: then they're the customer
+    [InlineData("agent", "pat@acme.com", false, false)]            // agents never
+    [InlineData("end-user", null, false, true)]                    // no email: a customer
+    public void Who_counts_as_the_customer(string role, string? email, bool isRequester, bool expected)
+    {
+        var author = new User { Id = 7, Role = role, Email = email };
+        var ticket = new Ticket { Id = 1, RequesterId = isRequester ? 7 : 99 };
+        Assert.Equal(expected, TicketRules.IsCustomer(author, ticket, "me@acme.com"));
+    }
+
     [Fact]
     public void Summary_text_says_it_in_sentences_one_line_per_topic()
     {

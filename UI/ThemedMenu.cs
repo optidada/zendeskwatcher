@@ -39,13 +39,14 @@ internal static class ThemedMenu
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Open Zendesk");
             menu.Items.Add("Check now");
+            menu.Items.Add("Catch up since yesterday 17:00");
             menu.Items.Add(new ToolStripMenuItem("Pause notifications") { Checked = true });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Settings…");
             menu.Items.Add("Exit");
             Apply(menu, UiPalette.For(theme));
             menu.Show(-3000, -3000); // off-screen: lays out the items
-            menu.Items[3].Select(); // "Check now" as if hovered: shows the selection
+            menu.Items[4].Select(); // "Catch up" as if hovered: shows the selection
             using var bitmap = new Bitmap(menu.Width, menu.Height);
             menu.DrawToBitmap(bitmap, new Rectangle(Point.Empty, menu.Size));
             menu.Close();

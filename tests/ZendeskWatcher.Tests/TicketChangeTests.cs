@@ -92,6 +92,31 @@ public class TicketChangeTests
     }
 
     [Fact]
+    public async Task Custom_status_changes_are_reported_by_their_names_and_noise_is_skipped()
+    {
+        _zendesk.CustomStatuses.Add(new CustomStatus { Id = 1, AgentLabel = "Open", StatusCategory = "open" });
+        _zendesk.CustomStatuses.Add(new CustomStatus { Id = 2, AgentLabel = "In progress", StatusCategory = "open" });
+        _zendesk.CustomStatuses.Add(new CustomStatus { Id = 3, AgentLabel = "Escalated", StatusCategory = "hold" });
+        _zendesk.AddAssigned(520, "normal");
+        var watcher = await StartAsync();
+
+        // Within the same basic status: only the custom one changes.
+        _zendesk.Change(520, Colleague, "custom_status_id", "1", "2");
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("Status Open → In progress (Sam Colleague)", Assert.Single(TakeShown()).Body);
+
+        // Both change: one line, with the custom names.
+        _zendesk.ChangeTogether(520, Colleague, ("status", "open", "hold"), ("custom_status_id", "2", "3"));
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("Status In progress → Escalated (Sam Colleague)", Assert.Single(TakeShown()).Body);
+
+        // Not worth a notification.
+        _zendesk.Change(520, Colleague, "status", "new", "open");
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+    }
+
+    [Fact]
     public async Task Text_from_zendesk_never_turns_bold()
     {
         _zendesk.AddAssigned(520, "high");

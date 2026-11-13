@@ -30,6 +30,9 @@ public sealed class Ticket
     public long? GroupId { get; set; }
     public long? RequesterId { get; set; }
     public long? OrganizationId { get; set; }
+
+    /// <summary>The ticket's custom status (e.g. "In progress", "Escalated"), when the account uses them.</summary>
+    public long? CustomStatusId { get; set; }
     public List<long> FollowerIds { get; set; } = [];
     public List<long> EmailCcIds { get; set; } = [];
     public List<long> CollaboratorIds { get; set; } = [];
@@ -61,6 +64,16 @@ public sealed class AuditEvent
 // ---- Response envelopes ----
 
 internal sealed class UserResponse { public User? User { get; set; } }
+
+/// <summary>A custom ticket status: the agents' name for it, and the basic status it belongs to (open, pending, hold, …).</summary>
+public sealed class CustomStatus
+{
+    public long Id { get; set; }
+    public string? AgentLabel { get; set; }
+    public string? StatusCategory { get; set; }
+}
+
+internal sealed class CustomStatusesResponse { public List<CustomStatus> CustomStatuses { get; set; } = []; }
 internal sealed class Organization { public long Id { get; set; } public string? Name { get; set; } }
 internal sealed class OrganizationResponse { public Organization? Organization { get; set; } }
 internal sealed class UsersResponse : PagedResponse { public List<User> Users { get; set; } = []; }
