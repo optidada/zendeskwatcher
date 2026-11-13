@@ -521,6 +521,8 @@ public sealed class RoomyComboBox : ComboBox
         DropDownStyle = ComboBoxStyle.DropDownList;
         FlatStyle = FlatStyle.Flat;
         DrawMode = DrawMode.OwnerDrawFixed;
+        // The closed box is drawn by OnPaint (theme colors, own arrow); Windows still draws the open list.
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
         Font = Theme.Body;
         BackColor = Theme.Surface;
         ForeColor = Theme.Text;
@@ -551,6 +553,7 @@ public sealed class RoomyComboBox : ComboBox
         }
         _lastAllowed = SelectedIndex;
         base.OnSelectedIndexChanged(e);
+        Invalidate(); // the closed box shows the new choice
     }
 
     protected override void OnDrawItem(DrawItemEventArgs e)
@@ -574,6 +577,42 @@ public sealed class RoomyComboBox : ComboBox
         TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, text, fore,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
+
+    /// <summary>
+    /// The closed box drawn in the theme's colors: Windows paints its arrow button in its own grey, lighter than dark
+    /// themes. The open list stays owner-drawn (<see cref="OnDrawItem"/>).
+    /// </summary>
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        var s = DeviceDpi / 96f;
+        var bounds = ClientRectangle;
+        using (var back = new SolidBrush(Theme.Surface))
+            g.FillRectangle(back, bounds);
+        using (var border = new Pen(Focused || DroppedDown ? Theme.Accent : Theme.Border))
+            g.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
+
+        var arrowWidth = (int)(24 * s);
+        if (SelectedIndex >= 0)
+        {
+            var pad = (int)(PadX * s);
+            var text = new Rectangle(pad, 0, bounds.Width - pad - arrowWidth, bounds.Height);
+            TextRenderer.DrawText(g, GetItemText(Items[SelectedIndex]), Font, text, Enabled ? Theme.Text : Theme.TextMuted,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var cx = bounds.Right - arrowWidth / 2f;
+        var cy = bounds.Height / 2f;
+        using var pen = new Pen(Enabled ? Theme.TextMuted : Theme.Border, 1.6f * s)
+            { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
+        g.DrawLines(pen, [new PointF(cx - 4 * s, cy - 2 * s), new PointF(cx, cy + 2 * s), new PointF(cx + 4 * s, cy - 2 * s)]);
+    }
+
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+    protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); Invalidate(); }
+    protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
 }
 
 /// <summary>A ListView that paints without flicker and whose single column always fills the width.</summary>

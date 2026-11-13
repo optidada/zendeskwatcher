@@ -5,7 +5,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.4.4
 
-- **Tick boxes on the Groups page are clearly visible in every theme**: drawn in the theme's colors like the other lists, instead of Windows' own boxes that were faint on dark themes.
+- **Tick boxes on the Groups page are clearly visible in every theme**: drawn in the theme's colors like the other lists, instead of Windows' own boxes that were faint on dark themes. Drop-downs match the theme too.
 
 ## 1.4.3
 

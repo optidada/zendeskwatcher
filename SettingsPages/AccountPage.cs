@@ -22,6 +22,7 @@ internal sealed class AccountPage : SettingsPage
 
     private bool _signingIn;
     private string? _loadedFor;
+    private bool _initialStatus;
     private readonly Label _lockedHint = Theme.Label("To use another Zendesk account, sign out first.", Theme.Small, Theme.TextMuted);
     private readonly System.Windows.Forms.Timer _recheck = new() { Interval = 900 };
 
@@ -97,8 +98,11 @@ internal sealed class AccountPage : SettingsPage
                 _ = RefreshAsync();
             return;
         }
+        // Not known yet: the check when the window opens decides. Without telling the other pages meanwhile (no strip
+        // flashing, and no work for them while the window is still being built).
+        _initialStatus = true;
         SetStatus("Not signed in", AccountState.SignedOut);
-        Context.SetSignedOut(false); // not known yet: the check when the window opens decides (no strip flashing meanwhile)
+        _initialStatus = false;
     }
 
     public override void Apply(Settings settings) => settings.Subdomain = Subdomain;
@@ -307,9 +311,9 @@ internal sealed class AccountPage : SettingsPage
     /// <summary>Shows the account status; only the buttons that make sense for the state are visible.</summary>
     private void SetStatus(string text, AccountState state)
     {
-        if (state != AccountState.SignedIn)
+        if (state != AccountState.SignedIn && !_initialStatus)
             Context.SetSession(null, null);
-        if (state != AccountState.Checking)
+        if (state != AccountState.Checking && !_initialStatus)
             Context.SetSignedOut(state == AccountState.SignedOut);
         _status.Text = text;
         _dot.DotColor = state switch

@@ -551,11 +551,33 @@ public sealed class SettingsForm : Form
     internal static void MeasureIdle(int page, int seconds, string file)
     {
         var settings = new Settings { Subdomain = "example", HelpColleagues = true, WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }] };
+        var opening = System.Diagnostics.Stopwatch.StartNew();
         using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
+        var built = opening.ElapsedMilliseconds;
         form.StartPosition = FormStartPosition.Manual;
         form.Location = new Point(-5000, -5000); // off-screen: the mouse and keyboard can't reach it
         form.ShowInTaskbar = false;
         form.Show();
+        Application.DoEvents();
+        var shown = opening.ElapsedMilliseconds;
+        // How long switching to each page takes (built, laid out and painted).
+        var switches = new List<string>();
+        for (var i = 0; i < form._pages.Length; i++)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            form.SelectPage(i);
+            Application.DoEvents();
+            switches.Add($"{i}:{clock.ElapsedMilliseconds}");
+        }
+        // Opening it again in the same run, as in the app after the first time (code already loaded).
+        var again = System.Diagnostics.Stopwatch.StartNew();
+        using (var second = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { })) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000), ShowInTaskbar = false })
+        {
+            second.Show();
+            Application.DoEvents();
+            second.Hide();
+        }
+        File.AppendAllText(file, $"window built {built} ms, shown {shown} ms, again {again.ElapsedMilliseconds} ms; page switch ms {string.Join(" ", switches)}{Environment.NewLine}");
         form.SelectPage(page);
         var process = System.Diagnostics.Process.GetCurrentProcess();
         var counter = new MessageCounter();
