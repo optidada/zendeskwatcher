@@ -1,7 +1,10 @@
 # Builds the Mac test app (ZendeskWatcher.Mac) on a macOS runner: Mac apps can only be built on a Mac.
 # The result is a zip with "Zendesk Watcher.app" (Apple silicon + Intel, ad-hoc signed, no Apple account) under the
-# run's Artifacts. Not part of releases yet.
+# run's Artifacts, and (from the mac branch) as the "mac-preview" pre-release for testers.
 name: Mac test build
+
+permissions:
+  contents: write # the mac-preview pre-release
 
 on:
   push:
@@ -61,3 +64,21 @@ jobs:
         with:
           name: ZendeskWatcher-mac
           path: ZendeskWatcher-mac.zip
+
+      # A fixed download link for testers: the "mac-preview" pre-release, replaced by every build of the mac branch.
+      # Installed Windows apps only look at full releases, so they never see it.
+      - name: Publish the Mac preview
+        if: github.ref == 'refs/heads/mac'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "**Test version for Mac, not a release.** Menu bar icon with the unassigned count, macOS notifications, groups in the menu."
+            echo
+            echo "Install: download **ZendeskWatcher-mac.zip**, double-click it, and drag **Zendesk Watcher** to Applications. The app isn't signed by Apple yet, so the first start is blocked: open **System Settings → Privacy & Security**, scroll down to the message about Zendesk Watcher and click **Open Anyway**, then confirm. After that it starts normally."
+            echo
+            echo "Then click the ticket icon in the menu bar: Zendesk account… → Sign in… → Groups to watch. Feedback: menu → Send feedback…"
+          } > preview-notes.md
+          gh release delete mac-preview --yes --cleanup-tag || true
+          gh release create mac-preview ZendeskWatcher-mac.zip --prerelease --target "$GITHUB_SHA" \
+            --title "Zendesk Watcher for Mac (test version, $(date -u +%Y-%m-%d))" --notes-file preview-notes.md
