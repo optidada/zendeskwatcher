@@ -3,39 +3,33 @@ using System.Diagnostics;
 namespace ZendeskWatcher;
 
 /// <summary>
-/// "Send feedback": a pre-filled email to the maintainer, in classic Outlook if it's installed (most colleagues use
-/// it, while mailto may go to e.g. Gmail), else the default mail app; if neither opens, it's copied to the clipboard.
-/// A new email can't carry attachments, so the text points at the log folder.
+/// "Send feedback" on Windows: builds the feedback zip (<see cref="FeedbackPackage"/>) and opens a pre-filled email to
+/// the maintainer. Classic Outlook attaches the zip itself; other mail apps (new Outlook, mailto) can't, so Explorer
+/// opens with the zip selected and the email asks to attach it. If no mail app opens, the text goes to the clipboard.
 /// </summary>
 public static class FeedbackMail
 {
-    public static string Subject(string version) => $"Zendesk Watcher feedback ({version})";
-
-    public static string Body(string version, string windows, string logFolder) => string.Join("\r\n",
-        "What happened, or what would you like?",
-        "",
-        "",
-        "",
-        "---",
-        $"Version: {version}",
-        $"Windows: {windows}",
-        $"Log folder: {logFolder}",
-        "(If something went wrong, please attach the latest log from that folder.)");
-
-    /// <summary>The address with subject and body, as used after "mailto:" (and by Outlook's /m switch).</summary>
-    public static string Address(string version, string windows, string logFolder) =>
-        $"{AppUpdater.FeedbackEmail}?subject={Uri.EscapeDataString(Subject(version))}&body={Uri.EscapeDataString(Body(version, windows, logFolder))}";
+    public static string WindowsVersion => $"Windows {Environment.OSVersion.Version}";
 
     public static void Send(string version, Notifier notifier)
     {
-        var windows = Environment.OSVersion.Version.ToString();
-        var address = Address(version, windows, AppPaths.DataDir);
+        var system = WindowsVersion;
+        string zip;
+        try
+        {
+            zip = FeedbackPackage.CreateZip(version, system);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not create the feedback zip", ex);
+            zip = AppPaths.LogFile; // still point at the log
+        }
 
         if (ClassicOutlookPath() is { } outlook)
         {
             try
             {
-                Process.Start(outlook, ["/c", "ipm.note", "/m", address]);
+                Process.Start(outlook, ["/a", zip, "/m", FeedbackPackage.Address(version, system, zip, attached: true)]);
                 return;
             }
             catch (Exception ex)
@@ -44,19 +38,35 @@ public static class FeedbackMail
             }
         }
 
+        ShowInExplorer(zip);
         try
         {
-            Process.Start(new ProcessStartInfo($"mailto:{address}") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo($"mailto:{FeedbackPackage.Address(version, system, zip, attached: false)}") { UseShellExecute = true });
         }
         catch (Exception ex)
         {
             Log.Error("Could not open a mail app for feedback", ex);
-            Clipboard.SetText($"To: {AppUpdater.FeedbackEmail}\r\nSubject: {Subject(version)}\r\n\r\n{Body(version, windows, AppPaths.DataDir)}");
-            notifier.ShowInfo("No mail app found", $"The feedback email is copied to the clipboard. Paste it into an email to {AppUpdater.FeedbackEmail}.");
+            Clipboard.SetText($"To: {FeedbackPackage.Email}\r\nSubject: {FeedbackPackage.Subject(version)}\r\n\r\n" +
+                FeedbackPackage.Body(version, system, zip, attached: false));
+            notifier.ShowInfo("No mail app found",
+                $"The feedback email is copied to the clipboard. Paste it into an email to {FeedbackPackage.Email} and attach the zip from the folder that opened.");
         }
     }
 
-    /// <summary>Classic desktop Outlook (OUTLOOK.EXE), which can open a pre-filled email; null if not installed.</summary>
+    /// <summary>Opens Explorer with the file selected, so it can be dragged into the email.</summary>
+    private static void ShowInExplorer(string path)
+    {
+        try
+        {
+            Process.Start("explorer.exe", $"/select,\"{path}\"");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not show the feedback zip in Explorer", ex);
+        }
+    }
+
+    /// <summary>Classic desktop Outlook (OUTLOOK.EXE), which can open a pre-filled email with an attachment; null if not installed.</summary>
     private static string? ClassicOutlookPath()
     {
         using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE");
