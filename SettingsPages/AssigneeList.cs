@@ -73,6 +73,8 @@ internal sealed class AssigneeList : Control
     /// <param name="setCovered">Ticks or unticks a person.</param>
     public AssigneeList(int width, Func<long, bool> isCovered, Action<Person, bool> setCovered)
     {
+        SetStyle(ControlStyles.Selectable, true);
+        TabStop = true; // Tab reaches the list; arrows move inside it
         _isCovered = isCovered;
         _setCovered = setCovered;
         Width = width;
@@ -245,6 +247,7 @@ internal sealed class AssigneeList : Control
                     break;
             }
         }
+        PaintFocus(g);
     }
 
     /// <summary>A small dot centered at (x, y): filled in the success color when working, an empty ring when off.</summary>
@@ -286,11 +289,112 @@ internal sealed class AssigneeList : Control
         Invalidate();
     }
 
+    // ------------------------------------------------------------------ keyboard
+
+    /// <summary>The row the keyboard is on (person, All or None), kept by what it is, since rows are rebuilt.</summary>
+    private (ItemKind Kind, long PersonId, string? GroupTitle)? _focusKey;
+
+    /// <summary>The keyboard moved to another row: the scrolling host can bring it into view.</summary>
+    public event Action<Rectangle>? FocusMoved;
+
+    private static bool IsInteractive(Item item) => item.Kind is ItemKind.Person or ItemKind.All or ItemKind.None;
+
+    private static (ItemKind, long, string?) KeyOf(Item item) => (item.Kind, item.Person?.Id ?? 0, item.Group.Title);
+
+    private Item? FocusItem => _focusKey is { } key ? _items.FirstOrDefault(i => IsInteractive(i) && KeyOf(i) == key) : null;
+
+    protected override bool IsInputKey(Keys keyData) =>
+        keyData is Keys.Up or Keys.Down or Keys.Left or Keys.Right or Keys.Home or Keys.End || base.IsInputKey(keyData);
+
+    protected override void OnGotFocus(EventArgs e)
+    {
+        base.OnGotFocus(e);
+        if (FocusItem is null && _items.FirstOrDefault(IsInteractive) is { } first)
+            _focusKey = KeyOf(first);
+        Invalidate();
+    }
+
+    protected override void OnLostFocus(EventArgs e)
+    {
+        base.OnLostFocus(e);
+        Invalidate();
+    }
+
+    /// <summary>Arrows (and Home/End) move between rows, Space ticks or unticks (All/None for a group), Enter opens the menu.</summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        var rows = _items.Where(IsInteractive).ToList();
+        if (rows.Count == 0)
+            return;
+        var at = FocusItem is { } current ? rows.IndexOf(current) : -1;
+        var next = e.KeyCode switch
+        {
+            Keys.Down or Keys.Right => Math.Min(rows.Count - 1, at + 1),
+            Keys.Up or Keys.Left => Math.Max(0, at - 1),
+            Keys.Home => 0,
+            Keys.End => rows.Count - 1,
+            _ => -1
+        };
+        if (next >= 0)
+        {
+            _focusKey = KeyOf(rows[next]);
+            FocusMoved?.Invoke(Rectangle.Round(rows[next].Rect));
+            Invalidate();
+            e.Handled = true;
+            return;
+        }
+        if (at < 0 || !Active)
+            return;
+        var item = rows[at];
+        if (e.KeyCode == Keys.Space)
+        {
+            Activate(item);
+            e.Handled = e.SuppressKeyPress = true;
+        }
+        else if (e.KeyCode is Keys.Enter or Keys.Apps && item.Kind == ItemKind.Person && MenuRequested is not null)
+        {
+            var rect = Rectangle.Round(item.Rect);
+            MenuRequested(item.Person!, PointToScreen(new Point(rect.Left + (int)(24 * DpiScale), rect.Bottom)));
+            e.Handled = e.SuppressKeyPress = true;
+        }
+    }
+
+    private void Activate(Item item)
+    {
+        switch (item.Kind)
+        {
+            case ItemKind.Person:
+                SetCovered([item.Person!], !_isCovered(item.Person!.Id));
+                break;
+            case ItemKind.All:
+                SetCovered(item.Group.People, true);
+                break;
+            case ItemKind.None:
+                SetCovered(item.Group.People, false);
+                break;
+        }
+    }
+
+    /// <summary>A rounded outline around the keyboard's row, only while the list has the focus.</summary>
+    private void PaintFocus(Graphics g)
+    {
+        if (!Focused || FocusItem is not { } item)
+            return;
+        var s = DpiScale;
+        var r = item.Rect;
+        using var path = Theme.RoundedRect(new RectangleF(r.X - 3 * s, r.Y + 1, r.Width + 3 * s, r.Height - 2), 4 * s);
+        using var pen = new Pen(Theme.Accent, 1.5f * s);
+        g.DrawPath(pen, path);
+    }
+
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
         if (!Active || HitTest(e.Location) is not { } hit)
             return;
+        if (IsInteractive(hit))
+            _focusKey = KeyOf(hit); // the keyboard continues from the clicked row
         // With a menu: the name (or a right-click) opens it, the check box toggles.
         if (hit.Kind == ItemKind.Person && MenuRequested is not null &&
             (e.Button == MouseButtons.Right || e.X > hit.Rect.X + 24 * DpiScale))

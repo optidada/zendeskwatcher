@@ -64,6 +64,14 @@ internal sealed class ClientsView
             Badge = id => _choices.GetValueOrDefault(id) is { } c ? BadgeFor(c) : null
         };
         _list.Changed += () => { UpdateHint(); Changed?.Invoke(); };
+        _list.FocusMoved += row =>
+        {
+            // Scroll just enough to show the keyboard's row.
+            if (row.Top < _scroll)
+                ScrollTo(row.Top);
+            else if (row.Bottom > _scroll + Host.Height)
+                ScrollTo(row.Bottom - Host.Height);
+        };
         _list.MenuRequested += (client, at) =>
             ClientMenu.Build(ChoiceFor(client), choice =>
             {

@@ -9,6 +9,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 - **Settings opens much faster**: about 0.1 s instead of 0.75 s, by building each page the first time you open it; less memory while it's open.
 - **The built-in browser does less in the background**: no component updates, sync, extensions or safety lookups, which the Zendesk and Okta pages don't need.
 - **Tick boxes on the Groups page are clearly visible in every theme**: drawn in the theme's colors like the other lists, instead of Windows' own boxes that were faint on dark themes. Drop-downs match the theme too.
+- **Keyboard in the Clients and Colleagues lists**: Tab into the list, arrow keys move, Space ticks or unticks (or All / None), Enter opens a client's menu.
 
 ## 1.4.3
 
