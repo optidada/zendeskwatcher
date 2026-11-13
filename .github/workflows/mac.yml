@@ -19,6 +19,15 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # The .NET macOS workload needs the newest Xcode; the runner's default can be older.
+      - name: Use the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $newest"
+          sudo xcode-select -s "$newest"
+          xcodebuild -version
+
       - name: Install the macOS workload
         run: dotnet workload install macos
 
