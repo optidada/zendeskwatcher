@@ -10,7 +10,7 @@
     <RootNamespace>ZendeskWatcher</RootNamespace>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <AssemblyName>ZendeskWatcher</AssemblyName>
-    <Version>1.3.19</Version>
+    <Version>1.3.20</Version>
     <Authors>Claude &amp; Daniel Dahlin @ Optimizely</Authors>
     <Company>Optimizely</Company>
     <Product>Zendesk Watcher</Product>

@@ -71,7 +71,7 @@ public sealed class Settings
     public List<string> HelpPriorities { get; set; } = ["urgent", "high"];
 
     /// <summary>
-    /// A ticket whose status is "In progress" is trusted this many hours after the customer wrote: only then does a
+    /// A ticket whose status is "In progress" or "Scheduled" is trusted this many hours after the customer wrote: only then does a
     /// waiting customer notify (Colleagues, and Catch up). Other statuses notify right away.
     /// </summary>
     public int InProgressGraceHours { get; set; } = 4;

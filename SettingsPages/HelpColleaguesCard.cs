@@ -103,11 +103,11 @@ internal sealed class HelpColleaguesCard
         options.Controls.Add(_peopleHint);
         options.Controls.Add(_priorities.Row);
         options.Controls.Add(Theme.Label("Tickets without a priority count as Normal (P3).", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
-        var graceRow = Kit.Row(Theme.Label("Trust \u201cIn progress\u201d for"), _grace);
+        var graceRow = Kit.Row(Theme.Label("Trust \u201cIn progress\u201d and \u201cScheduled\u201d for"), _grace);
         graceRow.Margin = new Padding(0, 8, 0, 0);
         options.Controls.Add(graceRow);
         options.Controls.Add(Theme.Label("Any status counts while the customer waits for a public answer (Pending, On-hold, Escalated, …). " +
-            "Only \u201cIn progress\u201d waits this long first. Also used by Catch up.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
+            "Only \u201cIn progress\u201d and \u201cScheduled\u201d wait this long first. Also used by Catch up.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
 
         var hours = Kit.Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
         hours.Margin = new Padding(0, 8, 0, 0);

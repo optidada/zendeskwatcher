@@ -93,20 +93,20 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
     }
 
-    /// <summary>How long "In progress" is trusted (Notifications → Colleagues).</summary>
+    /// <summary>How long "In progress" and "Scheduled" are trusted (Notifications → Colleagues).</summary>
     private TimeSpan InProgressGrace => TimeSpan.FromHours(Math.Clamp(settings.InProgressGraceHours, 1, 24));
 
     /// <summary>The status as agents see it: the custom one ("In progress") if any, else "Open", "Pending", "On-hold", …</summary>
     private string StatusName(Ticket ticket) =>
         ticket.CustomStatusId is { } id && _statusNames.TryGetValue(id, out var name) ? name : TicketRules.StatusLabel(ticket.Status) ?? "";
 
-    /// <summary>" · Escalated" after the off-work line, unless it's plain Open/New; "In progress" says how long the customer has waited.</summary>
+    /// <summary>" · Escalated" after the off-work line, unless it's plain Open/New; "In progress" and "Scheduled" say how long the customer has waited.</summary>
     private string StatusSuffix(Ticket ticket, DateTimeOffset repliedAt, DateTimeOffset now)
     {
         var name = StatusName(ticket);
         if (name.Length == 0 || name is "Open" or "New")
             return "";
-        return TicketRules.IsInProgress(name) ? $" · {name}, no answer for {(int)(now - repliedAt).TotalHours} h" : $" · {name}";
+        return TicketRules.IsTrustedStatus(name) ? $" · {name}, no answer for {(int)(now - repliedAt).TotalHours} h" : $" · {name}";
     }
 
     private static readonly TimeSpan RequestReportInterval = TimeSpan.FromMinutes(10);
@@ -451,7 +451,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
                 var who = assignee?.Name ?? $"User {assigneeId}";
                 var repliedAt = reply.Value.At;
-                // "In progress": someone is on it; trusted for a while, then looked at again (below).
+                // "In progress" or "Scheduled": trusted for a while, then looked at again (below).
                 if (!TicketRules.CustomerWaitingNeedsNotice(StatusName(ticket), repliedAt, now, InProgressGrace))
                 {
                     Log.Info($"Ticket #{ticket.Id}: customer replied, {who} is off work, but it's {StatusName(ticket)}: looking again in {InProgressGrace.TotalHours:0} h");

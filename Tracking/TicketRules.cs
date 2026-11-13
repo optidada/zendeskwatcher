@@ -19,16 +19,20 @@ public static class TicketRules
         || (string.Equals(from, "New", StringComparison.OrdinalIgnoreCase) && string.Equals(to, "Open", StringComparison.OrdinalIgnoreCase))
         || (string.Equals(from, "Solved", StringComparison.OrdinalIgnoreCase) && string.Equals(to, "Closed", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Whether a status name means someone is working on it ("In progress"): then the customer may wait a while.</summary>
-    public static bool IsInProgress(string? statusLabel) =>
-        statusLabel?.Contains("in progress", StringComparison.OrdinalIgnoreCase) == true;
+    /// <summary>
+    /// Statuses that are trusted for a while: "In progress" (someone is on it) and "Scheduled" (a time was agreed,
+    /// so a reply like "Thanks, see you Tuesday" needn't be answered). Matched by name.
+    /// </summary>
+    public static bool IsTrustedStatus(string? statusLabel) =>
+        statusLabel?.Contains("in progress", StringComparison.OrdinalIgnoreCase) == true
+        || statusLabel?.Contains("scheduled", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// A customer who wrote last is worth a notification whatever the status (pending, on-hold, escalated, …): they
-    /// still need an answer. Only "In progress" is trusted for <paramref name="grace"/> after their reply.
+    /// still need an answer. Only "In progress" and "Scheduled" are trusted for <paramref name="grace"/> after their reply.
     /// </summary>
     public static bool CustomerWaitingNeedsNotice(string? statusLabel, DateTimeOffset repliedAt, DateTimeOffset now, TimeSpan grace) =>
-        !IsInProgress(statusLabel) || now - repliedAt >= grace;
+        !IsTrustedStatus(statusLabel) || now - repliedAt >= grace;
 
     /// <summary>
     /// Whether a comment's author is the customer: an end-user, but not someone from your own company (an end-user

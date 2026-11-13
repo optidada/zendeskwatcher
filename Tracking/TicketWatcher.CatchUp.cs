@@ -67,7 +67,7 @@ public sealed partial class TicketWatcher
         var ccIds = settings.TrackCcTickets ? _state.CcTickets.Keys.Except(mineIds).ToList() : [];
         var tracked = mineIds.Count + ccIds.Count > 0 ? await zendesk.GetTicketsAsync(mineIds.Concat(ccIds).ToList(), ct) : [];
         var now = DateTimeOffset.UtcNow;
-        // Any status before solved: a customer who wrote last needs an answer (only "In progress" is trusted a while).
+        // Any status before solved: a customer who wrote last needs an answer (only "In progress" and "Scheduled" are trusted a while).
         foreach (var ticket in tracked.Where(t => t.IsOpen && t.UpdatedAt >= sinceUtc))
         {
             if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting)

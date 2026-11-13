@@ -30,7 +30,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "The customer: someone outside your company. Colleagues on the ticket, also as CC, count as you, " +
             "except the person who opened it.",
             "Waiting: the customer's message is the newest public comment. An internal note isn't an answer.",
-            "Any status counts (Pending, On-hold, Escalated, …), except “In progress”: it's trusted for a while first (4 hours by default).",
+            "Any status counts (Pending, On-hold, Escalated, …), except “In progress” and “Scheduled”: they're trusted for a while first (4 hours by default).",
             "Colleagues in your own region are left out to begin with: they usually work when you do."
         ]),
         ("Catch up",

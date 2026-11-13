@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.3.20
+
+- **"Scheduled" is trusted like "In progress"**: a customer's reply on a Scheduled ticket (often just "Thanks, see you Tuesday") only notifies once it has gone unanswered for the time you set on the Colleagues page (4 hours by default). Also in Catch up.
+
 ## 1.3.19
 
 - **Catch up**: what still needs you since you stopped working last time: tickets still unassigned in your groups, and customers still waiting on your own, CC'd and colleagues' tickets. From the tray menu, the morning summary, and by itself when your working day starts (Notifications → Working hours).

@@ -104,6 +104,8 @@ public class HelpColleaguesTests
 
     [Theory]
     [InlineData("In progress", 1, false)]  // someone is on it: trusted
+    [InlineData("Scheduled", 1, false)]    // a time was agreed: trusted too
+    [InlineData("Scheduled", 6, true)]
     [InlineData("In Progress", 5, true)]   // waited longer than 4 hours
     [InlineData("Escalated", 0, true)]     // any other status: right away
     [InlineData("Pending", 0, true)]
