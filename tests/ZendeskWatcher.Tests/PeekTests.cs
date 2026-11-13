@@ -10,6 +10,8 @@ public class PeekTests
     [InlineData(PopupPosition.TopRight, PopupForm.PeekEdge.Right)]
     [InlineData(PopupPosition.LeftCenter, PopupForm.PeekEdge.Left)]
     [InlineData(PopupPosition.TopCenter, PopupForm.PeekEdge.Top)]
+    [InlineData(PopupPosition.RightCenter, PopupForm.PeekEdge.Right)]
+    [InlineData(PopupPosition.BottomCenter, PopupForm.PeekEdge.Bottom)]
     [InlineData(PopupPosition.Center, PopupForm.PeekEdge.Top)] // no edge in the middle: Top center
     public void Peek_uses_the_edge_of_the_position(PopupPosition position, PopupForm.PeekEdge edge)
     {

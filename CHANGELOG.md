@@ -5,7 +5,7 @@ app's "Update ready" notification, so put the most interesting changes first.
 
 ## 1.4.1
 
-- **Peek from the edge**: notifications wait as tabs at the screen edge; point at one to slide it out. Tabs wiggle when something new arrives and fill with color the longer a ticket waits; urgent and important ones come out by themselves (Look & sound → Several at once).
+- **Peek from the edge**: notifications wait as tabs at the screen edge; point at one to slide it out. Tabs wiggle when something new arrives and fill with color the longer a ticket waits; urgent and important ones come out by themselves (Look & sound → Several at once). New positions too: **Right center** and **Bottom center**.
 - **Send feedback attaches your log**: a zip with the log, settings and app details. Classic Outlook attaches it; other mail apps show it, ready to drag in. Nothing is sent without you.
 - **Clear customizations** on the Clients page puts the listed clients back to normal in one go.
 - **Check now works every time**: it could wait until the next regular check (Catch up too). Both are greyed out in the tray menu while the app isn't checking.

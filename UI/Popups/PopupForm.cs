@@ -53,7 +53,7 @@ public sealed class PopupForm : Form
 
     // Peek (Look & sound -> Several at once): tucked at a screen edge, only a tab showing until the mouse comes.
     /// <summary>Which screen edge it peeks out from; <see cref="PeekEdge.None"/> for the other arrangements.</summary>
-    public enum PeekEdge { None, Right, Left, Top }
+    public enum PeekEdge { None, Right, Left, Top, Bottom }
 
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public PeekEdge Peek { get; set; }
@@ -237,7 +237,7 @@ public sealed class PopupForm : Form
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     /// <summary>How a popup comes in and goes: from the right or left edge, dropping from the top, or fading.</summary>
-    public enum Entry { FromRight, FromLeft, FromTop, Fade }
+    public enum Entry { FromRight, FromLeft, FromTop, FromBottom, Fade }
 
     private Entry _entry = Entry.FromRight;
 
@@ -246,7 +246,12 @@ public sealed class PopupForm : Form
     {
         _restX = restX;
         _entry = entry;
-        _y = entry == Entry.FromTop ? TargetY - Height - Px(24) : TargetY; // drops down to its place
+        _y = entry switch
+        {
+            Entry.FromTop => TargetY - Height - Px(24),    // drops down to its place
+            Entry.FromBottom => TargetY + Height + Px(24), // rises to its place
+            _ => TargetY
+        };
         if (Peek != PeekEdge.None)
         {
             _tuck = 1; // arrives already tucked: only the tab slides in
@@ -255,7 +260,7 @@ public sealed class PopupForm : Form
             if (string.Equals(_content.Priority, "urgent", StringComparison.OrdinalIgnoreCase) || _content.Important)
                 _forcedOutUntil = start + EnterMs + 6000;
         }
-        if (entry is Entry.FromTop or Entry.Fade)
+        if (entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
             Opacity = 0;
         Location = new Point(HiddenX(1), (int)_y);
         Show();
@@ -298,7 +303,7 @@ public sealed class PopupForm : Form
             case Phase.Entering:
                 var pIn = Math.Min(1, t / EnterMs);
                 x = HiddenX(1 - EaseOutBack(pIn));
-                if (_entry is Entry.FromTop or Entry.Fade)
+                if (_entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
                     Opacity = Math.Min(1, pIn * 1.5);
                 if (pIn >= 1)
                 {
@@ -310,7 +315,7 @@ public sealed class PopupForm : Form
             case Phase.Leaving:
                 var pOut = Math.Min(1, t / LeaveMs);
                 x = HiddenX(pOut * pOut);
-                if (_entry is Entry.FromTop or Entry.Fade)
+                if (_entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
                     Opacity = 1 - pOut;
                 if (pOut >= 1)
                 {
@@ -343,7 +348,7 @@ public sealed class PopupForm : Form
                 _tuck = goal;
             if (_hover && _tuck < 0.1f)
                 _seen = true;
-            var span = Peek == PeekEdge.Top ? Height : Width;
+            var span = Peek is PeekEdge.Top or PeekEdge.Bottom ? Height : Width;
             var hidden = _tuck * (span - TabSize);
             var sinceWiggle = now - _wiggleFrom;
             if (_wiggleFrom >= 0 && sinceWiggle is >= 0 and < WiggleMs)
@@ -351,11 +356,11 @@ public sealed class PopupForm : Form
             var offset = (int)Math.Round(hidden);
             if (Peek == PeekEdge.Right) x += offset;
             else if (Peek == PeekEdge.Left) x -= offset;
-            else _yOffset = -offset;
+            else _yOffset = Peek == PeekEdge.Bottom ? offset : -offset;
             peekBusy = _tuck != goal || (_wiggleFrom >= 0 && sinceWiggle < WiggleMs);
         }
 
-        var location = new Point(x, (int)Math.Round(_y) + (Peek == PeekEdge.Top ? _yOffset : 0));
+        var location = new Point(x, (int)Math.Round(_y) + (Peek is PeekEdge.Top or PeekEdge.Bottom ? _yOffset : 0));
         var moved = location != Location;
         if (moved)
             Location = location;
@@ -403,7 +408,7 @@ public sealed class PopupForm : Form
     /// </summary>
     private void ClipToScreen(Point location)
     {
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).Bounds;
+        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea; // not over the taskbar
         var visible = Rectangle.Intersect(new Rectangle(location, Size), area);
         visible.Offset(-location.X, -location.Y);
         if (visible == _clip)
@@ -435,6 +440,7 @@ public sealed class PopupForm : Form
         {
             PeekEdge.Right => new Rectangle(0, 0, tab, Height),
             PeekEdge.Left => new Rectangle(Width - tab, 0, tab, Height),
+            PeekEdge.Bottom => new Rectangle(0, 0, Width, tab),
             _ => new Rectangle(0, Height - tab, Width, tab)
         };
         var alpha = (int)(255 * Math.Clamp(_tuck * 1.4f - 0.2f, 0, 1));
@@ -442,14 +448,14 @@ public sealed class PopupForm : Form
             g.FillRectangle(back, strip);
 
         var fill = TabFill();
-        var filled = Peek == PeekEdge.Top
+        var filled = Peek is PeekEdge.Top or PeekEdge.Bottom
             ? new Rectangle(strip.Left, strip.Top, (int)(strip.Width * fill), strip.Height)
             : new Rectangle(strip.Left, strip.Bottom - (int)(strip.Height * fill), strip.Width, (int)(strip.Height * fill));
         using (var front = new SolidBrush(Color.FromArgb(alpha, _accent)))
             g.FillRectangle(front, filled);
 
-        var arrow = Peek switch { PeekEdge.Right => "\u2039", PeekEdge.Left => "\u203a", _ => "\u02c5" };
-        var arrowRect = Peek == PeekEdge.Top ? strip : new Rectangle(strip.Left, strip.Top + strip.Height / 2 - tab, strip.Width, tab * 2);
+        var arrow = Peek switch { PeekEdge.Right => "\u2039", PeekEdge.Left => "\u203a", PeekEdge.Bottom => "\u02c4", _ => "\u02c5" };
+        var arrowRect = Peek is PeekEdge.Top or PeekEdge.Bottom ? strip : new Rectangle(strip.Left, strip.Top + strip.Height / 2 - tab, strip.Width, tab * 2);
         DrawText(g, arrow, _titleFont, arrowRect, Color.FromArgb(alpha, _palette.Dark ? Color.White : Color.Black),
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
     }

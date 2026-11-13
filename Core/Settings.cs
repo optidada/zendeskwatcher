@@ -553,7 +553,8 @@ public enum NotificationTheme
 }
 
 /// <summary>Where Zendesk Watcher's own notifications appear. Stored as a number: new values go at the end.</summary>
-public enum PopupPosition { BottomRight, TopRight, TopCenter, LeftCenter, Center }
+/// <summary>Where notifications appear. New values go at the end: settings store the number.</summary>
+public enum PopupPosition { BottomRight, TopRight, TopCenter, LeftCenter, Center, BottomCenter, RightCenter }
 
 /// <summary>How several notifications on screen at once are arranged.</summary>
 public enum PopupStacking
