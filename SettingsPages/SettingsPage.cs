@@ -94,7 +94,7 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// </summary>
     protected void UseSignedOutStrip(Action<bool> setReadOnly)
     {
-        var text = Theme.Label("Not signed in: these lists may be out of date and can't be changed until you sign in.",
+        var text = Theme.Label("Not signed in: your saved choices below still apply, but the lists may be out of date and can't be changed until you sign in.",
             Theme.Small, Theme.Warning);
         var link = Kit.LinkLabel("Sign in", Theme.Small);
         text.Margin = new Padding(0, 0, 10, 0);
