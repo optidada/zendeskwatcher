@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.4.3
+
+- **Update checks try again sooner**: if GitHub can't be reached or is busy, the app tries again after 15 minutes (then 30, 60 … up to 6 hours) instead of the next day, and says so in plain words.
+
 ## 1.4.2
 
 - **Nothing pops up while you present**: in Zendesk Watcher's own styles, notifications now wait while you present, share your screen or use a full-screen app, and appear when you're done (several become one summary, outdated ones are dropped). Before, they turned into Windows notifications.

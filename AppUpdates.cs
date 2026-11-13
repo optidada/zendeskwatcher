@@ -42,6 +42,24 @@ public sealed class AppUpdates : IDisposable
         _timer.Start();
     }
 
+    /// <summary>Failed checks in a row; the next try waits longer each time (15 min, 30 min, 1 h … up to 6 h).</summary>
+    private int _failures;
+
+    /// <summary>After a failed check: try again soon instead of in a day, backing off so GitHub isn't asked too often.</summary>
+    private void RetryLater()
+    {
+        _failures++;
+        var minutes = Math.Min(15 * (1 << Math.Min(_failures - 1, 5)), 360);
+        _timer.Stop();
+        _timer.Interval = (int)TimeSpan.FromMinutes(minutes).TotalMilliseconds;
+        _timer.Start();
+        Log.Info($"Update check: trying again in {minutes} min");
+    }
+
+    /// <summary>GitHub refuses for a while after too many requests from the same network (60 an hour without an account).</summary>
+    private static bool IsRateLimit(Exception ex) =>
+        ex.ToString().Contains("rate limit", StringComparison.OrdinalIgnoreCase) || ex.ToString().Contains("403", StringComparison.Ordinal);
+
     /// <summary>The update button: installs a downloaded update, otherwise checks now.</summary>
     public async void OnClicked()
     {
@@ -83,13 +101,24 @@ public sealed class AppUpdates : IDisposable
                 if (userInitiated)
                     _notifier.ShowInfo("No updates", $"You have the latest version ({_updater.CurrentVersion}).");
             }
+            if (_failures > 0)
+            {
+                _failures = 0; // working again: back to once a day
+                _timer.Stop();
+                _timer.Interval = (int)TimeSpan.FromHours(24).TotalMilliseconds;
+                if (_updater.Pending is null)
+                    _timer.Start();
+            }
         }
         catch (Exception ex)
         {
             Log.Error("Update check failed", ex);
             SetState("Check for updates");
+            RetryLater();
             if (userInitiated)
-                _notifier.ShowInfo("Couldn't check for updates", ex.Message);
+                _notifier.ShowInfo("Couldn't check for updates", IsRateLimit(ex)
+                    ? "GitHub is busy right now (too many requests from your network). The app tries again by itself later."
+                    : "No connection to GitHub right now. The app tries again by itself later.");
         }
         finally
         {
