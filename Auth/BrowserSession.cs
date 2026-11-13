@@ -476,14 +476,16 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     {
         ct.ThrowIfCancellationRequested();
 
-        const string ToResult = ".then(async r => JSON.stringify({ status: r.status, retryAfter: r.headers.get('Retry-After'), body: await r.text() }))";
+        // The response as an object (one copy of the text, not JSON inside JSON), trimmed to the fields the app reads.
+        var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.Script + "(body); " +
+                       "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body }; })";
         var script = method is null
-            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + ToResult
+            ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + toResult
             : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
               ".then(r => r.json()).then(me => " +
               $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
               "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': (me.user && me.user.authenticity_token) || '' }, " +
-              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + ToResult;
+              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + toResult;
 
         var parameters = JsonSerializer.Serialize(new { expression = script, awaitPromise = true, returnByValue = true });
         var resultJson = await _web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters);
@@ -492,11 +494,11 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         if (result.RootElement.TryGetProperty("exceptionDetails", out var exception))
             throw new HttpRequestException($"Request failed in the browser: {exception.GetRawText()}");
 
-        var value = result.RootElement.GetProperty("result").GetProperty("value").GetString()!;
-        using var response = JsonDocument.Parse(value);
-        var status = response.RootElement.GetProperty("status").GetInt32();
-        var body = response.RootElement.GetProperty("body").GetString() ?? "";
-        TimeSpan? retryAfter = int.TryParse(response.RootElement.GetProperty("retryAfter").GetString(), out var seconds)
+        var value = result.RootElement.GetProperty("result").GetProperty("value");
+        var status = value.GetProperty("status").GetInt32();
+        var body = value.GetProperty("body").GetString() ?? "";
+        TimeSpan? retryAfter = value.GetProperty("retryAfter").ValueKind == JsonValueKind.String &&
+                               int.TryParse(value.GetProperty("retryAfter").GetString(), out var seconds)
             ? TimeSpan.FromSeconds(seconds)
             : null;
 
