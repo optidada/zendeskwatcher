@@ -527,6 +527,17 @@ public sealed class SettingsForm : Form
                     form._content.AutoScrollPosition = Point.Empty;
                 }
             }
+            // Groups, Clients and Colleagues while signed out: the strip, read-only lists.
+            form._context.SetSignedOut(true);
+            foreach (var page in new SettingsPage[] { form._groups, form._clients, form._help })
+            {
+                form.SelectPage(Array.IndexOf(form._pages, page));
+                Application.DoEvents();
+                using var bitmap = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                bitmap.Save(Path.Combine(dir, $"{theme}-{Array.IndexOf(form._pages, page)}-signedout.png"));
+            }
+            form._context.SetSignedOut(false);
             form.Hide();
         }
     }
