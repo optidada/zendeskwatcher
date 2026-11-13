@@ -72,7 +72,16 @@ internal sealed class AccountPage : SettingsPage
     public override void Load(Settings settings)
     {
         _subdomain.Text = settings.Subdomain;
+        if (_loadedFor is not null)
+        {
+            // Discard loads the pages again: the session found for this account still holds (setting "Not signed in"
+            // here dropped it, and Groups, Clients and Colleagues with it). Another account is checked again.
+            if (settings.Subdomain != _loadedFor)
+                _ = RefreshAsync();
+            return;
+        }
         SetStatus("Not signed in", AccountState.SignedOut);
+        Context.SetSignedOut(false); // not known yet: the check when the window opens decides (no strip flashing meanwhile)
     }
 
     public override void Apply(Settings settings) => settings.Subdomain = Subdomain;

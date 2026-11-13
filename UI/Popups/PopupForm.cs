@@ -834,7 +834,10 @@ public sealed class PopupForm : Form
         _hover = hover;
         _hoverButton = button;
         if (hover && Peek != PeekEdge.None)
+        {
             _timer.Interval = BusyInterval; // slide out smoothly
+            RaiseWithoutActivating();       // in front of tabs it overlaps
+        }
         Invalidate();
     }
 
