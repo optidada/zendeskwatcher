@@ -58,9 +58,7 @@ public sealed partial class TicketWatcher
         // 1. Still unassigned: from the check that just ran (verified, not the search index).
         foreach (var (group, tickets) in _unassigned)
             foreach (var ticket in tickets.OrderBy(t => t.CreatedAt))
-                result.Unassigned.Add(await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, "Catch up · Unassigned",
-                    $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group))
-                    { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true }, ticket, group, ct));
+                result.Unassigned.Add(await UnassignedTicketAsync(ticket, group, "Catch up · Unassigned", ct));
 
         // 2 and 3. Your own and CC'd / followed tickets where a customer wrote last (copied first: the check may change them).
         var mineIds = settings.TrackMyTickets ? _state.MyTickets.Keys.ToList() : [];
@@ -83,7 +81,7 @@ public sealed partial class TicketWatcher
                 (isMine ? $"{said}\nNo reply yet" : $"{said}\nNo agent has answered yet") + StatusSuffix(ticket, at, now),
                 ticket.Id, ticket.Priority, GroupName(ticket.GroupId))
             { EventTime = at, ChangedAt = at, IsTicketNotification = true };
-            content = await WithClientAsync(content, ticket, null, ct);
+            content = await WithClientAsync(content, ticket, null, ct, sla: (at, FirstReply: false));
             (isMine ? result.Mine : result.Cc).Add(content);
         }
 
@@ -115,7 +113,7 @@ public sealed partial class TicketWatcher
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
                     $"{said}\n{Markdown.Escape(who)} is off work · {English(local, "ddd HH:mm")} their time{StatusSuffix(ticket, at, now)}",
                     ticket.Id, ticket.Priority, GroupLabel(group))
-                { EventTime = at, ChangedAt = at, IsTicketNotification = true }, ticket, group, ct));
+                { EventTime = at, ChangedAt = at, IsTicketNotification = true }, ticket, group, ct, sla: (at, FirstReply: false)));
             }
         }
 
@@ -143,7 +141,8 @@ public sealed partial class TicketWatcher
         if (separate.Count < result.Count || result.Count == 0)
             notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Catch up",
                 result.Count == 0 ? "All caught up" : result.Count == 1 ? "1 thing needs attention" : $"{result.Count} things need attention",
-                TicketRules.CatchUpText(start, DateTime.Now, result.Unassigned.Count, result.Mine.Count, result.Cc.Count, result.Colleagues.Count))
+                TicketRules.CatchUpText(start, DateTime.Now, result.Unassigned.Count, result.Mine.Count, result.Cc.Count, result.Colleagues.Count,
+                    result.Unassigned.Sum(c => c.ScheduledCount)))
             { Action = NotificationActions.OpenZendesk, MaxBodyLines = 7, Style = settings.AppMessageStyle, RequestedByUser = requestedByUser });
         foreach (var content in separate)
             notifier.Show(content with { RequestedByUser = requestedByUser });

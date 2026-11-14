@@ -29,6 +29,14 @@ internal static class Program
             return;
         }
 
+        // Developer helper: what SLA data Zendesk has (policies, timers on tickets, plan-like fields), then exit.
+        if (args.Length >= 2 && args[0] == "--probe-sla")
+        {
+            ApplicationConfiguration.Initialize();
+            Tools.SlaProbe.Run(Settings.Load().Subdomain, args[1]);
+            return;
+        }
+
         // Developer helper: write the chiptune jingles and songs as .wav files, then exit.
         if (args.Length >= 2 && args[0] == "--export-sounds")
         {

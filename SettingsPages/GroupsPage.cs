@@ -147,6 +147,12 @@ internal sealed class GroupsPage : SettingsPage
             _checkImagesFor = null; // set again now that the list exists (and its real DPI is known)
             UpdateCheckImages();
         };
+        // Dark/light styling (and Windows' own theme changes) make Windows swap in its own, faint tick boxes: ours again.
+        _list.ThemeChanged += () =>
+        {
+            _checkImagesFor = null;
+            UpdateCheckImages();
+        };
         context.SignedOutChanged += () =>
         {
             if (Context.SignedOut)

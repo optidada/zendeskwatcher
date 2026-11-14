@@ -35,13 +35,16 @@ public sealed class SettingsForm : Form
     private readonly SettingsPage?[] _pages;
     private readonly Func<SettingsPage>[] _makePage;
 
+    /// <summary>The window has scaled itself to the display; pages built later must be scaled when they're built.</summary>
+    private bool _autoScaled;
+
     /// <summary>The sidebar, known before the pages exist.</summary>
     private static readonly (string Title, bool Sub)[] NavItems =
     [
         ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
-        ("Behavior", true), ("Look & sound", true), ("Insights", false), ("General", false), ("How it works", false)
+        ("Behavior", true), ("Look & sound", true), ("SLA", true), ("Insights", false), ("General", false), ("How it works", false)
     ];
-    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 8;
+    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 9;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
     private GeneralPage? BuiltGeneral => _pages[GeneralIndex] as GeneralPage;
@@ -132,7 +135,7 @@ public sealed class SettingsForm : Form
         [
             () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context),
             () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
-            () => new StatisticsPage(_context), MakeGeneralPage, () => new HowItWorksPage(_context)
+            () => new SlaPage(_context), () => new StatisticsPage(_context), MakeGeneralPage, () => new HowItWorksPage(_context)
         ];
         _pages = new SettingsPage?[_makePage.Length];
         _pages[0] = _account;
@@ -149,6 +152,7 @@ public sealed class SettingsForm : Form
 
         ResumeLayout(false);
         PerformLayout();
+        _autoScaled = true; // pages built from now on scale themselves (Page)
         Load += (_, _) =>
         {
             // Never taller than the screen (small or highly scaled displays): then the pages scroll instead.
@@ -302,6 +306,10 @@ public sealed class SettingsForm : Form
             return built;
         var page = _makePage[index]();
         _pages[index] = page;
+        // Built after the window scaled itself to the display (e.g. 125%): sizes in the page are for 100%, so scale
+        // them the same way (fonts are in points and already right). Otherwise the cards end short of the right edge.
+        if (_autoScaled && DeviceDpi != 96)
+            page.Panel.Scale(new SizeF(DeviceDpi / 96f, DeviceDpi / 96f));
         var wasLoading = _loading;
         _loading = true; // loading the saved values isn't a change
         page.Panel.Visible = false;

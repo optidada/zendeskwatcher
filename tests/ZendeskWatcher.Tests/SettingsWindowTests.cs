@@ -32,6 +32,8 @@ public class SettingsWindowTests
         SnoozeMinutes = 30,
         SnoozeBehavior = SnoozeBehavior.Always,
         ShowCommentText = false,
+        ShowSlaDeadlines = false,
+        SlaOverrides = [new SlaOverride { Type = "slapremium", Priority = "high", FirstReply = true, Minutes = 120 }],
         MyTicketPriorities = ["urgent"],
         CcTicketPriorities = ["high", "low"],
         NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip },

@@ -14,6 +14,7 @@ internal sealed class HowItWorksPage : SettingsPage
         [
             "A ticket in a group you monitor (Groups page) that nobody has picked up yet.",
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
+            "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
             "Muted clients stay quiet and aren't counted; \u201conly urgent\u201d clients only for Urgent (P1) and High (P2). Groups → Clients, or Mute \u25be on a notification."
         ]),
@@ -28,7 +29,8 @@ internal sealed class HowItWorksPage : SettingsPage
         [
             "When someone else changes a ticket assigned to you, or one you're CC'd on or follow: replies, internal notes, " +
             "status, priority or reassignment (Notifications → Which changes).",
-            "Changes you make yourself never notify. Status changes leave out New → Open and Solved → Closed.",
+            "Changes you make yourself never notify. Status changes leave out New → Open, Solved → Closed, " +
+            "and a ticket reopened by a reply (the reply says it).",
             "Each for the priorities you choose; CC / following is Urgent (P1) and High (P2) by default."
         ]),
         ("Colleagues' tickets: Customer waiting",
@@ -42,6 +44,16 @@ internal sealed class HowItWorksPage : SettingsPage
             "Colleagues in your own region are left out to begin with: they usually work when you do.",
             "Not for muted clients, and only Urgent (P1) and High (P2) for \u201conly urgent\u201d ones (Groups → Clients).",
             "Only while you're working yourself, if you chose that on the Colleagues page; Catch up brings up what was held back."
+        ]),
+        ("SLA deadlines",
+        [
+            "Each client's SLA type comes from Zendesk (its organization's SLA Type); clients without one count as Standard.",
+            "New tickets show when the first reply is due, counted from when they were created. A customer waiting on an " +
+            "assigned ticket shows when the next reply is due, counted from when they wrote.",
+            "When Zendesk runs an SLA timer on the ticket, its deadline is used. Otherwise the target for the type and priority " +
+            "(Notifications → SLA): yours if you changed it, else the team's default, else one estimated from Zendesk's timers on other tickets.",
+            "New SLA types in Zendesk appear there by themselves; until enough tickets show their targets, Standard's are used.",
+            "In red bold on the notification, counting down; once late it says by how much. Switch it off under Notifications → SLA."
         ]),
         ("Catch up",
         [
@@ -73,7 +85,7 @@ internal sealed class HowItWorksPage : SettingsPage
     ];
 
     public HowItWorksPage(SettingsContext context)
-        : base(context, "How it works", "Why you get a notification, and why sometimes not. Nothing to set here.")
+        : base(context, "How it works", "Why you get a notification, and why sometimes not. Click a topic to read it.")
     {
         foreach (var (title, lines) in Sections)
         {
@@ -90,11 +102,81 @@ internal sealed class HowItWorksPage : SettingsPage
                 list.Controls.Add(text, 1, row);
             }
             card.Body.Controls.Add(list);
+
+            // Collapsed to begin with, so the topics fit at a glance; a click on the card's title area opens it.
+            // Opened ones stay open while the app runs (the page is rebuilt with the Settings window).
+            var heading = card.Body.Controls[0];
+            // Title and chevron in one full-width row (the chevron at the right edge).
+            var header = new TableLayoutPanel
+            {
+                ColumnCount = 2, RowCount = 1, BackColor = Theme.Surface, Margin = Padding.Empty,
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(Kit.CardWidth - 40, 0)
+            };
+            heading.Anchor = AnchorStyles.Left;
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var chevron = new Chevron { Anchor = AnchorStyles.Right, Margin = Padding.Empty };
+            card.Body.Controls.Remove(heading);
+            header.Controls.Add(heading, 0, 0);
+            header.Controls.Add(chevron, 1, 0);
+            card.Body.Controls.Add(header);
+            card.Body.Controls.SetChildIndex(header, 0);
+            void Show(bool open)
+            {
+                list.Visible = open;
+                chevron.Open = open;
+                if (open) Opened.Add(title); else Opened.Remove(title);
+            }
+            Show(Opened.Contains(title));
+            foreach (var target in new Control[] { card, card.Body, header, heading, chevron })
+            {
+                target.Cursor = Cursors.Hand;
+                target.Click += (_, _) => Show(!list.Visible);
+            }
             Panel.Controls.Add(card);
         }
     }
 
+    /// <summary>Topics opened since the app started.</summary>
+    private static readonly HashSet<string> Opened = [];
+
     public override void Load(Settings settings) { }
 
     public override void Apply(Settings settings) { } // nothing to save
+}
+
+/// <summary>A small chevron: › when closed, pointing down when open.</summary>
+internal sealed class Chevron : Control
+{
+    private bool _open;
+
+    public Chevron()
+    {
+        Size = new Size(20, 20);
+        BackColor = Theme.Surface;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool Open
+    {
+        get => _open;
+        set { _open = value; Invalidate(); }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(BackColor);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var s = DeviceDpi / 96f;
+        float cx = Width / 2f, cy = Height / 2f, a = 4f * s;
+        using var pen = new Pen(Theme.TextMuted, 1.8f * s)
+            { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round,
+              LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
+        PointF[] points = _open
+            ? [new(cx - a, cy - a / 2), new(cx, cy + a / 2), new(cx + a, cy - a / 2)]
+            : [new(cx - a / 2, cy - a), new(cx + a / 2, cy), new(cx - a / 2, cy + a)];
+        g.DrawLines(pen, points);
+    }
 }

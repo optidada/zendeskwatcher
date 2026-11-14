@@ -99,6 +99,15 @@ internal sealed partial class FakeZendesk : IZendeskSession
             Tickets[ticketId].Priority = to;
     }
 
+    /// <summary>A public reply and field changes in one update (e.g. a customer reply that reopens the ticket).</summary>
+    public void ReplyAndChange(long ticketId, long authorId, string text, params (string Field, string From, string To)[] changes) =>
+        AddAudit(ticketId, authorId, [new AuditEvent { Type = "Comment", Public = true, PlainBody = text },
+            .. changes.Select(c => new AuditEvent
+            {
+                Type = "Change", FieldName = c.Field,
+                PreviousValue = JsonSerializer.SerializeToElement(c.From), Value = JsonSerializer.SerializeToElement(c.To)
+            })]);
+
     /// <summary>Several field changes in one update, e.g. "status" and "custom_status_id" together.</summary>
     public void ChangeTogether(long ticketId, long authorId, params (string Field, string From, string To)[] changes)
     {
@@ -180,7 +189,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     private List<Ticket> ShowMany(string query)
     {
-        var ids = query.Split("ids=")[1].Split(',').Select(long.Parse);
+        var ids = query.Split("ids=")[1].Split('&')[0].Split(',').Select(long.Parse);
         return ids.Where(Tickets.ContainsKey).Select(id => Tickets[id]).ToList();
     }
 

@@ -117,6 +117,79 @@ public class TicketChangeTests
     }
 
     [Fact]
+    public async Task A_waiting_customer_gets_a_follow_up_deadline_by_the_clients_sla_type()
+    {
+        _zendesk.Organizations[900] = "Acme Corp";
+        _zendesk.OrganizationFieldValues[900] = new() { ["sla_type"] = "slapremium" };
+        var ticket = _zendesk.AddAssigned(540, "urgent");
+        ticket.OrganizationId = 900;
+        var watcher = await StartAsync();
+
+        // The customer wrote: Premium P1 follow-up is 1 h, from when they wrote.
+        _zendesk.Reply(540, Customer, "Still down");
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal("Acme Corp · Premium Support", shown.Client);
+        var wrote = _zendesk.Audits[540][^1].CreatedAt;
+        Assert.Equal(wrote.AddHours(1), shown.SlaDue);
+        Assert.False(shown.SlaFirstReply);
+        Assert.StartsWith("!!Reply due in ", shown.DisplayBody(wrote.AddMinutes(10)));
+
+        // A colleague answered: nobody is waiting, no deadline.
+        _zendesk.Reply(540, Colleague, "Looking into it");
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Null(Assert.Single(TakeShown()).SlaDue);
+
+        // Switched off: no deadline, and the client line without the SLA type.
+        _settings.ShowSlaDeadlines = false;
+        _zendesk.Reply(540, Customer, "Any news?");
+        await watcher.PollAsync(CancellationToken.None);
+        shown = Assert.Single(TakeShown());
+        Assert.Null(shown.SlaDue);
+        Assert.Equal("Acme Corp", shown.Client);
+    }
+
+    [Fact]
+    public async Task Zendesks_own_sla_timer_comes_before_the_team_target()
+    {
+        var ticket = _zendesk.AddAssigned(550, "high");
+        var watcher = await StartAsync();
+
+        var breach = DateTimeOffset.UtcNow.AddMinutes(37);
+        ticket.Slas = new TicketSlas { PolicyMetrics =
+        [
+            new SlaMetric { Metric = "first_reply_time", Stage = "achieved" },
+            new SlaMetric { Metric = "next_reply_time", Stage = "active", BreachAt = breach }
+        ] };
+        _zendesk.Reply(550, Customer, "Hello?");
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal(breach, Assert.Single(TakeShown()).SlaDue);
+    }
+
+    [Fact]
+    public async Task A_reopen_that_comes_with_a_reply_isnt_repeated()
+    {
+        _zendesk.AddAssigned(530, "high");
+        var watcher = await StartAsync();
+
+        // The customer replies on a Pending ticket: Zendesk reopens it in the same update.
+        _zendesk.ReplyAndChange(530, Customer, "Still broken", ("status", "pending", "open"));
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("**Jane Customer** replied: Still broken", Assert.Single(TakeShown()).Body);
+
+        // An agent replying and setting Pending: worth saying.
+        _zendesk.ReplyAndChange(530, Colleague, "Can you try again?", ("status", "open", "pending"));
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("**Sam Colleague** replied: Can you try again?\nStatus Open → Pending (Sam Colleague)", Assert.Single(TakeShown()).Body);
+
+        // Reopened without a reply: shown.
+        _zendesk.Change(530, Colleague, "status", "pending", "open");
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("Status Pending → Open (Sam Colleague)", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
     public async Task Text_from_zendesk_never_turns_bold()
     {
         _zendesk.AddAssigned(520, "high");

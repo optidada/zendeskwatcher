@@ -652,13 +652,15 @@ public sealed class SmoothListView : ListView
         FitColumn();
     }
 
-    // ---- For a themed scrollbar (ThinScrollBar) instead of the Windows one, and themed check boxes.
+    // ---- For a themed scrollbar (ThinScrollBar) instead of the Windows one, and themed tick boxes (set by the owner).
 
     /// <summary>The list scrolled (or its content changed so the scroll range did).</summary>
     public event Action? ScrollChanged;
 
     private (int, int, int, int)? _lastScroll;
-    private UiPalette? _checksFor;
+
+    /// <summary>Windows applied a new visual style and reset the tick boxes: set the themed ones again.</summary>
+    public event Action? ThemeChanged;
 
     /// <summary>Vertical scroll range, page and position (pixels in group view); null without a handle.</summary>
     public (int Min, int Max, int Page, int Pos)? VerticalScrollState()
@@ -682,14 +684,12 @@ public sealed class SmoothListView : ListView
 
     protected override void WndProc(ref Message m)
     {
-        // Check boxes in the theme's colors (Windows draws blue ones); rebuilt when the theme changes.
-        if (m.Msg == 0x000F /* WM_PAINT */ && CheckBoxes && !ReferenceEquals(_checksFor, Theme.Current))
-        {
-            _checksFor = Theme.Current;
-            BeginInvoke(BuildCheckImages); // not while painting
-        }
-
         base.WndProc(ref m);
+
+        // A new visual style (SetWindowTheme for dark/light lists, or Windows' own theme): Windows replaces the tick
+        // boxes with its own then, faint on dark themes. The owner puts its themed ones back (after this message).
+        if (m.Msg == 0x031A /* WM_THEMECHANGED */ && CheckBoxes && IsHandleCreated)
+            BeginInvoke(() => ThemeChanged?.Invoke());
 
         // Every way of scrolling ends in a repaint, so that's where the scrollbar learns about it.
         if (m.Msg is 0x000F or 0x0115 /* WM_VSCROLL */ or 0x020A /* WM_MOUSEWHEEL */)
@@ -702,44 +702,6 @@ public sealed class SmoothListView : ListView
                 ScrollChanged?.Invoke();
             }
         }
-    }
-
-    private void BuildCheckImages()
-    {
-        var s = DeviceDpi / 96f;
-        var size = (int)Math.Round(16 * s);
-        var images = new ImageList { ImageSize = new Size(size, size), ColorDepth = ColorDepth.Depth32Bit };
-        images.Images.Add(CheckImage(size, s, false));
-        images.Images.Add(CheckImage(size, s, true));
-        var old = StateImageList;
-        StateImageList = images;
-        old?.Dispose();
-    }
-
-    /// <summary>The same look as <see cref="ThemedCheckBox"/>: an accent box with a tick, or a neutral outline.</summary>
-    private static Bitmap CheckImage(int size, float s, bool isChecked)
-    {
-        var bitmap = new Bitmap(size, size);
-        using var g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        var box = new RectangleF(1.5f * s, 1.5f * s, size - 3.5f * s, size - 3.5f * s);
-        using var path = RoundedRect(box, 2.5f * s);
-        if (isChecked)
-        {
-            using var fill = new SolidBrush(Theme.Accent);
-            g.FillPath(fill, path);
-            using var tick = new Pen(Theme.OnAccent, 1.8f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-            var u = box.Width / 13f;
-            g.DrawLines(tick, [
-                new PointF(box.X + 3 * u, box.Y + 6.8f * u), new PointF(box.X + 5.6f * u, box.Y + 9.3f * u), new PointF(box.X + 10 * u, box.Y + 4 * u)
-            ]);
-        }
-        else
-        {
-            using var border = new Pen(Theme.Neutral, 1.2f * s);
-            g.DrawPath(border, path);
-        }
-        return bitmap;
     }
 
     private static GraphicsPath RoundedRect(RectangleF r, float radius) => Theme.RoundedRect(r, radius);
@@ -786,6 +748,10 @@ public sealed class ThemeTile : Control
         set { _selected = value; Invalidate(); }
     }
 
+    /// <summary>A small muted second line under the name (e.g. "Fewer features"); null: none.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string? Note { get; set; }
+
     protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
@@ -810,8 +776,16 @@ public sealed class ThemeTile : Control
         else
             PaintCustom(g, mini, s, ZendeskWatcher.UI.Popups.PopupPalette.For(Value));
 
-        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(62 * s), Width, (int)(26 * s)),
-            Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        if (Note is null)
+            TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(62 * s), Width, (int)(26 * s)),
+                Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        else
+        {
+            TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(59 * s), Width, (int)(20 * s)),
+                Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, Note, Theme.Small, new Rectangle(0, (int)(75 * s), Width, (int)(14 * s)),
+                Theme.TextMuted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
 
         // Not in use (e.g. notifications follow the app theme): dimmed.
         if (!Enabled)

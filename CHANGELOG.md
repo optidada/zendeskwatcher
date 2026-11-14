@@ -3,6 +3,19 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.5.0
+
+- **SLA deadlines on notifications**: in red bold, counting down, e.g. "First reply due in 25 min" or "Reply overdue by 1 h". Zendesk's own SLA timer when the ticket has one; otherwise the target for the client's SLA type (from Zendesk) and the priority. New page **Notifications → SLA** with the targets, color coded: default, estimated from Zendesk's timers (also for new SLA types), or your own.
+- **Settings pages fit the window again** at display scaling above 100%: since 1.4.4, pages opened later were too narrow and cramped, and some tiles were cut off.
+- **Groups tick boxes no longer disappear** now and then (Windows swapped in its own, faint ones after styling the list).
+- **Scheduled tickets with nobody on them stand out**: "New ticket · Scheduled", marked in ticket lists, and counted in the morning summary, Catch up and "While you were away".
+- **Easier to read summaries**: the morning summary and the welcome are short rows instead of long sentences.
+- **Fewer repeats**: a reply that reopens a ticket no longer also says "Status Pending → Open".
+- **Soft chime**: a new, very quiet sound, the default for new tickets on new installs (Look & sound).
+- **How it works**: topics fold open with a click, so you find what you're looking for.
+- **Insights** suggest getting fewer notifications rather than showing them longer, count copying for Teams as using a notification, and say so when there's nothing to change.
+- The Windows notification style is marked "Fewer features" on Look & sound; the installer is a little smaller.
+
 ## 1.4.4
 
 - **Settings opens much faster**: about 0.1 s instead of 0.75 s, by building each page the first time you open it; no white flash, less memory while it's open.

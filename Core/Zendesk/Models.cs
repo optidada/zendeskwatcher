@@ -39,7 +39,23 @@ public sealed class Ticket
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    /// <summary>Zendesk's SLA timers (only with <c>include=slas</c>): the real deadlines of the client's SLA policy.</summary>
+    public TicketSlas? Slas { get; set; }
+
     public bool IsOpen => Status is "new" or "open" or "pending" or "hold";
+}
+
+/// <summary>A ticket's SLA timers, e.g. first_reply_time or next_reply_time, active or achieved, with when they breach.</summary>
+public sealed class TicketSlas
+{
+    public List<SlaMetric> PolicyMetrics { get; set; } = [];
+}
+
+public sealed class SlaMetric
+{
+    public string? Metric { get; set; }
+    public string? Stage { get; set; }
+    public DateTimeOffset? BreachAt { get; set; }
 }
 
 public sealed class Audit

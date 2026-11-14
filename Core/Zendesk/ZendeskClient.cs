@@ -152,13 +152,16 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
-    /// <summary>Current state of specific tickets. Tickets the agent can no longer see are simply missing.</summary>
+    /// <summary>
+    /// Current state of specific tickets, with Zendesk's SLA timers (they teach the app the SLA targets). Tickets the
+    /// agent can no longer see are simply missing.
+    /// </summary>
     public async Task<List<Ticket>> GetTicketsAsync(IEnumerable<long> ids, CancellationToken ct)
     {
         var result = new List<Ticket>();
         foreach (var chunk in ids.Chunk(100))
         {
-            var response = await GetAsync<TicketsResponse>($"/api/v2/tickets/show_many.json?ids={string.Join(',', chunk)}", ct);
+            var response = await GetAsync<TicketsResponse>($"/api/v2/tickets/show_many.json?ids={string.Join(',', chunk)}&include=slas", ct);
             result.AddRange(response.Tickets);
         }
         return result;
@@ -203,6 +206,42 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
+    /// <summary>
+    /// When Zendesk's own SLA timer for this metric ("first_reply_time", "next_reply_time") breaches, if it's running.
+    /// Agents can read the timers but not the policies. Null without a running timer, or if it can't be read.
+    /// </summary>
+    public async Task<DateTimeOffset?> GetSlaBreachAsync(long ticketId, string metric, CancellationToken ct)
+    {
+        try
+        {
+            var response = await GetAsync<TicketsResponse>($"/api/v2/tickets/show_many.json?ids={ticketId}&include=slas", ct);
+            return response.Tickets.FirstOrDefault()?.Slas?.PolicyMetrics
+                .FirstOrDefault(m => m.Metric == metric && m.Stage == "active" && m.BreachAt is not null)?.BreachAt;
+        }
+        catch (HttpRequestException)
+        {
+            return null; // the team target is used instead
+        }
+    }
+
+    /// <summary>
+    /// The SLA types' names as Zendesk shows them (value → name, from the organization field "sla_type"); empty if they
+    /// can't be read. Never asks to sign in again: an agent may not be allowed to read organization fields.
+    /// </summary>
+    public async Task<Dictionary<string, string>> GetSlaTypeNamesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var field = (await GetOrganizationFieldsAsync(ct)).FirstOrDefault(f => f.Key == "sla_type");
+            return field?.CustomFieldOptions?.Where(o => !string.IsNullOrEmpty(o.Value) && !string.IsNullOrEmpty(o.Name))
+                .ToDictionary(o => o.Value!.ToLowerInvariant(), o => o.Name!) ?? [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or AuthRequiredException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
     public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct) =>
         (await GetOrganizationAsync(organizationId, ct))?.Name;
@@ -217,9 +256,13 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         {
             org = (await GetAsync<OrganizationResponse>($"/api/v2/organizations/{organizationId}.json", ct)).Organization;
         }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        {
+            org = null; // gone or not allowed: that won't change, remember it
+        }
         catch (HttpRequestException)
         {
-            org = null;
+            return null; // e.g. the session expired mid-check: try again next time (its name and SLA type matter)
         }
         _organizations[organizationId] = org;
         return org;

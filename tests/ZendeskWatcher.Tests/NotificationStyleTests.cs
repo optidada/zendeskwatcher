@@ -30,11 +30,12 @@ public class NotificationStyleTests
     }
 
     [Fact]
-    public void No_sounds_by_default()
+    public void Only_a_soft_chime_for_new_tickets_by_default()
     {
         var settings = new Settings();
 
-        Assert.All(new[] { settings.NewTicketStyle, settings.MyTicketStyle, settings.CcTicketStyle, settings.HelpStyle, settings.SummaryStyle, settings.AppMessageStyle },
+        Assert.Equal(ToastSound.SoftChime, settings.NewTicketStyle.Sound);
+        Assert.All(new[] { settings.MyTicketStyle, settings.CcTicketStyle, settings.HelpStyle, settings.SummaryStyle, settings.AppMessageStyle },
             style => Assert.Equal(ToastSound.Silent, style.Sound));
         Assert.Equal(ToastDisplay.Medium, settings.SummaryStyle.Display);
         Assert.Equal(ToastDisplay.Long, settings.AppMessageStyle.Display);

@@ -20,6 +20,23 @@ public static class TicketRules
         || (string.Equals(from, "Solved", StringComparison.OrdinalIgnoreCase) && string.Equals(to, "Closed", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// A change to Open that comes with a public reply from the same person in the same update: Zendesk reopens a ticket
+    /// when someone replies (e.g. the customer on a Pending ticket), so the reply line already says it.
+    /// </summary>
+    public static bool IsImpliedReopen(string? to, bool withPublicReply) =>
+        withPublicReply && string.Equals(to, "Open", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"Scheduled" (a custom status, matched by name): on an unassigned ticket, a time is booked and nobody owns it.</summary>
+    public static bool IsScheduled(string? statusLabel) =>
+        statusLabel?.Contains("scheduled", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>", **2 of them Scheduled**" after a count of unassigned tickets; empty when none are.</summary>
+    public static string ScheduledNote(int total, int scheduled) => scheduled <= 0 ? ""
+        : total == 1 ? ", **Scheduled**"
+        : scheduled >= total ? $", **{(total == 2 ? "both" : "all")} Scheduled**"
+        : $", **{scheduled} of them Scheduled**";
+
+    /// <summary>
     /// Statuses that are trusted for a while: "In progress" (someone is on it) and "Scheduled" (a time was agreed,
     /// so a reply like "Thanks, see you Tuesday" needn't be answered). Matched by name.
     /// </summary>
@@ -139,7 +156,7 @@ public static class TicketRules
     /// "**11 unassigned tickets** in your groups." and "No customer is waiting for an answer since yesterday 17:00."
     /// or "**2 customers** wrote since yesterday 17:00 and are waiting for your reply."
     /// </summary>
-    public static string CatchUpText(DateTime since, DateTime localNow, int unassigned, int mine, int cc, int colleagues)
+    public static string CatchUpText(DateTime since, DateTime localNow, int unassigned, int mine, int cc, int colleagues, int scheduled = 0)
     {
         var when = CatchUpSince(since, localNow);
         var lines = new List<string>
@@ -151,6 +168,8 @@ public static class TicketRules
                 _ => $"**{unassigned} unassigned tickets** in your groups."
             }
         };
+        if (unassigned > 0 && scheduled > 0)
+            lines[0] = lines[0][..^1] + ScheduledNote(unassigned, scheduled) + ".";
         string Waiting(int n, string where) => n == 1 ? $"**1 customer** wrote {when} and is waiting {where}." : $"**{n} customers** wrote {when} and are waiting {where}.";
         if (mine + cc + colleagues == 0)
             lines.Add($"No customer is waiting for an answer {when}.");
@@ -164,59 +183,60 @@ public static class TicketRules
     }
 
     /// <summary>
-    /// The start summary as running text, e.g. "**5 unassigned tickets** are waiting: 3 in Support Tier 2 and 2 in
-    /// Premium Support. The oldest was created 2 h ago. You have 3 open and 4 pending tickets, and you're CC'd on or
-    /// following 2 more. You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues
-    /// who are off work." One line per topic (waiting, your tickets, colleagues); parts that don't apply are left out.
+    /// The start summary as short rows, quick to scan, e.g. "**5 unassigned tickets**, oldest from 2 h ago" /
+    /// "3 in Support Tier 2 · 2 in Premium Support" / "Your tickets: 3 open · 4 pending" / "CC / following: 2 open" /
+    /// "Colleagues off work: replies on Urgent and High". Rows that don't apply are left out.
     /// </summary>
     /// <param name="helpPriorities">Help colleagues' priorities, or null when it's off.</param>
     public static string SummaryText(WatchSnapshot now, IReadOnlyList<WatchedGroup> groups, IReadOnlyList<string>? helpPriorities, DateTimeOffset utcNow)
     {
         static string Name(WatchedGroup g) => Markdown.Escape(g.IsNoGroup ? "No group" : g.Name);
         static string List(IReadOnlyList<string> items) => items.Count <= 1 ? string.Concat(items) : $"{string.Join(", ", items.Take(items.Count - 1))} and {items[^1]}";
-        static string Plural(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")}";
 
-        var sentences = new List<string>();
+        var lines = new List<string>();
         var withTickets = now.Groups.Where(g => g.Count > 0).ToList();
         var waiting = now.Unassigned;
         if (groups.Count == 0)
-            sentences.Add("You're not watching any groups yet: choose them under Settings \u2192 Groups.");
+            lines.Add("No groups watched yet: Settings \u2192 Groups");
+        else if (waiting == 0)
+            lines.Add($"No unassigned tickets in {(groups.Count == 1 ? Name(groups[0]) : "your groups")}");
         else
         {
-            var where = groups.Count == 1 ? $"in {Name(groups[0])}" : "in your groups";
-            if (waiting == 0)
-                sentences.Add($"No unassigned tickets are waiting {where}.");
-            else
-            {
-                var head = $"**{Plural(waiting, "unassigned ticket")}** {(waiting == 1 ? "is" : "are")} waiting";
-                sentences.Add(withTickets.Count > 1
-                    ? $"{head}: {List(withTickets.Select(g => $"{g.Count} in {Name(g.Group)}").ToList())}."
-                    : $"{head} in {(groups.Count == 1 ? Name(groups[0]) : Name(withTickets[0].Group))}.");
-                if (now.OldestUnassigned is { } oldest)
-                    sentences[^1] += $" {(waiting == 1 ? "It" : "The oldest")} was created {NotificationContent.Ago(utcNow - oldest)}.";
-            }
+            var head = $"**{waiting} unassigned**";
+            if (now.OldestUnassigned is { } oldest)
+                head += $", {(waiting == 1 ? "created" : "oldest")} {NotificationContent.Ago(utcNow - oldest)}";
+            lines.Add(head);
+            lines.Add(withTickets.Count > 1
+                ? string.Join(" \u00b7 ", withTickets.Select(g => $"{g.Count} in {Name(g.Group)}"))
+                : $"{(groups.Count > 1 && waiting > 1 ? "All in" : "In")} {(groups.Count == 1 ? Name(groups[0]) : Name(withTickets[0].Group))}");
+            if (now.Scheduled > 0)
+                lines.Add(waiting == 1 ? "**It's Scheduled**" : ScheduledRow(waiting, now.Scheduled));
         }
 
-        var cc = now.Cc is { } count && count > 0 ? (now.CcAtLeast ? $"at least {count}" : count.ToString()) : null;
         if (now.Mine is var (open, pending, hold))
         {
             var parts = new[] { (open, "open"), (pending, "pending"), (hold, "on hold") }.Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
-            var total = open + pending + hold;
-            var mine = total == 0 ? "You have no open tickets" : $"You have {List(parts)} ticket{(total == 1 ? "" : "s")}";
-            sentences.Add(cc is null ? mine + "." : $"{mine}, and you're CC'd on or following {cc} {(total == 0 ? "" : "more ")}.".Replace(" .", "."));
+            lines.Add(parts.Count == 0 ? "Your tickets: none open" : $"Your tickets: {string.Join(" \u00b7 ", parts)}");
         }
-        else if (cc is not null)
-            sentences.Add($"You're CC'd on or following {cc} open ticket{(cc == "1" ? "" : "s")}.");
+        if (now.Cc is { } count && count > 0)
+            lines.Add($"CC / following: {(now.CcAtLeast ? "at least " : "")}{count} open");
 
         if (helpPriorities is not null)
         {
-            var labels = Settings.AllPriorities.Where(helpPriorities.Contains).Select(p => NotificationContent.LabelForPriority(p)!).ToList();
-            sentences.Add(labels.Count is 0 or 4
-                ? "You'll also hear about customer replies on tickets of colleagues who are off work."
-                : $"You'll also hear about customer replies on {List(labels)} tickets of colleagues who are off work.");
+            var names = Settings.AllPriorities.Where(helpPriorities.Contains).Select(p => char.ToUpperInvariant(p[0]) + p[1..]).ToList();
+            lines.Add(names.Count is 0 or 4
+                ? "Colleagues off work: customer replies"
+                : $"Colleagues off work: replies on {List(names)}");
         }
 
-        return string.Join("\n", sentences);
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>"**2 of them Scheduled**" / "**Both Scheduled**" as a row of its own (the note without its leading comma).</summary>
+    private static string ScheduledRow(int total, int scheduled)
+    {
+        var note = ScheduledNote(total, scheduled)[2..]; // "**both Scheduled**"
+        return note[..2] + char.ToUpperInvariant(note[2]) + note[3..];
     }
 
     /// <summary>

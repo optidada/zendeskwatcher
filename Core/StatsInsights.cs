@@ -71,9 +71,11 @@ public static class StatsInsights
         }
 
         // Too many overall?
+        NotificationKind? busiestKind = null;
         if (activeDays > 0 && total / (double)activeDays > BusyPerDay)
         {
             var busiest = Kinds.MaxBy(k => Count(k.Kind, StatOutcome.Shown));
+            busiestKind = busiest.Kind;
             insights.Add(new Insight(Tone.Warning,
                 $"About {Math.Round(total / (double)activeDays)} notifications per working day, mostly {busiest.Name} notifications. " +
                 Fewer(busiest.Kind, settings)));
@@ -85,42 +87,47 @@ public static class StatsInsights
             if (shown < MinPerKind)
                 continue;
             double Share(StatOutcome outcome) => Count(kind, outcome) / (double)shown;
-            var acted = Share(StatOutcome.OpenedTicket) + Share(StatOutcome.Took);
+            // Copying for Teams is using it too; a copied one is often closed afterwards, so it doesn't count as ignored.
+            var copied = Share(StatOutcome.Copied);
+            var acted = Share(StatOutcome.OpenedTicket) + Share(StatOutcome.Took) + copied;
             var timedOut = Share(StatOutcome.TimedOut);
-            var closed = Share(StatOutcome.Closed);
+            var closed = Math.Max(0, Share(StatOutcome.Closed) - copied);
             var snoozed = Share(StatOutcome.Snoozed);
             var capitalized = char.ToUpperInvariant(name[0]) + name[1..];
+            // The "too many" warning above already says how to get fewer of the busiest kind: not twice.
+            var fewer = kind == busiestKind ? "" : " " + Fewer(kind, settings);
 
             if (timedOut >= 0.6)
-            {
-                var shortDisplay = settings.TicketDisplay.Normal is > 0 and < 60; // most tickets are Normal
-                insights.Add(new Insight(Tone.Warning, $"{Percent(timedOut)} of {name} notifications disappeared unread. " +
-                    (shortDisplay ? "Show them longer (Notifications → Behavior → On screen). " : "") + Fewer(kind, settings)));
-            }
+                // Mostly unread: fewer of them helps more than showing them longer (the point is not to be flooded).
+                insights.Add(new Insight(Tone.Warning, $"{Percent(timedOut)} of {name} notifications disappeared unread: " +
+                    $"probably more than you need.{fewer}"));
             else if (closed >= 0.5)
                 insights.Add(new Insight(Tone.Warning, $"You closed {Percent(closed)} of {name} notifications without opening them: " +
-                    $"they may not be useful. {Fewer(kind, settings)}"));
+                    $"they may not be useful.{fewer}"));
             else if (snoozed >= 0.3)
                 insights.Add(new Insight(Tone.Hint, $"You snoozed {Percent(snoozed)} of {name} notifications. " +
                     "A longer snooze time (Notifications → Behavior → Snooze) may suit you better."));
             else if (acted >= 0.5)
-                insights.Add(new Insight(Tone.Good, $"{capitalized} notifications work well: you opened or took {Percent(acted)} of them."));
+                insights.Add(new Insight(Tone.Good, $"{capitalized} notifications work well: you opened, took or copied {Percent(acted)} of them."));
         }
 
+        // Judged, and nothing to say: say so, instead of an empty card.
+        if (insights.Count == 0)
+            insights.Add(new Insight(Tone.Good, "Nothing to change: you use your notifications, and there aren't too many."));
         return insights;
     }
 
     /// <summary>How to get fewer notifications of a kind, with where to change it.</summary>
     private static string Fewer(NotificationKind kind, Settings settings) => kind switch
     {
-        NotificationKind.NewTicket => "Monitoring fewer groups (Groups) gives fewer.",
+        NotificationKind.NewTicket => "Muting clients or hearing only their urgent tickets (Groups → Clients), or monitoring fewer groups, gives fewer.",
         NotificationKind.MyTicket => settings.MyTicketPriorities.Count == Settings.AllPriorities.Length
-            ? "Fewer priorities or change types (Notifications → Ticket changes) give fewer."
+            ? "Fewer priorities (Notifications → Ticket changes) or change types (Notifications → Which changes) give fewer."
             : "Fewer change types (Notifications → Which changes) give fewer, e.g. without status changes.",
         NotificationKind.CcTicket => settings.CcTicketPriorities.Count > 1
             ? "Only Urgent (P1) for CC / following tickets (Notifications → Ticket changes) gives fewer."
             : "Turning off CC / following tickets (Notifications → Ticket changes) stops them.",
-        _ => "Fewer priorities or groups (Help colleagues page) give fewer."
+        _ => "Fewer priorities or groups (Notifications → Colleagues) give fewer."
     };
 
     private static string Percent(double share) => $"{Math.Round(share * 100)}%";

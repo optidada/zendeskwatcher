@@ -48,8 +48,87 @@ public class UnassignedTicketTests
         Assert.Null(now.Mine); // not tracked in these tests
 
         var lines = watcher.StartSummary().Body!.Split('\n');
-        Assert.StartsWith("**1 unassigned ticket** is waiting in Tier 2. It was created ", lines[0]);
-        Assert.Equal("You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues who are off work.", lines[^1]);
+        Assert.StartsWith("**1 unassigned**, created ", lines[0]);
+        Assert.Equal("In Tier 2", lines[1]);
+        Assert.Equal("Colleagues off work: replies on Urgent and High", lines[^1]);
+    }
+
+    [Fact]
+    public async Task Scheduled_unassigned_tickets_stand_out_in_notifications_and_summaries()
+    {
+        _zendesk.CustomStatuses.Add(new CustomStatus { Id = 7, AgentLabel = "Scheduled", StatusCategory = "hold" });
+        _zendesk.AddUnassigned(101);
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None); // baseline: "Already waiting"
+        TakeShown();
+
+        // One new Scheduled ticket: said in the heading, counted for the "while you were away" summary.
+        _zendesk.AddUnassigned(102).CustomStatusId = 7;
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal("New ticket · Scheduled", shown.Heading);
+        Assert.Equal(1, shown.ScheduledCount);
+
+        // The start summary counts them.
+        Assert.Equal(1, watcher.Snapshot().Scheduled);
+        Assert.Equal("**1 of them Scheduled**", watcher.StartSummary().Body!.Split('\n')[2]);
+
+        // An ordinary one: no mention.
+        _zendesk.AddUnassigned(103);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal("New ticket", Assert.Single(TakeShown()).Heading);
+    }
+
+    [Fact]
+    public async Task A_new_sla_type_is_learned_from_zendesks_timers()
+    {
+        _zendesk.Organizations[900] = "Gold Corp";
+        _zendesk.OrganizationFieldValues[900] = new() { ["sla_type"] = "slagold" };
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None); // baseline
+
+        // Two new tickets with Zendesk timers: 45 min to the first reply.
+        foreach (var id in new long[] { 301, 302 })
+        {
+            var t = _zendesk.AddUnassigned(id);
+            t.Priority = "high";
+            t.OrganizationId = 900;
+            t.Slas = new TicketSlas { PolicyMetrics = [new SlaMetric { Metric = "first_reply_time", Stage = "active", BreachAt = t.CreatedAt.AddMinutes(45) }] };
+        }
+        await watcher.PollAsync(CancellationToken.None);
+        TakeShown();
+        Assert.Equal((SlaTarget.Min(45), 2), SlaLearning.Current!.Estimate("slagold", "high", true));
+
+        // A third without a timer: the estimate gives its deadline.
+        var third = _zendesk.AddUnassigned(303);
+        third.Priority = "high";
+        third.OrganizationId = 900;
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal(third.CreatedAt.AddMinutes(45), Assert.Single(TakeShown()).SlaDue);
+    }
+
+    [Theory]
+    [InlineData(1, 1, ", **Scheduled**")]
+    [InlineData(2, 2, ", **both Scheduled**")]
+    [InlineData(5, 5, ", **all Scheduled**")]
+    [InlineData(5, 2, ", **2 of them Scheduled**")]
+    [InlineData(5, 0, "")]
+    public void Scheduled_note_reads_naturally(int total, int scheduled, string expected) =>
+        Assert.Equal(expected, TicketRules.ScheduledNote(total, scheduled));
+
+    [Fact]
+    public void Catch_up_and_away_summaries_mention_scheduled_ones()
+    {
+        var now = new DateTime(2026, 11, 14, 9, 0, 0);
+        Assert.StartsWith("**3 unassigned tickets** in your groups, **1 of them Scheduled**.",
+            TicketRules.CatchUpText(now.AddHours(-16), now, 3, 0, 0, 0, scheduled: 1));
+
+        var waiting = new List<NotificationContent>
+        {
+            new(NotificationKind.NewTicket, "New ticket · Scheduled", "#1 A", null) { ScheduledCount = 1 },
+            new(NotificationKind.NewTicket, "New ticket", "#2 B", null)
+        };
+        Assert.Equal("2 new tickets, **1 of them Scheduled**", Notifier.AwaySummary(waiting, 0).Body);
     }
 
     [Fact]

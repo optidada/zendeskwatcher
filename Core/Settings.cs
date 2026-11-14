@@ -138,11 +138,18 @@ public sealed class Settings
     /// <summary>Show the start of the comment text in notifications (my, CC and colleagues' tickets), or only who replied / added a note.</summary>
     public bool ShowCommentText { get; set; } = true;
 
+    /// <summary>Show the SLA deadline ("Reply due in 25 min") in red bold on ticket notifications (Notifications → SLA).</summary>
+    public bool ShowSlaDeadlines { get; set; } = true;
+
+    /// <summary>SLA targets changed from the team's (Notifications → SLA); empty: the team's targets.</summary>
+    public List<Tracking.SlaOverride> SlaOverrides { get; set; } = [];
+
     // Appearance of the notifications
     // Ticket notifications: the sound by type; how long they stay is by priority (TicketDisplay), so their Display isn't used.
     // Silent by default (since 1.3.19): most people turn sounds off; they're one click away under Look & sound.
-    // Saved settings keep the sounds chosen before.
-    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.Silent };
+    // Except new tickets: a very quiet chime, so one isn't missed while you look elsewhere. Saved settings keep the
+    // sounds chosen before.
+    public NotificationStyle NewTicketStyle { get; set; } = new() { Sound = ToastSound.SoftChime };
     public NotificationStyle MyTicketStyle { get; set; } = new() { Sound = ToastSound.Silent };
     public NotificationStyle HelpStyle { get; set; } = new() { Sound = ToastSound.Silent };
 
@@ -461,7 +468,7 @@ public sealed class NotificationStyle
 
 /// <summary>Windows sounds, then chiptune jingles (added last: settings store the number).</summary>
 public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent, ChipBlip, ChipArpeggio, ChipBounce, ChipAlert, ChipFanfare,
-    SongBouncy, SongGroove, SongCelebration, SongQuest, SongTurbo, SongStarfield }
+    SongBouncy, SongGroove, SongCelebration, SongQuest, SongTurbo, SongStarfield, SoftChime }
 
 public enum SnoozeBehavior
 {

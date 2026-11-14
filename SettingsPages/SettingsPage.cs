@@ -92,9 +92,10 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// For pages with lists from Zendesk: a strip under the subtitle while signed out ("Not signed in … Sign in"), and
     /// <paramref name="setReadOnly"/> to stop changes until a session works again.
     /// </summary>
-    protected void UseSignedOutStrip(Action<bool> setReadOnly)
+    /// <param name="message">The strip's text; by default about lists from Zendesk.</param>
+    protected void UseSignedOutStrip(Action<bool> setReadOnly, string? message = null)
     {
-        var text = Theme.Label("Not signed in: your choices still apply, but the lists may be out of date and are locked until you sign in.",
+        var text = Theme.Label(message ?? "Not signed in: your choices still apply, but the lists may be out of date and are locked until you sign in.",
             Theme.Small, Theme.Warning, Kit.CardWidth - 70); // wraps, with "Sign in" next to it
         var link = Kit.LinkLabel("Sign in", Theme.Small);
         text.Margin = new Padding(0, 0, 10, 0);

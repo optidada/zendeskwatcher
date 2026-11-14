@@ -49,6 +49,9 @@ public sealed class WatchState
     /// <summary>When the last "Help colleagues" check ran.</summary>
     public DateTimeOffset HelpLastCheck { get; set; }
 
+    /// <summary>What Zendesk's SLA timers taught about the SLA types and their targets (Notifications → SLA).</summary>
+    public SlaLearning Sla { get; set; } = new();
+
     public static WatchState Load()
     {
         try

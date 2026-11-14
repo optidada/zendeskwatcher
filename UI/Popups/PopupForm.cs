@@ -675,7 +675,8 @@ public sealed class PopupForm : Form
         var (title, body, typing) = Typed();
         DrawText(g, title, _titleFont, _titleRect, _palette.Text, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
         if (_bodyRect.Height > 0)
-            _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text);
+            _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text,
+                _palette.Accent("urgent", _content.Kind)); // alerts (an SLA deadline) in the theme's urgent color
         if (_palette.Terminal && (typing || (_clock.ElapsedMilliseconds / 500) % 2 == 0))
         {
             if (body.Length > 0 || (!typing && _bodyRect.Height > 0))

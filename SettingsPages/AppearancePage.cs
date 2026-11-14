@@ -6,10 +6,10 @@ namespace ZendeskWatcher.SettingsPages;
 /// <summary>Appearance: notification style and position, sounds, content, and test notifications.</summary>
 internal sealed class AppearancePage : SettingsPage
 {
-    // Silent first, then by kind: Normal (Windows sounds), Retro (short chiptune blips), Nostalgic (chiptune songs, 4–8 s).
+    // Silent and the soft chime first, then by kind: Normal (Windows sounds), Retro (short chiptune blips), Nostalgic (chiptune songs, 4–8 s).
     internal static readonly Option<ToastSound>[] SoundOptions =
     [
-        new(ToastSound.Silent, "Silent"),
+        new(ToastSound.Silent, "Silent"), new(ToastSound.SoftChime, "Soft chime"),
         new(ToastSound.Default, "Normal – Default"), new(ToastSound.Mail, "Normal – Mail"), new(ToastSound.InstantMessage, "Normal – Instant message"),
         new(ToastSound.Reminder, "Normal – Reminder"), new(ToastSound.Sms, "Normal – SMS"),
         new(ToastSound.ChipBlip, "Retro – Blip"), new(ToastSound.ChipArpeggio, "Retro – Arpeggio"),
@@ -63,6 +63,11 @@ internal sealed class AppearancePage : SettingsPage
         // Two rows of three tiles.
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(20, 4, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
+        // The Windows style can't do everything the own styles do: marked quietly, the details on hover.
+        var native = _themeTiles.First(t => t.Value == NotificationTheme.WindowsNative);
+        native.Note = "Fewer features";
+        _tips.SetToolTip(native, "Windows decides where and how long notifications show. No position, stacking, size or Peek, " +
+            "no taking turns or waiting while you're away, and no re-check before showing.");
         style.Body.Controls.Add(tiles);
         // Labels in one column, choices lined up in the next.
         var placement = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };

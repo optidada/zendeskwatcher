@@ -254,6 +254,8 @@ public static class ChipSounds
 
     private static float[] Render(ToastSound sound)
     {
+        if (sound == ToastSound.SoftChime)
+            return SoftChime();
         double[] mix;
         if (Song(sound) is { } song)
         {
@@ -284,6 +286,31 @@ public static class ChipSounds
         }
         for (var i = 0; i < mix.Length; i++)
             output[i] = (float)(mix[i] / peak * 0.3);
+        return output;
+    }
+
+    /// <summary>
+    /// A very quiet two-note chime: sine tones (no buzzy pulse wave), a soft start and a long fade, at about a third
+    /// of the jingles' level. For new tickets by default: noticed, but never startling.
+    /// </summary>
+    private static float[] SoftChime()
+    {
+        (double Freq, double Start)[] notes = [(783.99, 0), (1046.5, 0.14)]; // G5, then C6
+        var output = new float[(int)(SampleRate * 0.9)];
+        foreach (var (freq, start) in notes)
+        {
+            var offset = (int)(start * SampleRate);
+            for (var i = 0; offset + i < output.Length; i++)
+            {
+                var t = (double)i / SampleRate;
+                var envelope = Math.Min(1.0, t / 0.012) * Math.Exp(-t * 6);
+                var bell = Math.Sin(2 * Math.PI * freq * t) + 0.2 * Math.Sin(2 * Math.PI * freq * 2 * t) * Math.Exp(-t * 10);
+                output[offset + i] += (float)(bell * envelope * 0.06);
+            }
+        }
+        var fade = (int)(SampleRate * 0.05); // no click at the end
+        for (var i = 0; i < fade; i++)
+            output[output.Length - 1 - i] *= (float)i / fade;
         return output;
     }
 

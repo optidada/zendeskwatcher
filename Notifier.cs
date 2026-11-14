@@ -252,8 +252,9 @@ public sealed class Notifier : INotificationSink
 
     /// <summary>The very first start, while Settings opens: what the app does and how to get going.</summary>
     private const string WelcomeBody =
-        "Zendesk Watcher tells you about new unassigned tickets and changes on your tickets. To get started, sign in on " +
-        "the **Account** page of Settings, which is open now, and then choose the groups to watch on the **Groups** page.";
+        "Get started in two steps:\n" +
+        "1. Sign in on the **Account** page (Settings is open)\n" +
+        "2. Choose groups to watch on the **Groups** page";
 
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
@@ -301,7 +302,8 @@ public sealed class Notifier : INotificationSink
 
         var lines = new List<string>();
         if (Count(NotificationKind.NewTicket) is > 0 and var fresh)
-            lines.Add(Plural(fresh, "new ticket", "new tickets"));
+            lines.Add(Plural(fresh, "new ticket", "new tickets") +
+                Tracking.TicketRules.ScheduledNote(fresh, waiting.Where(c => c.Kind == NotificationKind.NewTicket).Sum(c => c.ScheduledCount)));
         if (Count(NotificationKind.MyTicket) is > 0 and var mine)
             lines.Add(Plural(mine, "update on your tickets", "updates on your tickets"));
         if (Count(NotificationKind.CcTicket) is > 0 and var cc)
@@ -403,15 +405,17 @@ public sealed class Notifier : INotificationSink
         NotificationKind.NewTicket =>
           [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
               $"Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2")
-              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso", MuteTarget = SampleClient("Contoso") }],
+              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso", MuteTarget = SampleClient("Contoso"),
+                SlaDue = DateTimeOffset.UtcNow.AddMinutes(53), SlaFirstReply = true }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
               "**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
-              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone, Client = "Northwind", MuteTarget = SampleClient("Northwind") }],
+              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2")
+              { Action = ActionNone, Client = "Northwind · Premium Support", MuteTarget = SampleClient("Northwind"), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25) }],
         _ =>
           [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
-              "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
-              TicketId: 123457, Priority: "normal") { Action = ActionNone, Client = "Fabrikam" }]
+              "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…",
+              TicketId: 123457, Priority: "normal") { Action = ActionNone, Client = "Fabrikam", SlaDue = DateTimeOffset.UtcNow.AddMinutes(190) }]
     };
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
