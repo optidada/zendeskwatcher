@@ -329,13 +329,6 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             r => r.Results, ct, maxPages: 5);
     }
 
-    /// <summary>Tickets I solved in the last <paramref name="days"/> days (up to 300).</summary>
-    public Task<List<Ticket>> GetMySolvedTicketsAsync(int days, CancellationToken ct)
-    {
-        var query = $"type:ticket assignee:me status>=solved updated>{DateTime.UtcNow.AddDays(-days):yyyy-MM-dd}";
-        return GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct, maxPages: 3);
-    }
-
     public async Task<string> GetUserNameAsync(long userId, CancellationToken ct) =>
         (await GetUserAsync(userId, ct))?.Name ?? $"User {userId}";
 

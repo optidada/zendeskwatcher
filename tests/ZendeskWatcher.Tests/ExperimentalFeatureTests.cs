@@ -87,10 +87,9 @@ public class ExperimentalFeatureTests
     }
 
     [Fact]
-    public async Task New_ticket_shows_a_similar_solved_ticket_and_fits_you()
+    public async Task New_ticket_shows_a_similar_solved_ticket()
     {
         _settings.ShowSimilarTickets = true;
-        _settings.MarkFitsYou = true;
         Solved(401, "Media library images broken", Jane);
         Solved(402, "Images missing in the media library", _zendesk.Me.Id);
         Solved(403, "Media library does not show images", _zendesk.Me.Id);
@@ -103,7 +102,7 @@ public class ExperimentalFeatureTests
         var lines = shown.Body.Split('\n');
         Assert.StartsWith("Like #40", lines[1]);
         Assert.Contains("solved by", lines[1]);
-        Assert.Equal("**Fits you:** like 2 tickets you solved", lines[2]);
+        Assert.Equal(2, lines.Length);
     }
 
     [Fact]
@@ -162,22 +161,4 @@ public class ExperimentalFeatureTests
     [InlineData("Thanks, but the second site still shows old content", false)]
     [InlineData("The site is down", false)]
     public void Thank_you_detection(string text, bool expected) => Assert.Equal(expected, PriorityGuess.IsThankYou(text));
-
-    [Fact]
-    public void Rising_topics_compare_this_week_with_the_weeks_before()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var tickets = new List<IndexedTicket>();
-        var id = 1;
-        foreach (var subject in new[] { "Search not returning pages", "Search index stale", "Search results empty", "Search broken", "Invoice" })
-            tickets.Add(new IndexedTicket(id++, subject, null, false, now.AddDays(-2)));
-        for (var week = 2; week < 12; week++)
-            tickets.Add(new IndexedTicket(id++, week % 5 == 0 ? "Search question" : "Invoice copy", null, true, now.AddDays(-7 * week)));
-
-        var topics = new TicketIndex(tickets, _ => [0f]).RisingTopics(now);
-
-        var search = Assert.Single(topics);
-        Assert.Equal(("search", 4), (search.Word, search.ThisWeek));
-        Assert.StartsWith("search (4 this week, usually none)", TopicsStatus.Text(topics));
-    }
 }

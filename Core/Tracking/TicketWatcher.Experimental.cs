@@ -5,7 +5,7 @@ using ZendeskWatcher.Zendesk;
 namespace ZendeskWatcher.Tracking;
 
 /// <summary>
-/// The Experimental page's features: same-issue alert, similar solved tickets, "fits you", quiet thank-yous, topics,
+/// The Experimental page's features: same-issue alert, similar solved tickets, quiet thank-yous
 /// and the language model's part of the priority guess. All on the PC; the 90 days of tickets stay in memory.
 /// </summary>
 public sealed partial class TicketWatcher
@@ -63,12 +63,9 @@ public sealed partial class TicketWatcher
             var tickets = new List<Ticket>();
             foreach (var group in settings.WatchedGroups)
                 tickets.AddRange(await zendesk.GetRecentGroupTicketsAsync(group.Id, HistoryDays, ct));
-            if (settings.MarkFitsYou)
-                tickets.AddRange(await zendesk.GetMySolvedTicketsAsync(HistoryDays, ct));
             if (Model is not { } model)
                 return;
             _history = new TicketIndex(tickets.Select(IndexedTicket.From), model.Embed);
-            UpdateTopics();
             Log.Info($"Ticket history for the Experimental features: {_history.Count} tickets of {HistoryDays} days in {clock.Elapsed.TotalSeconds:0.0}s");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -77,14 +74,8 @@ public sealed partial class TicketWatcher
         }
     }
 
-    private void UpdateTopics()
-    {
-        if (settings.ShowTopics && _history is not null)
-            TopicsStatus.Update(_history.RisingTopics(DateTimeOffset.UtcNow), _history.Count);
-    }
-
     /// <summary>
-    /// "Like #123 … · solved by Jane" and "Fits you: like 3 tickets you solved", as extra body lines (escaped); empty
+    /// "Like #123 … · solved by Jane" (or "by you"), as an extra body line (escaped); empty
     /// when off, when the history isn't read yet, or nothing is close enough.
     /// </summary>
     private async Task<List<string>> SimilarLinesAsync(Ticket ticket, CancellationToken ct)
@@ -98,12 +89,6 @@ public sealed partial class TicketWatcher
         {
             var by = best.AssigneeId == Me?.Id ? "you" : best.AssigneeId is { } id ? await zendesk.GetUserNameAsync(id, ct) : null;
             lines.Add($"Like #{best.Id} {Markdown.Escape(Shorten(best.Subject, 50))}{(by is null ? "" : $" · solved by {Markdown.Escape(by)}")}");
-        }
-        if (settings.MarkFitsYou && Me is { } me)
-        {
-            var mine = history.Like(subject, t => t.Solved && t.AssigneeId == me.Id && t.Id != ticket.Id, TicketIndex.SameIssue, max: 20).Count;
-            if (mine >= 2)
-                lines.Add($"**Fits you:** like {mine} tickets you solved");
         }
         return lines;
     }

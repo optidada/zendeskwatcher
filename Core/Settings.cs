@@ -151,18 +151,12 @@ public sealed class Settings
     /// <summary>Experimental: "Like #123 … · solved by Jane" on new tickets, from 90 days of the monitored groups.</summary>
     public bool ShowSimilarTickets { get; set; }
 
-    /// <summary>Experimental: "Fits you: like 3 tickets you solved" on new tickets.</summary>
-    public bool MarkFitsYou { get; set; }
-
     /// <summary>Experimental: a customer's plain thank-you notifies without sound and briefly; Catch up and colleagues' tickets skip it.</summary>
     public bool QuietThankYous { get; set; }
 
-    /// <summary>Experimental: words that come up more than usual in this week's tickets, on the Experimental page.</summary>
-    public bool ShowTopics { get; set; }
-
     /// <summary>A feature that uses the language model and 90 days of tickets is on.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool NeedsTicketHistory => GuessPriority || SameIssueAlert || ShowSimilarTickets || MarkFitsYou || ShowTopics;
+    public bool NeedsTicketHistory => GuessPriority || SameIssueAlert || ShowSimilarTickets;
 
     /// <summary>SLA targets changed from the team's (Notifications → SLA); empty: the team's targets.</summary>
     public List<Tracking.SlaOverride> SlaOverrides { get; set; } = [];

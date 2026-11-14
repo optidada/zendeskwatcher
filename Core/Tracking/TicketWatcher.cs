@@ -272,7 +272,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private async Task<NotificationContent> UnassignedTicketAsync(Ticket ticket, WatchedGroup group, string heading, CancellationToken ct)
     {
         var scheduled = IsScheduled(ticket);
-        // Experimental: "Like #123 \u2026 \u00b7 solved by Jane", "Fits you: \u2026" under who it's from.
+        // Experimental: "Like #123 \u2026 \u00b7 solved by Jane" under who it's from.
         var body = string.Join("\n", new[] { await CreatedLineAsync(ticket, ct) }.Concat(await SimilarLinesAsync(ticket, ct)));
         return await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, scheduled ? $"{heading} \u00b7 Scheduled" : heading,
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, GroupLabel(group))
