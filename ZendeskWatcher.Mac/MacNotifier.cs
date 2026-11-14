@@ -29,8 +29,18 @@ public sealed class MacNotifier : UNUserNotificationCenterDelegate, INotificatio
     }
 
     public void Show(NotificationContent content) =>
-        Post(content.FullHeading, content.Title, Markdown.Strip(content.DisplayBody(DateTimeOffset.Now)),
-            content.TicketId is { } id ? _settings().TicketUrl(id) : _settings().BaseUrl);
+        Post(content.FullHeading, content.Title, Markdown.Strip(content.DisplayBody(DateTimeOffset.Now)), UrlFor(content));
+
+    /// <summary>Where a click goes: the ticket, a list in Zendesk (e.g. all of a group's unassigned tickets), a web page, or Zendesk.</summary>
+    private string UrlFor(NotificationContent content)
+    {
+        var action = content.ResolvedAction;
+        if (action.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal))
+            return $"{_settings().BaseUrl}/agent/search/1?type=ticket&q={Uri.EscapeDataString(action[NotificationActions.SearchPrefix.Length..])}";
+        if (action.StartsWith(NotificationActions.UrlPrefix, StringComparison.Ordinal))
+            return action[NotificationActions.UrlPrefix.Length..];
+        return content.TicketId is { } id ? _settings().TicketUrl(id) : _settings().BaseUrl;
+    }
 
     public void ShowMissingGroups(IReadOnlyCollection<string> names) =>
         Info("Groups not found", $"No longer in Zendesk (or no access): {string.Join(", ", names)}. Choose groups again in the menu.");

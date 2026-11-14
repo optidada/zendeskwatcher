@@ -169,7 +169,7 @@ public sealed class AppDelegate : NSApplicationDelegate
             {
                 // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
                 using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), waiting.Token), _wakeUp.WaitAsync(waiting.Token));
+                await Task.WhenAny(Task.Delay(Settings.CheckInterval, waiting.Token), _wakeUp.WaitAsync(waiting.Token));
                 waiting.Cancel();
                 ct.ThrowIfCancellationRequested();
             }
