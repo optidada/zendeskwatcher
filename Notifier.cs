@@ -350,15 +350,22 @@ public sealed class Notifier : INotificationSink
     public void ShowTest(Settings settings, NotificationKind kind)
     {
         foreach (var sample in TestSamples(kind))
-            Show(sample, settings);
+            Show(WithGuess(sample, settings), settings);
     }
 
     /// <summary>Several samples at once, to see how popups stack.</summary>
     public void ShowTestBurst(Settings settings)
     {
         foreach (var sample in TestSamples(null))
-            Show(sample, settings);
+            Show(WithGuess(sample, settings), settings);
     }
+
+    /// <summary>With the priority guess on (Experimental page), the colleague sample gets it, from the same rules as real tickets.</summary>
+    private static NotificationContent WithGuess(NotificationContent sample, Settings settings) =>
+        settings.GuessPriority && sample.Kind == NotificationKind.HelpColleague
+            ? sample with { PriorityHint = Tracking.PriorityGuess.Guess(sample.Priority, sample.Title,
+                [Markdown.Strip(sample.Body.Split('\n')[0])], "slapremium", TimeSpan.Zero) }
+            : sample;
 
     /// <summary>
     /// What "Try it" shows: the samples of one kind, or several at once (<paramref name="kind"/> null). Never marked as

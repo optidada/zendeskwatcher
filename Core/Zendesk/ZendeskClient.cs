@@ -320,6 +320,22 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             .ToList();
     }
 
+    /// <summary>A group's tickets created in the last <paramref name="days"/> days, any status (up to 500, newest first).</summary>
+    public Task<List<Ticket>> GetRecentGroupTicketsAsync(long groupId, int days, CancellationToken ct)
+    {
+        var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
+        var query = $"type:ticket group:{group} created>{DateTime.UtcNow.AddDays(-days):yyyy-MM-dd}";
+        return GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100&sort_by=created_at&sort_order=desc",
+            r => r.Results, ct, maxPages: 5);
+    }
+
+    /// <summary>Tickets I solved in the last <paramref name="days"/> days (up to 300).</summary>
+    public Task<List<Ticket>> GetMySolvedTicketsAsync(int days, CancellationToken ct)
+    {
+        var query = $"type:ticket assignee:me status>=solved updated>{DateTime.UtcNow.AddDays(-days):yyyy-MM-dd}";
+        return GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct, maxPages: 3);
+    }
+
     public async Task<string> GetUserNameAsync(long userId, CancellationToken ct) =>
         (await GetUserAsync(userId, ct))?.Name ?? $"User {userId}";
 

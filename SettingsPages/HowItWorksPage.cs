@@ -55,6 +55,22 @@ internal sealed class HowItWorksPage : SettingsPage
             "New SLA types in Zendesk appear there by themselves; until enough tickets show their targets, Standard's are used.",
             "In red bold on the notification, counting down; once late it says by how much. Switch it off under Notifications → SLA."
         ]),
+        ("Experimental features",
+        [
+            "Each is off until you switch it on (Experimental page). English only. Worked out on this PC by rules and a small " +
+            "language model that comes with the app: ticket text never leaves it, and Zendesk is never changed.",
+            "The model compares meanings: “site down” and “website down” come out close, an invoice question far away. " +
+            "It knows words, not your product, so some matches are missed.",
+            "Priority guess: reads what the customer wrote (the first message, or the latest replies) for signs of urgency: the " +
+            "site is down, security, data loss, lost sales, everyone affected, a deadline, a frustrated tone, and similar earlier " +
+            "P1 or P2 tickets. Shown when that's higher than the priority. A long wait or a demanding SLA type adds a little, never on its own; " +
+            "“no rush” and “that fixed it” keep it quiet.",
+            "Same issue?: 3 or more new tickets within an hour whose subjects read alike, once per group of tickets.",
+            "Similar solved ticket and Fits you: compared with the subjects of the last 90 days of your monitored groups (and " +
+            "tickets you solved), read again every 6 hours and kept in memory only.",
+            "Quiet thank-yous: a short reply that thanks or says it's solved, with no question and no “but”.",
+            "Topics: words in this week's subjects that come up at least 3 times and twice as often as in the weeks before."
+        ]),
         ("Catch up",
         [
             "What still needs you since you stopped working last time (e.g. yesterday 17:00): tickets still unassigned in " +

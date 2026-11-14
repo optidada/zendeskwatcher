@@ -141,6 +141,29 @@ public sealed class Settings
     /// <summary>Show the SLA deadline ("Reply due in 25 min") in red bold on ticket notifications (Notifications → SLA).</summary>
     public bool ShowSlaDeadlines { get; set; } = true;
 
+    /// <summary>Experimental: "Looks like P1: site down" when what the customer wrote sounds more urgent than the priority
+    /// (Experimental page). Plain rules on this PC; ticket text never leaves it.</summary>
+    public bool GuessPriority { get; set; }
+
+    /// <summary>Experimental: one notification when 3+ new tickets within an hour look like the same issue (maybe an incident).</summary>
+    public bool SameIssueAlert { get; set; }
+
+    /// <summary>Experimental: "Like #123 … · solved by Jane" on new tickets, from 90 days of the monitored groups.</summary>
+    public bool ShowSimilarTickets { get; set; }
+
+    /// <summary>Experimental: "Fits you: like 3 tickets you solved" on new tickets.</summary>
+    public bool MarkFitsYou { get; set; }
+
+    /// <summary>Experimental: a customer's plain thank-you notifies without sound and briefly; Catch up and colleagues' tickets skip it.</summary>
+    public bool QuietThankYous { get; set; }
+
+    /// <summary>Experimental: words that come up more than usual in this week's tickets, on the Experimental page.</summary>
+    public bool ShowTopics { get; set; }
+
+    /// <summary>A feature that uses the language model and 90 days of tickets is on.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool NeedsTicketHistory => GuessPriority || SameIssueAlert || ShowSimilarTickets || MarkFitsYou || ShowTopics;
+
     /// <summary>SLA targets changed from the team's (Notifications → SLA); empty: the team's targets.</summary>
     public List<Tracking.SlaOverride> SlaOverrides { get; set; } = [];
 
@@ -170,7 +193,8 @@ public sealed class Settings
 
     /// <summary>The sound: app messages and the summary by their style, ticket notifications by type.</summary>
     public ToastSound SoundFor(UI.Popups.NotificationContent content) =>
-        content.Style is null && content.Sound is { } clientSound ? clientSound : (content.Style ?? StyleFor(content.Kind)).Sound;
+        content.Quiet && !content.Important ? ToastSound.Silent
+        : content.Style is null && content.Sound is { } clientSound ? clientSound : (content.Style ?? StyleFor(content.Kind)).Sound;
 
     /// <summary>
     /// When your working day starts, Catch up runs once by itself: what came in while you were off and still needs
@@ -183,7 +207,7 @@ public sealed class Settings
 
     /// <summary>Seconds on screen, 0 = until dismissed: app messages and the summary by their style, ticket notifications by priority.</summary>
     public int DisplaySecondsFor(UI.Popups.NotificationContent content) =>
-        content.Style is { } style ? style.Display.Seconds() : content.Important ? 0 : TicketDisplay.For(content.Priority);
+        content.Style is { } style ? style.Display.Seconds() : content.Important ? 0 : TicketDisplay.For(content.Quiet ? "low" : content.Priority);
 
     public NotificationStyle StyleFor(NotificationKind kind) => kind switch
     {

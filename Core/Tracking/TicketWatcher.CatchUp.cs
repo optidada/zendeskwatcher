@@ -68,7 +68,7 @@ public sealed partial class TicketWatcher
         // Any status before solved: a customer who wrote last needs an answer (only "In progress" and "Scheduled" are trusted a while).
         foreach (var ticket in tracked.Where(t => t.IsOpen && t.UpdatedAt >= sinceUtc))
         {
-            if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting)
+            if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting || IsQuietThankYou(waiting.Comment))
                 continue;
             var (customer, comment, at) = waiting;
             if (!TicketRules.CustomerWaitingNeedsNotice(StatusName(ticket), at, now, InProgressGrace))
@@ -102,7 +102,7 @@ public sealed partial class TicketWatcher
                 var (away, local) = OutsideWorkingHours(assignee, DateTimeOffset.UtcNow);
                 if (away is not true)
                     continue;
-                if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting)
+                if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting || IsQuietThankYou(waiting.Comment))
                     continue;
                 var (customer, comment, at) = waiting;
                 if (!TicketRules.CustomerWaitingNeedsNotice(StatusName(ticket), at, now, InProgressGrace))

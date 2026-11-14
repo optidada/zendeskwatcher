@@ -42,12 +42,14 @@ public sealed class SettingsForm : Form
     private static readonly (string Title, bool Sub)[] NavItems =
     [
         ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
-        ("Behavior", true), ("Look & sound", true), ("SLA", true), ("Insights", false), ("General", false), ("How it works", false)
+        ("Behavior", true), ("Look & sound", true), ("SLA", true), ("General", false), ("Updates & feedback", true), ("Insights", false), ("How it works", false), ("Experimental", false)
     ];
-    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 9;
+    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 8;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
+    private const int UpdatesIndex = GeneralIndex + 1;
     private GeneralPage? BuiltGeneral => _pages[GeneralIndex] as GeneralPage;
+    private UpdatesPage? BuiltUpdates => _pages[UpdatesIndex] as UpdatesPage;
     private HelpColleaguesPage Help => (HelpColleaguesPage)Page(HelpIndex);
     private GeneralPage General => (GeneralPage)Page(GeneralIndex);
     private (string Text, bool Enabled)? _updateState;
@@ -74,7 +76,7 @@ public sealed class SettingsForm : Form
     /// <summary>The sign-in or sign-out has finished.</summary>
     public event Action? SessionChanged;
 
-    /// <summary>General page buttons; the tray app does the same as its menu items.</summary>
+    /// <summary>Updates & feedback page buttons; the tray app does the same as its menu items.</summary>
     public event Action? CheckForUpdatesClicked;
 
     /// <summary>Starts Catch up (the Account page's button); done when it has run.</summary>
@@ -91,7 +93,7 @@ public sealed class SettingsForm : Form
     public void ShowUpdateState(string text, bool enabled)
     {
         _updateState = (text, enabled);
-        BuiltGeneral?.ShowUpdateState(text, enabled);
+        BuiltUpdates?.ShowUpdateState(text, enabled);
     }
 
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false, User? signedInAs = null)
@@ -135,7 +137,7 @@ public sealed class SettingsForm : Form
         [
             () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context),
             () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
-            () => new SlaPage(_context), () => new StatisticsPage(_context), MakeGeneralPage, () => new HowItWorksPage(_context)
+            () => new SlaPage(_context), MakeGeneralPage, MakeUpdatesPage, () => new StatisticsPage(_context), () => new HowItWorksPage(_context), () => new ExperimentalPage(_context)
         ];
         _pages = new SettingsPage?[_makePage.Length];
         _pages[0] = _account;
@@ -326,14 +328,19 @@ public sealed class SettingsForm : Form
 
     private GeneralPage MakeGeneralPage()
     {
-        var general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
-        general.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
-        general.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
-        general.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
-        general.ResetRequested += ResetToDefaults;
+        return new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
+    }
+
+    private UpdatesPage MakeUpdatesPage()
+    {
+        var updates = new UpdatesPage(_context);
+        updates.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
+        updates.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
+        updates.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
+        updates.ResetRequested += ResetToDefaults;
         if (_updateState is { } state)
-            general.ShowUpdateState(state.Text, state.Enabled);
-        return general;
+            updates.ShowUpdateState(state.Text, state.Enabled);
+        return updates;
     }
 
     /// <summary>Creates the window handles of the built pages up front, so showing them is instant.</summary>

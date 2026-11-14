@@ -29,6 +29,12 @@ public sealed record NotificationContent(
     /// <summary>The SLA deadline is for the first reply (a new ticket), not a follow-up.</summary>
     public bool SlaFirstReply { get; init; }
 
+    /// <summary>The experimental priority guess ("Looks like P1: site down"), shown under the SLA deadline.</summary>
+    public Tracking.PriorityHint? PriorityHint { get; init; }
+
+    /// <summary>Just a thank-you from the customer (Experimental page): no sound, and only as long as Low (P4) ones stay.</summary>
+    public bool Quiet { get; init; }
+
     /// <summary>The body with the time since <see cref="EventTime"/> appended to its first line, under the SLA deadline.</summary>
     public string DisplayBody(DateTimeOffset now)
     {
@@ -39,6 +45,8 @@ public sealed record NotificationContent(
             var newline = body.IndexOf('\n');
             body = newline < 0 ? $"{body} · {ago}" : $"{body[..newline]} · {ago}{body[newline..]}";
         }
+        if (PriorityHint is { } hint)
+            body = $"**Looks like {hint.Short}:** {string.Join(" · ", hint.Reasons)}" + (body.Length > 0 ? "\n" + body : "");
         if (SlaDue is { } due)
             body = $"!!{Tracking.Sla.DueText(due, now, SlaFirstReply)}!!" + (body.Length > 0 ? "\n" + body : "");
         return body;

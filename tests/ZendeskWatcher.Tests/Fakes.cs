@@ -170,6 +170,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     private List<Ticket> Search(string query)
     {
+        if (query.Contains("assignee:me") && query.Contains("status>=solved")) // Experimental: tickets I solved
+            return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.Status is "solved" or "closed").ToList();
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
         var match = GroupQuery().Match(query);

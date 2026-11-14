@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.6.0
+
+- **New: Experimental page** with smart extras, each off until you switch it on: a priority guess ("Looks like P1: site down · frustrated tone"), a "Same issue?" alert when several new tickets read alike, a similar solved ticket on new tickets, "Fits you", quiet thank-yous and this week's topics.
+- **All on your PC**: a small English language model (about 8 MB) comes with the app and only loads while one of these is on. Ticket text never leaves your PC, and Zendesk is never changed.
+- **Catch up no longer fails** on tickets with a chat or call in their history.
+- **Settings sidebar tidied**: General comes before Insights, Updates & feedback is its own page under General, and Experimental is last.
+
 ## 1.5.0
 
 - **SLA deadlines on notifications**: in red bold, counting down, e.g. "First reply due in 25 min" or "Reply overdue by 1 h". Zendesk's own SLA timer when the ticket has one; otherwise the target for the client's SLA type (from Zendesk) and the priority. New page **Notifications → SLA** with the targets, color coded: default, estimated from Zendesk's timers (also for new SLA types), or your own.
