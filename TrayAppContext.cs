@@ -122,6 +122,7 @@ public sealed class TrayAppContext : ApplicationContext
         // Run once the message loop is up; this may open the Settings window on first start.
         _ui = SynchronizationContext.Current ?? _ui;
         _ui.Post(_ => Start(openSettingsIfNeeded: true), null);
+        _ui.Post(_ => ShowWhatsNew(), null);
         if (Settings.LoadProblem is { } problem)
             _ui.Post(_ => _notifier.ShowSettingsProblem(problem), null);
     }
@@ -142,6 +143,9 @@ public sealed class TrayAppContext : ApplicationContext
                 break;
             case Notifier.ActionOpenZendesk:
                 OpenUrl($"{_settings.BaseUrl}/agent");
+                break;
+            case var url when url.StartsWith(NotificationActions.UrlPrefix, StringComparison.Ordinal):
+                OpenUrl(url[NotificationActions.UrlPrefix.Length..]);
                 break;
             case var search when search.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal):
                 // A list in Zendesk, e.g. all of a group's unassigned tickets when the notification could show only five.
@@ -181,6 +185,18 @@ public sealed class TrayAppContext : ApplicationContext
     }
 
     // ------------------------------------------------------------------ checking
+
+    /// <summary>The first start after an update: what's new since the version that ran before (once).</summary>
+    private void ShowWhatsNew()
+    {
+        var current = typeof(TrayAppContext).Assembly.GetName().Version?.ToString(3);
+        if (current is null || WhatsNew.UpdatedFrom(current) is not { } from || WhatsNew.Summary(from, current) is not var (title, body))
+            return;
+        Log.Info($"Updated from {from} to {current}: showing what's new");
+        // One version: its own release notes; several: the list of all releases.
+        var oneVersion = title.StartsWith("What's new in", StringComparison.Ordinal);
+        _notifier.ShowWhatsNew(title, body, WhatsNew.ReleaseNotesUrl(oneVersion ? current : null));
+    }
 
     /// <summary>(Re)starts watching with the current settings, or opens Settings if something is missing.</summary>
     private void Start(bool openSettingsIfNeeded)

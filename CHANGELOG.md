@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.7.1
+
+- **What's new after an update**: one notification with the highlights since the version you used before, also after a big jump. A click opens the release notes.
+- **Priorities as colored tags**: P1 red, P2 orange, P3 and P4 in the tick boxes, the SLA table, Insights and notification headings.
+- **Clients fold per group**: one tick box per group mutes or unmutes all its clients, with a count. Groups with changes start open, and search opens the right group.
+- **Ticket lists in notifications**: the ticket numbers look like links and open that ticket; "See all" opens the whole list in Zendesk.
+
 ## 1.7.0
 
 - **New Native theme**: looks like Windows 11, a bit edgier, and follows your Windows light/dark mode and accent color. For the Settings window and for notifications. It replaces the Windows notification style, which is gone.

@@ -142,9 +142,9 @@ internal sealed class SlaPage : SettingsPage
         }
 
         _grid.Controls.Add(Cell("", Theme.Small, Theme.TextMuted, left: true), 0, 0);
-        string[] headers = ["P1 Urgent", "P2 High", "P3 Normal", "P4 Low"];
+        (string Text, string Priority)[] headers = [("Urgent", "urgent"), ("High", "high"), ("Normal", "normal"), ("Low", "low")];
         for (var c = 0; c < headers.Length; c++)
-            _grid.Controls.Add(Cell(headers[c], Theme.Small, Theme.TextMuted), c + 1, 0);
+            _grid.Controls.Add(new PriorityLabel(headers[c].Text, headers[c].Priority) { Margin = new Padding(14, 4, 4, 2), Anchor = AnchorStyles.Left }, c + 1, 0);
         for (var r = 0; r < _types.Count; r++)
         {
             _grid.Controls.Add(Cell(Sla.Name(_types[r], _learned), Theme.Body, Theme.Text, left: true), 0, r + 1);

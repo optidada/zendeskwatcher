@@ -319,6 +319,15 @@ public sealed class Notifier : INotificationSink
         Style = ActOnIt
     });
 
+    /// <summary>After an update: what's new since the version that ran before; a click opens the release notes.</summary>
+    public void ShowWhatsNew(string title, string body, string releaseNotesUrl) => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Updated", title, body)
+    {
+        Action = NotificationActions.Url(releaseNotesUrl),
+        Style = ActOnIt,
+        MaxBodyLines = 7
+    });
+
     /// <summary>Sample notifications with the given (possibly unsaved) settings. Shown even when paused.</summary>
     public void ShowTest(Settings settings, NotificationKind kind)
     {
@@ -349,8 +358,14 @@ public sealed class Notifier : INotificationSink
         : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(Samples(NotificationKind.HelpColleague)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
                 $"Robin Client · Created {Clock.Time(DateTime.Now.AddMinutes(-2))}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
-            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" }))
-        .Select(sample => sample with { Priority = RandomPriority() }).ToList();
+            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" }).Append(ListSample))
+        .Select(sample => sample with { Priority = sample.TicketCount > 1 ? null : RandomPriority() }).ToList();
+
+    /// <summary>A list of tickets ("Now watching"): the ticket numbers look like links (in samples they don't open anything).</summary>
+    private static NotificationContent ListSample => new(NotificationKind.NewTicket, "Now watching", "7 unassigned tickets already waiting",
+        "#123460 Images missing in the media library\n#123461 Login loop after SSO change\n#123462 Export to CSV times out\n" +
+        "#123463 Scheduled job did not run · **Scheduled**\n#123464 Slow search on large sites\n\u2026 and 2 more: click to see them all",
+        Context: "Support Tier 2") { Action = ActionNone, TicketCount = 7, MaxBodyLines = 6 };
 
     /// <summary>
     /// A random priority for each sample (sometimes none), so "Try it" shows the colors and how long each priority stays
@@ -375,7 +390,7 @@ public sealed class Notifier : INotificationSink
                     [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
                     ["urgent", "high"], DateTimeOffset.UtcNow)) { MaxBodyLines = 9, CanCatchUp = true }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
-                { Action = ActionSettings });
+                { Action = ActionSettings }).Append(ListSample);
 
     /// <summary>Shows "Mute" on samples; muting a sample does nothing (see <see cref="Mute"/>).</summary>
     private static ClientChoice SampleClient(string name) => new() { Id = -1, Name = name };

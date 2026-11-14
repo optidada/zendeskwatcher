@@ -45,4 +45,9 @@ public static class NotificationActions
     public const string SearchPrefix = "search:";
 
     public static string Search(string query) => SearchPrefix + query;
+
+    /// <summary>Opens a web page: "url:" and the address (e.g. the release notes).</summary>
+    public const string UrlPrefix = "url:";
+
+    public static string Url(string address) => UrlPrefix + address;
 }

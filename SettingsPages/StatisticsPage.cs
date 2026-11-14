@@ -178,7 +178,9 @@ internal sealed class StatisticsPage : SettingsPage
             ];
             for (var c = 0; c < headers.Length; c++)
             {
-                var header = Cell(headers[c].Text, Theme.Small, Theme.TextMuted, left: c == 0);
+                Control header = headers[c].Text == "P1/P2"
+                    ? new PriorityLabel("", "urgent", "high") { Anchor = AnchorStyles.Right, Margin = new Padding(4, 4, 0, 4) }
+                    : Cell(headers[c].Text, Theme.Small, Theme.TextMuted, left: c == 0);
                 if (headers[c].Tip.Length > 0)
                     _tips.SetToolTip(header, headers[c].Tip);
                 _team.Controls.Add(header, c, 0);

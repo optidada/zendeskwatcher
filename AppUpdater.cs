@@ -43,7 +43,7 @@ public sealed class AppUpdater
     }
 
     /// <summary>"**Take it**: long explanation" → "Take it"; other bullets are shortened to fit a notification.</summary>
-    private static string Headline(string bullet)
+    internal static string Headline(string bullet)
     {
         if (bullet.StartsWith("**") && bullet.IndexOf("**", 2, StringComparison.Ordinal) is var end and > 2)
             return bullet[2..end];

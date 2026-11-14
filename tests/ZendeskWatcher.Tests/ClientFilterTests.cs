@@ -143,7 +143,7 @@ public class ClientFilterTests
     }
 
     [Fact]
-    public void Customized_and_muted_clients_get_their_own_sections_per_group()
+    public void One_section_per_group_open_when_it_has_changes()
     {
         var sections = new List<(WatchedGroup Group, List<ClientsView.Client> Clients)>
         {
@@ -158,13 +158,12 @@ public class ClientFilterTests
 
         var layout = ClientsView.Layout(sections, choices);
 
-        Assert.Equal(["Premium \u00b7 \u2605 Customized", "Tier 2 \u00b7 \u2605 Customized", "Premium", "Tier 2", "Premium \u00b7 Muted", "Tier 2 \u00b7 Muted"],
-            layout.Select(s => s.Title));
-        Assert.Equal(new ClientsView.Client(21, "Contoso", 3), layout[0].Clients.Single()); // in each of its groups
-        Assert.Equal(new ClientsView.Client(21, "Contoso", 4), layout[1].Clients.Single());
-        Assert.Equal(["Beta"], layout[2].Clients.Select(c => c.Name));
-        Assert.Equal(["Delta"], layout[3].Clients.Select(c => c.Name));
-        Assert.Equal(["Fabrikam"], layout[4].Clients.Select(c => c.Name));
+        Assert.Equal(["Premium", "Tier 2"], layout.Select(s => s.Title));
+        Assert.All(layout, s => Assert.True(s.Changed));                              // Contoso important, Fabrikam muted: open
+        Assert.Contains(new ClientsView.Client(21, "Contoso", 4), layout[1].Clients); // in each of its groups
+
+        var plain = ClientsView.Layout(sections, []);
+        Assert.All(plain, s => Assert.False(s.Changed));                              // nothing changed: folded
     }
 
     [Fact]

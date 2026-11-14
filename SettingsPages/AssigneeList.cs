@@ -56,6 +56,19 @@ internal sealed class AssigneeList : Control
     /// <summary>Groups opened or folded (by title) since the window opened; the others use their StartOpen.</summary>
     private readonly Dictionary<string, bool> _open = [];
 
+    /// <summary>Opens a folded group (e.g. to show a client found by search).</summary>
+    public void Open(Group group)
+    {
+        if (group.Title is not { } title || IsOpen(group))
+            return;
+        _open[title] = true;
+        LayoutItems();
+        Invalidate();
+    }
+
+    /// <summary>The groups as shown, with all their people (also in folded groups).</summary>
+    public IReadOnlyList<Group> Groups => _groups;
+
     private bool IsOpen(Group group) => GroupTick is null || group.Title is null || _open.GetValueOrDefault(group.Title, group.StartOpen);
 
     /// <summary>

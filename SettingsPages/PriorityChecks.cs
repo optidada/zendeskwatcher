@@ -2,15 +2,23 @@ using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.SettingsPages;
 
-/// <summary>A "Priority  ☑ Urgent (P1)  ☑ High (P2)  ☐ Normal (P3)  ☐ Low (P4)" row. Used by ticket changes and Help colleagues.</summary>
+/// <summary>A "Priority  ☑ Urgent [P1]  ☑ High [P2]  ☐ Normal [P3]  ☐ Low [P4]" row (the P-levels as colored tags). Used by ticket changes and Help colleagues.</summary>
 internal sealed class PriorityChecks
 {
     private readonly (string Priority, CheckBox Box)[] _boxes =
     [
-        ("urgent", Kit.Check("Urgent (P1)")), ("high", Kit.Check("High (P2)")), ("normal", Kit.Check("Normal (P3)")), ("low", Kit.Check("Low (P4)"))
+        ("urgent", Tagged("Urgent", "urgent")), ("high", Tagged("High", "high")), ("normal", Tagged("Normal", "normal")), ("low", Tagged("Low", "low"))
     ];
 
     public FlowLayoutPanel Row { get; }
+
+    private static CheckBox Tagged(string text, string priority)
+    {
+        var box = Kit.Check(text);
+        if (box is ThemedCheckBox themed)
+            themed.Priority = priority;
+        return box;
+    }
 
     /// <summary>A box was ticked or unticked.</summary>
     public event Action? Changed;

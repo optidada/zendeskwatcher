@@ -8,7 +8,7 @@ internal sealed class RichText(Font regular, Font bold)
 {
     private const TextFormatFlags Flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
 
-    /// <summary>Style: 0 regular, 1 bold, 2 alert (bold in the alert color).</summary>
+    /// <summary>Style: 0 regular, 1 bold, 2 alert (bold in the alert color), 3 a ticket number starting a line ("#123456", a link).</summary>
     private readonly record struct Piece(string Text, int Style, int X, int Line, int Paragraph = 0);
 
     private string? _cachedText;
@@ -25,14 +25,15 @@ internal sealed class RichText(Font regular, Font bold)
         return _lines * LineHeight;
     }
 
-    public void Draw(Graphics g, string markdown, Rectangle rect, int maxLines, Color color, Color boldColor, Color? alertColor = null)
+    /// <param name="linkColor">Ticket numbers starting a line, in a list where they can be clicked; null: like the text around them.</param>
+    public void Draw(Graphics g, string markdown, Rectangle rect, int maxLines, Color color, Color boldColor, Color? alertColor = null, Color? linkColor = null)
     {
         Layout(markdown, rect.Width, maxLines);
         foreach (var piece in _pieces)
         {
             var at = new Point(rect.Left + piece.X, rect.Top + piece.Line * LineHeight);
-            var pieceColor = piece.Style switch { 2 => alertColor ?? boldColor, 1 => boldColor, _ => color };
-            TextRenderer.DrawText(g, piece.Text, piece.Style > 0 ? bold : regular, at, pieceColor, Flags);
+            var pieceColor = piece.Style switch { 3 => linkColor ?? color, 2 => alertColor ?? boldColor, 1 => boldColor, _ => color };
+            TextRenderer.DrawText(g, piece.Text, piece.Style is 1 or 2 ? bold : regular, at, pieceColor, Flags);
         }
     }
 
@@ -67,7 +68,7 @@ internal sealed class RichText(Font regular, Font bold)
     }
 
     private int Width(string text, int style) =>
-        text.Length == 0 ? 0 : TextRenderer.MeasureText(text, style > 0 ? bold : regular, Size.Empty, Flags).Width;
+        text.Length == 0 ? 0 : TextRenderer.MeasureText(text, style is 1 or 2 ? bold : regular, Size.Empty, Flags).Width;
 
     private void Layout(string markdown, int width, int maxLines)
     {
@@ -113,8 +114,12 @@ internal sealed class RichText(Font regular, Font bold)
             x = 0;
         }
 
-        foreach (var (raw, tokenStyle) in tokens)
+        var lineStart = true; // the next word starts a line of the text (after a line break)
+        foreach (var (raw, rawStyle) in tokens)
         {
+            // "#123456" starting a line: a ticket number (a link in list notifications).
+            var tokenStyle = lineStart && rawStyle == 0 && System.Text.RegularExpressions.Regex.IsMatch(raw, @"^#\d+\s*$") ? 3 : rawStyle;
+            lineStart = raw == "\n";
             if (raw == "\n")
             {
                 paragraph++;

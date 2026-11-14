@@ -81,6 +81,9 @@ public sealed class PopupForm : Form
     /// <summary>A ticket line in a list was clicked ("#123456 Subject"): open that ticket rather than the whole list.</summary>
     public long? ClickedTicketId { get; private set; }
 
+    /// <summary>Ticket numbers that can be clicked: the accent of normal tickets (the theme's link color).</summary>
+    private Color LinkColor => _palette.Accent("normal", NotificationKind.NewTicket);
+
     /// <summary>The ticket lines of a list notification, and the one the mouse is on (underlined).</summary>
     private List<(long TicketId, Rectangle Bounds)> _ticketLines = [];
     private long? _hoverTicket;
@@ -577,6 +580,10 @@ public sealed class PopupForm : Form
             Notifier.ActionSignIn => _palette.Terminal ? "[ sign in ]" : "Sign in",
             Notifier.ActionSettings => _palette.Terminal ? "[ settings ]" : "Open Settings",
             Notifier.ActionInfo => _palette.Terminal ? "[ close ]" : "Close",
+            var u when u.StartsWith(NotificationActions.UrlPrefix, StringComparison.Ordinal) =>
+                _palette.Terminal ? "[ notes ]" : "Release notes",
+            var a when a.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal) || _content.TicketCount > 1 =>
+                _palette.Terminal ? "[ see all ]" : "See all", // a list: opens all of them in Zendesk
             _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
         };
         // The second button: Snooze on ticket notifications, Close on everything else (summary, welcome, update), none
@@ -656,7 +663,22 @@ public sealed class PopupForm : Form
             ? $"> zendesk-watcher --{(_content.Kind == NotificationKind.NewTicket ? "new" : "update")}{(_content.PriorityShort is { } p ? $" {p.Replace(" ", "")}" : "")}{(_content.Context is null ? "" : $"  grp:{_content.Context}")}"
             : _content.FullHeading.ToUpperInvariant();
         var headingColor = _palette.Terminal ? _palette.Muted : _palette.Dark ? _accent : Blend(_accent, Color.Black, 0.1f);
-        DrawText(g, heading, _headingFont, _headingRect, headingColor, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+        if (!_palette.Terminal && PriorityTag.Short(_content.Priority) is { } tag)
+        {
+            // "NEW TICKET [P2] · SUPPORT TIER 2": the priority as a tag in its color, easier to read than "· P2 ·".
+            var before = _content.Heading.ToUpperInvariant() + " ";
+            var after = string.IsNullOrWhiteSpace(_content.Context) ? "" : " \u00b7 " + _content.Context!.ToUpperInvariant();
+            const TextFormatFlags Line = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+            var x = _headingRect.X;
+            var beforeWidth = TextRenderer.MeasureText(g, before, _headingFont, Size.Empty, Line).Width;
+            DrawText(g, before, _headingFont, new Rectangle(x, _headingRect.Y, beforeWidth, _headingRect.Height), headingColor, Line);
+            x += beforeWidth;
+            x += PriorityTag.Draw(g, tag, _accent, x, _headingRect.Y + _headingRect.Height / 2, _s);
+            DrawText(g, after, _headingFont, new Rectangle(x, _headingRect.Y, Math.Max(0, _headingRect.Right - x), _headingRect.Height), headingColor,
+                Line | TextFormatFlags.EndEllipsis);
+        }
+        else
+            DrawText(g, heading, _headingFont, _headingRect, headingColor, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
 
         var closeHover = _hoverButton == _closeRect;
         if (closeHover && !_palette.Terminal)
@@ -693,9 +715,12 @@ public sealed class PopupForm : Form
         DrawText(g, title, _titleFont, _titleRect, _palette.Text, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
         if (_bodyRect.Height > 0)
         {
+            // Alerts (an SLA deadline) in the theme's urgent color; in a list, the ticket numbers in the link color (clickable).
             _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text,
-                _palette.Accent("urgent", _content.Kind)); // alerts (an SLA deadline) in the theme's urgent color
-            _ticketLines = _content.TicketCount > 1 && !typing ? _rich.TicketLines(body, _bodyRect, _content.MaxBodyLines) : [];
+                _palette.Accent("urgent", _content.Kind), _content.TicketCount > 1 ? LinkColor : null);
+            // Clickable only in real notifications (a "Try it" sample opens nothing).
+            _ticketLines = _content.TicketCount > 1 && !typing && _content.ResolvedAction != NotificationActions.None
+                ? _rich.TicketLines(body, _bodyRect, _content.MaxBodyLines) : [];
             if (_ticketLines.FirstOrDefault(l => l.TicketId == _hoverTicket) is { Bounds.Width: > 0 } hovered)
             {
                 using var underline = new Pen(_palette.Text, Math.Max(1, Px(1)));
