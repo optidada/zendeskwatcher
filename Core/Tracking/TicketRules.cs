@@ -36,20 +36,6 @@ public static class TicketRules
         : scheduled >= total ? $", **{(total == 2 ? "both" : "all")} Scheduled**"
         : $", **{scheduled} of them Scheduled**";
 
-    /// <summary>
-    /// Statuses that are trusted for a while: "In progress" (someone is on it) and "Scheduled" (a time was agreed,
-    /// so a reply like "Thanks, see you Tuesday" needn't be answered). Matched by name.
-    /// </summary>
-    public static bool IsTrustedStatus(string? statusLabel) =>
-        statusLabel?.Contains("in progress", StringComparison.OrdinalIgnoreCase) == true
-        || statusLabel?.Contains("scheduled", StringComparison.OrdinalIgnoreCase) == true;
-
-    /// <summary>
-    /// A customer who wrote last is worth a notification whatever the status (pending, on-hold, escalated, …): they
-    /// still need an answer. Only "In progress" and "Scheduled" are trusted for <paramref name="grace"/> after their reply.
-    /// </summary>
-    public static bool CustomerWaitingNeedsNotice(string? statusLabel, DateTimeOffset repliedAt, DateTimeOffset now, TimeSpan grace) =>
-        !IsTrustedStatus(statusLabel) || now - repliedAt >= grace;
 
     /// <summary>
     /// How the ticket's client should notify right now (Clients page): Normal unless a choice was made. A ticket
@@ -58,28 +44,6 @@ public static class TicketRules
     public static ClientMode ClientMode(Ticket ticket, Settings settings, DateTimeOffset now) =>
         settings.ClientChoiceFor(ticket.OrganizationId)?.ModeAt(now) ?? ZendeskWatcher.ClientMode.Normal;
 
-    /// <summary>
-    /// Not used yet (a possible "Contoso · Enterprise" label). The text after the client's name from an organization field: a dropdown's option name ("Enterprise"),
-    /// the field's title for a ticked checkbox ("VIP"), otherwise the value as written. Null when empty or none chosen.
-    /// </summary>
-    public static string? ClientLabel(Organization? org, OrganizationField? field)
-    {
-        if (field is null || org?.OrganizationFields?.GetValueOrDefault(field.Key) is not { } value)
-            return null;
-        var text = value.ValueKind switch
-        {
-            System.Text.Json.JsonValueKind.String => value.GetString(),
-            System.Text.Json.JsonValueKind.Number => value.GetRawText(),
-            System.Text.Json.JsonValueKind.True => field.Title,
-            _ => null
-        };
-        if (string.IsNullOrWhiteSpace(text))
-            return null;
-        var option = field.CustomFieldOptions?.FirstOrDefault(o => string.Equals(o.Value, text, StringComparison.OrdinalIgnoreCase));
-        text = (option?.Name ?? text).Trim();
-        return text.Length > 30 ? text[..30] + "…" : text;
-    }
-
     /// <summary>The confirmation after a choice from a notification's "Mute ▾" menu: a title and what it means.</summary>
     public static (string Title, string Body) ClientChoiceConfirmation(ClientChoice choice, DateTimeOffset now)
     {
@@ -87,7 +51,7 @@ public static class TicketRules
         return choice.ModeAt(now) switch
         {
             ZendeskWatcher.ClientMode.Muted when choice.MutedUntil is { } until =>
-                ($"Muted {choice.Name} until {until.ToLocalTime().ToString("ddd HH:mm", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))}",
+                ($"Muted {choice.Name} until {Clock.DayTime(until.ToLocalTime().DateTime)}",
                  $"No notifications about their new tickets or colleagues' tickets until then. Your own tickets still notify. {where}"),
             ZendeskWatcher.ClientMode.Muted =>
                 ($"Muted {choice.Name}", $"No more notifications about their new tickets or colleagues' tickets. Your own tickets still notify. {where}"),
@@ -145,7 +109,7 @@ public static class TicketRules
     /// <summary>"since 17:00", "since yesterday 17:00" or "since Fri 17:00".</summary>
     public static string CatchUpSince(DateTime since, DateTime localNow)
     {
-        var time = since.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        var time = Clock.Time(since);
         return since.Date == localNow.Date ? $"since {time}"
             : since.Date == localNow.Date.AddDays(-1) ? $"since yesterday {time}"
             : $"since {since.ToString("ddd", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))} {time}";

@@ -72,7 +72,14 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// <summary>The name in the sidebar: the title, unless a page has a shorter one.</summary>
     public virtual string NavTitle => Title;
 
-    public FlowLayoutPanel Panel { get; } = Kit.Page(title, subtitle);
+    /// <summary>The page's controls. Its layout is suspended while the page builds itself; the window resumes it once.</summary>
+    public FlowLayoutPanel Panel { get; } = Suspended(Kit.Page(title, subtitle));
+
+    private static FlowLayoutPanel Suspended(FlowLayoutPanel panel)
+    {
+        panel.SuspendLayout();
+        return panel;
+    }
 
     /// <summary>Shows these values: the saved ones after all pages are built, and the defaults on Reset.</summary>
     public abstract void Load(Settings settings);
@@ -95,7 +102,7 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// <param name="message">The strip's text; by default about lists from Zendesk.</param>
     protected void UseSignedOutStrip(Action<bool> setReadOnly, string? message = null)
     {
-        var text = Theme.Label(message ?? "Not signed in: your choices still apply, but the lists may be out of date and are locked until you sign in.",
+        var text = Theme.Label(message ?? "Not signed in: your choices still apply. Sign in to change the lists.",
             Theme.Small, Theme.Warning, Kit.CardWidth - 70); // wraps, with "Sign in" next to it
         var link = Kit.LinkLabel("Sign in", Theme.Small);
         text.Margin = new Padding(0, 0, 10, 0);
@@ -131,7 +138,7 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
             {
                 case CheckBox box: box.CheckedChanged += (_, _) => Changed(); break;
                 case RadioButton radio: radio.CheckedChanged += (_, _) => Changed(); break;
-                case ComboBox combo: combo.SelectedIndexChanged += (_, _) => Changed(); break;
+                case ChoiceBox choice: choice.SelectedIndexChanged += (_, _) => Changed(); break;
                 case NumericUpDown number: number.ValueChanged += (_, _) => Changed(); break;
                 default: control.TextChanged += (_, _) => Changed(); break;
             }

@@ -242,10 +242,6 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
-    /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
-    public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct) =>
-        (await GetOrganizationAsync(organizationId, ct))?.Name;
-
     /// <summary>An organization with its fields (cached for this session). Null if it can't be read.</summary>
     public async Task<Organization?> GetOrganizationAsync(long organizationId, CancellationToken ct)
     {
@@ -358,6 +354,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// </summary>
     public Task<List<Ticket>> GetAssignedOpenTicketsUpdatedSinceAsync(long groupId, DateTimeOffset since, CancellationToken ct) =>
         SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
+
+    /// <summary>All open tickets in a group that are assigned to someone (for Insights → Your team).</summary>
+    public Task<List<Ticket>> GetAssignedOpenTicketsAsync(long groupId, CancellationToken ct) =>
+        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved", ct);
 
     private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct) =>
         await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct);

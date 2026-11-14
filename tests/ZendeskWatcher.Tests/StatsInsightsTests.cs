@@ -98,11 +98,32 @@ public class StatsInsightsTests
     public void Useful_notifications_get_a_thumbs_up()
     {
         Add(NotificationKind.MyTicket, StatOutcome.Shown, 20).Add(NotificationKind.MyTicket, StatOutcome.OpenedTicket, 8)
-            .Add(NotificationKind.MyTicket, StatOutcome.OpenedZendesk, 1).Add(NotificationKind.MyTicket, StatOutcome.Took, 2);
+            .Add(NotificationKind.MyTicket, StatOutcome.OpenedZendesk, 1).Add(NotificationKind.MyTicket, StatOutcome.Took, 2)
+            .Add(NotificationKind.MyTicket, StatOutcome.Acted, 11);
 
         var insight = Assert.Single(Analyze());
         Assert.Equal(StatsInsights.Tone.Good, insight.Tone);
-        Assert.Contains("you opened, took or copied 55%", insight.Text);
+        Assert.Contains("you acted on 55%", insight.Text);
+    }
+
+    [Fact]
+    public void Acted_on_is_counted_or_estimated_for_days_before_it_was_counted()
+    {
+        var stats = new NotificationStats();
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        void Add(DateOnly day, StatOutcome outcome, int count)
+        {
+            for (var i = 0; i < count; i++)
+                stats.Record(NotificationKind.MyTicket, outcome, day);
+        }
+        Add(today, StatOutcome.Shown, 5);         // counted: 2 acted on (e.g. opened 1, copied 1)
+        Add(today, StatOutcome.OpenedTicket, 1);
+        Add(today, StatOutcome.Acted, 2);
+        Add(today.AddDays(-5), StatOutcome.Shown, 4); // before: estimated from opened + copied (at most the shown ones)
+        Add(today.AddDays(-5), StatOutcome.OpenedTicket, 2);
+        Add(today.AddDays(-5), StatOutcome.Copied, 1);
+
+        Assert.Equal(5, stats.Totals(today)[(NotificationKind.MyTicket, StatOutcome.Acted)]);
     }
 
     [Fact]

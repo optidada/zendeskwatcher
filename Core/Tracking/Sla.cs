@@ -101,16 +101,19 @@ public static class Sla
     public static SlaTarget? TeamTarget(string type, string? priority, bool firstReply) =>
         (firstReply ? FirstReply : FollowUp).TryGetValue(type, out var row) ? row[Column(priority)] : null;
 
-    /// <summary>The target in use and where it comes from: your change, the default, an estimate, else Standard's default.</summary>
+    /// <summary>
+    /// The target in use and where it comes from: your change, then what Zendesk's own timers show (the real policies),
+    /// then the team's default, else Standard's default.
+    /// </summary>
     public static (SlaTarget Target, SlaSource Source) Resolve(string type, string? priority, bool firstReply,
         IReadOnlyList<SlaOverride>? overrides = null, SlaLearning? learned = null)
     {
         if (overrides?.LastOrDefault(o => o.Type == type && o.FirstReply == firstReply && Column(o.Priority) == Column(priority)) is { } changed)
             return (new SlaTarget(changed.Minutes, changed.WorkingDays), SlaSource.Custom);
-        if (TeamTarget(type, priority, firstReply) is { } team)
-            return (team, SlaSource.Default);
         if (learned?.Estimate(type, priority, firstReply) is { } estimate)
             return (estimate.Target, SlaSource.Estimated);
+        if (TeamTarget(type, priority, firstReply) is { } team)
+            return (team, SlaSource.Default);
         return (TeamTarget(StandardKey, priority, firstReply)!.Value, SlaSource.Default);
     }
 

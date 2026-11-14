@@ -73,13 +73,14 @@ public class NotificationStyleTests
         Assert.Equal(25, settings.DisplaySecondsFor(content));
     }
 
-    [Fact]
-    public void Edited_display_times_snap_to_a_choice()
-    {
-        var times = new TicketDisplayTimes { Urgent = -5, High = 45, Normal = 7, Low = 600 }; // e.g. an edited settings file
-        times.Normalize();
-        Assert.Equal((0, 30, 10, 60), (times.Urgent, times.High, times.Normal, times.Low));
-    }
+    [Theory]
+    [InlineData(DisplayLength.Short, "urgent", 0)] // urgent: always until dismissed
+    [InlineData(DisplayLength.Short, "high", 30)]
+    [InlineData(DisplayLength.Short, "low", 10)]
+    [InlineData(DisplayLength.Long, "high", 0)]
+    [InlineData(DisplayLength.Long, null, 60)]
+    public void Short_and_long_shift_every_priority(DisplayLength length, string? priority, int seconds) =>
+        Assert.Equal(seconds, TicketDisplayTimes.For(length, priority));
 
     [Theory]
     [InlineData(NotificationKind.NewTicket, ToastSound.Default)]
@@ -121,5 +122,16 @@ public class NotificationStyleTests
 
         settings.NotificationsLikeApp = false;
         Assert.Equal(NotificationTheme.NeonDark, settings.ActiveNotificationTheme);
+    }
+
+    [Theory]
+    [InlineData(DisplayLength.Short, ToastDisplay.Standard, ToastDisplay.Medium)]
+    [InlineData(DisplayLength.Normal, ToastDisplay.Medium, ToastDisplay.Long)]
+    [InlineData(DisplayLength.Long, ToastDisplay.Long, ToastDisplay.UntilDismissed)]
+    public void The_summary_and_app_messages_follow_short_normal_long(DisplayLength length, ToastDisplay summary, ToastDisplay app)
+    {
+        var settings = new Settings { TicketDisplayLength = length };
+        settings.ApplyDisplayLength();
+        Assert.Equal((summary, app), (settings.SummaryStyle.Display, settings.AppMessageStyle.Display));
     }
 }

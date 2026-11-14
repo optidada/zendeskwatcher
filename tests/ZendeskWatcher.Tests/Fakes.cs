@@ -54,6 +54,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
     /// <summary>Ticket id -> its changes.</summary>
     public Dictionary<long, List<Audit>> Audits { get; } = [];
 
+    /// <summary>Group id → its members (agents), for the group's users list.</summary>
+    public Dictionary<long, List<long>> GroupMembers { get; } = [];
+
     public Dictionary<long, User> Users { get; } = [];
     public List<CustomStatus> CustomStatuses { get; } = [];
     public Dictionary<long, string> Organizations { get; } = [];
@@ -140,6 +143,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
         {
             "/api/v2/users/me.json" => new { user = Me },
             "/api/v2/groups.json" => new { groups = Groups },
+            _ when GroupUsersPath().Match(path) is { Success: true } gm =>
+                new { users = GroupMembers.GetValueOrDefault(long.Parse(gm.Groups[1].Value), []).Where(Users.ContainsKey).Select(id => Users[id]).ToList() },
             "/api/v2/custom_statuses.json" => new { custom_statuses = CustomStatuses },
             "/api/v2/search.json" => new { results = Search(query) },
             "/api/v2/tickets/show_many.json" => new { tickets = ShowMany(query) },
@@ -200,6 +205,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     [GeneratedRegex(@"^/api/v2/tickets/(\d+)/audits\.json$")]
     private static partial Regex AuditsPath();
+
+    [GeneratedRegex(@"^/api/v2/groups/(\d+)/users\.json$")]
+    private static partial Regex GroupUsersPath();
 
     [GeneratedRegex(@"^/api/v2/users/(\d+)\.json$")]
     private static partial Regex UserPath();

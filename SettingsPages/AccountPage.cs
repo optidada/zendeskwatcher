@@ -11,6 +11,8 @@ internal sealed class AccountPage : SettingsPage
     private readonly InputBox _subdomain = new(220, "e.g. yourcompany");
     private readonly StatusDot _dot = new();
     private readonly Label _status = Theme.Label("Not signed in", maxWidth: Kit.CardWidth - 70);
+    /// <summary>"Signed in for 5 h 12 min. …" under the status, when the sign-in time is known.</summary>
+    private readonly Label _sessionAge = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 70);
     private readonly Button _signIn = Theme.PrimaryButton("Sign in");
     private readonly Button _signOut = Theme.SecondaryButton("Sign out");
     private readonly Button _catchUp = Theme.SecondaryButton("Catch up");
@@ -41,8 +43,7 @@ internal sealed class AccountPage : SettingsPage
         _groups = groups;
 
         var account = new Card("Zendesk account",
-            "Your Zendesk address. You sign in as usual (Okta) in a built-in browser window; " +
-            "the app reads tickets with your own permissions.", Kit.CardWidth);
+            "The address you use for Zendesk. You sign in as usual (Okta), and the app sees only what you can see.", Kit.CardWidth);
         account.Body.Controls.Add(Kit.Row(_subdomain, Theme.Label(".zendesk.com", color: Theme.TextMuted)));
         _lockedHint.Margin = new Padding(0, 6, 0, 0);
         _lockedHint.Visible = false;
@@ -51,6 +52,9 @@ internal sealed class AccountPage : SettingsPage
 
         var status = new Card("Status", null, Kit.CardWidth);
         status.Body.Controls.Add(Kit.Row(_dot, _status));
+        _sessionAge.Margin = new Padding(26, 0, 0, 0); // under the status text, past the dot
+        _sessionAge.Visible = false;
+        status.Body.Controls.Add(_sessionAge);
         var buttons = Kit.Row(_signIn, _signOut);
         buttons.Margin = new Padding(0, 12, 0, 0);
         status.Body.Controls.Add(buttons);
@@ -58,8 +62,8 @@ internal sealed class AccountPage : SettingsPage
 
         // Its own card, shown once signed in (it needs the app to be checking with this account).
         _catchUpCard = new Card("Catch up",
-            "What still needs you since you last stopped working: unassigned tickets and waiting customers. " +
-            "Also in the tray menu, and by itself when your day starts.", Kit.CardWidth);
+            "What still needs you since you last worked: unassigned tickets and waiting customers. Also in the tray menu, " +
+                "and automatic when your day starts.", Kit.CardWidth);
         _catchUpCard.Body.Controls.Add(_catchUp);
         _catchUpCard.Visible = false;
         Panel.Controls.Add(_catchUpCard);
@@ -253,7 +257,21 @@ internal sealed class AccountPage : SettingsPage
             _catchUp.Text = $"Catch up {when}";
     }
 
-    public override void OnShowing() => UpdateCatchUp();
+    public override void OnShowing()
+    {
+        UpdateCatchUp();
+        UpdateSessionAge();
+    }
+
+    /// <summary>How long ago you signed in, while signed in (sessions end after about 8 hours).</summary>
+    private void UpdateSessionAge()
+    {
+        var text = _signedIn ? SignInTime.Text() : null;
+        _sessionAge.Text = text is null ? "" : text + " Zendesk asks you to sign in again after about 8 hours.";
+        _sessionAge.Visible = text is not null;
+    }
+
+    private bool _signedIn;
 
     private async Task SignInAsync()
     {
@@ -316,6 +334,8 @@ internal sealed class AccountPage : SettingsPage
         if (state != AccountState.Checking && !_initialStatus)
             Context.SetSignedOut(state == AccountState.SignedOut);
         _status.Text = text;
+        _signedIn = state == AccountState.SignedIn;
+        UpdateSessionAge();
         _dot.DotColor = state switch
         {
             AccountState.SignedIn => Theme.Success,

@@ -16,8 +16,9 @@ internal sealed class ClientsView
 
     private readonly AssigneeList _list;
     private readonly ThinScrollBar _scrollBar = new() { BackColor = Theme.Surface };
-    private readonly Label _message = new()
+    private readonly Label _message = new LinkedLabel
     {
+        AutoSize = false,
         Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Font = Theme.Body, ForeColor = Theme.TextMuted,
         BackColor = Theme.Surface, Visible = false
     };
@@ -123,7 +124,7 @@ internal sealed class ClientsView
             _ => null
         };
         var until = choice.IsMutedAt(now) && choice.MutedUntil is { } end
-            ? $"muted until {end.ToLocalTime().ToString("ddd HH:mm", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))}"
+            ? $"muted until {Clock.DayTime(end.ToLocalTime().DateTime)}"
             : null;
         var text = string.Join("  ", new[] { mode, until, choice.Sound is null ? null : "\u266a" }.Where(t => t is not null));
         return text.Length == 0 ? null : (text, choice.ModeAt(now) == ClientMode.Important);

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ZendeskWatcher.Tracking;
+using ZendeskWatcher.Zendesk;
 using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.SettingsPages;
@@ -10,17 +11,27 @@ internal sealed class StatisticsPage : SettingsPage
     private static readonly (NotificationKind Kind, string Label)[] Kinds =
     [
         (NotificationKind.NewTicket, "New tickets"), (NotificationKind.MyTicket, "My tickets"),
-        (NotificationKind.CcTicket, "CC / following"), (NotificationKind.HelpColleague, "Colleagues' tickets")
+        (NotificationKind.CcTicket, "CC / following"), (NotificationKind.HelpColleague, "Colleagues")
     ];
 
     private static readonly (StatOutcome Outcome, string Label)[] Columns =
     [
-        (StatOutcome.Shown, "Shown"), (StatOutcome.OpenedTicket, "Opened"),
-        (StatOutcome.Took, "Took it"), (StatOutcome.Snoozed, "Snoozed"), (StatOutcome.Closed, "Closed"), (StatOutcome.TimedOut, "Timed out"),
+        (StatOutcome.Shown, "Shown"), (StatOutcome.Acted, "Acted on"), (StatOutcome.OpenedTicket, "Opened"),
+        (StatOutcome.Took, "Took"), (StatOutcome.Snoozed, "Snoozed"), (StatOutcome.Closed, "Closed"), (StatOutcome.TimedOut, "Timed out"),
         (StatOutcome.Copied, "Copied")
     ];
 
     private readonly Label _nowStatus = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+    private readonly Label _teamTitle = Theme.Label("Your team", Theme.BodyBold, Theme.Text);
+    private readonly Label _teamStatus = Theme.Linked("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+    private readonly TableLayoutPanel _team = new() { ColumnCount = 6, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
+
+    /// <summary>How often the team's tickets are read again, at most (only while Insights is shown).</summary>
+    private static readonly TimeSpan TeamRefresh = TimeSpan.FromMinutes(10);
+
+    /// <summary>The team as last read: for which account and groups, when, the region, the rows, and which status names count as escalated / scheduled.</summary>
+    private static (string Key, DateTime At, TimeRegion Region, List<WorkloadRow> Rows, string[] Escalated, string[] Scheduled)? _teamCache;
+    private int _teamVersion;
     private readonly TableLayoutPanel _now = new() { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 4, 0, 0) };
     private readonly ToolTip _tips = new();
     private readonly Label _summary = Theme.Label("", Theme.Body, Theme.Text, Kit.CardWidth - 44);
@@ -29,12 +40,15 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly TableLayoutPanel _insights = new() { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
 
     public StatisticsPage(SettingsContext context)
-        : base(context, "Insights", "What's waiting now, the last 30 days of ticket notifications and what you did with them, and " +
-            "suggestions. Counted on this PC only.")
+        : base(context, "Insights", "What's waiting now, how you used notifications, and tips. Counted on this PC only.")
     {
         var now = new Card("Right now", null, Kit.CardWidth);
         now.Body.Controls.Add(_nowStatus);
         now.Body.Controls.Add(_now);
+        _teamTitle.Margin = new Padding(0, 14, 0, 0);
+        now.Body.Controls.Add(_teamTitle);
+        now.Body.Controls.Add(_teamStatus);
+        now.Body.Controls.Add(_team);
         Panel.Controls.Add(now);
         // Updated after every check while the window is open.
         WatchStatus.Changed += ShowNow;
@@ -44,15 +58,12 @@ internal sealed class StatisticsPage : SettingsPage
         card.Body.Controls.Add(_summary);
         card.Body.Controls.Add(_table);
         card.Body.Controls.Add(Theme.Label(
-            "Opened: the ticket, or Zendesk for a notification about several tickets. Timed out: disappeared on its own, " +
-            "or went to the Windows notification center. Copied: copied for Teams (it can be opened as well). A snoozed notification " +
-            "counts again for what you do when it comes back. " +
-            "Windows notifications are only counted while Zendesk Watcher runs.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
+            "Acted on: opened, taken or copied. A snoozed notification counts for what you do when it comes back.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         _clear.Margin = new Padding(0, 10, 0, 0);
         card.Body.Controls.Add(_clear);
         Panel.Controls.Add(card);
 
-        var suggestions = new Card("Suggestions", "Based on the last 30 days: is a kind of notification ignored, closed right away, or just too frequent?", Kit.CardWidth);
+        var suggestions = new Card("Suggestions", "Based on the last 30 days.", Kit.CardWidth);
         suggestions.Body.Controls.Add(_insights);
         Panel.Controls.Add(suggestions);
 
@@ -70,12 +81,156 @@ internal sealed class StatisticsPage : SettingsPage
 
     public override void Apply(Settings settings) { } // nothing to save: the statistics are kept as they happen
 
-    public override void OnShowing() => Refresh();
+    public override void OnShowing()
+    {
+        Refresh();
+        RefreshTeam();
+    }
+
+    // ------------------------------------------------------------------ your team
+
+    /// <summary>
+    /// Your region's teammates in your monitored groups (from their Zendesk time zones, like the Colleagues page), and
+    /// their open tickets in those groups. Read when Insights is shown, at most every 10 minutes.
+    /// </summary>
+    private async void RefreshTeam()
+    {
+        var version = ++_teamVersion;
+        var settings = Context.Current();
+        var groups = settings.WatchedGroups.Where(g => !g.IsNoGroup).Select(g => g.Id).Order().ToList();
+        if (Context.Client is not { } client || Context.Me is not { } me)
+        {
+            ShowTeam(_teamCache?.Region, _teamCache?.Rows, "Sign in to see your team.");
+            return;
+        }
+        if (groups.Count == 0)
+        {
+            ShowTeam(null, null, "Choose groups to monitor (Groups page) to see your team.");
+            return;
+        }
+        var key = $"{settings.Subdomain}|{string.Join(',', groups)}";
+        if (_teamCache is { } cached && cached.Key == key && DateTime.UtcNow - cached.At < TeamRefresh)
+        {
+            ShowTeam(cached.Region, cached.Rows, null, cached.At, cached.Escalated, cached.Scheduled);
+            return;
+        }
+        if (_teamCache is null || _teamCache.Value.Key != key)
+            ShowTeam(null, null, "Loading your team\u2026");
+        try
+        {
+            var region = TimeRegions.Mine(me);
+            var members = await Task.WhenAll(groups.Select(id => client.GetGroupMembersAsync(id, CancellationToken.None)));
+            var team = members.SelectMany(m => m)
+                .Where(u => u.Role != "end-user" && (u.Id == me.Id || TimeRegions.Of(TimeRegions.ZoneOf(u)) == region))
+                .DistinctBy(u => u.Id)
+                .ToDictionary(u => u.Id, u => u.Id == me.Id ? "You" : u.Name ?? $"User {u.Id}");
+            var tickets = await Task.WhenAll(groups.Select(id => client.GetAssignedOpenTicketsAsync(id, CancellationToken.None)));
+            var statuses = (await client.GetCustomStatusesAsync(CancellationToken.None))
+                .Where(s => s.AgentLabel is { Length: > 0 }).ToDictionary(s => s.Id, s => s.AgentLabel!);
+            var rows = TeamWorkload.Count(tickets.SelectMany(t => t), team, me.Id, statuses);
+            string[] Names(Func<string, bool> which) => [.. statuses.Values.Where(which).Distinct().Order()];
+            _teamCache = (key, DateTime.UtcNow, region, rows, Names(TeamWorkload.IsEscalatedStatus), Names(n => TicketRules.IsScheduled(n)));
+            if (version == _teamVersion && !Panel.IsDisposed)
+            {
+                var c = _teamCache.Value;
+                ShowTeam(c.Region, c.Rows, null, c.At, c.Escalated, c.Scheduled);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (ex is not AuthRequiredException)
+                Log.Error("Insights: could not read the team's tickets", ex);
+            if (version == _teamVersion && !Panel.IsDisposed)
+                ShowTeam(_teamCache?.Region, _teamCache?.Rows, "Couldn't read your team's tickets just now.");
+        }
+    }
+
+    /// <summary>For the screenshot tool: a sample team, as if just read.</summary>
+    internal static void SetTeamSample(string subdomain, IEnumerable<long> groups, TimeRegion region, List<WorkloadRow> rows) =>
+        _teamCache = ($"{subdomain}|{string.Join(',', groups.Order())}", DateTime.UtcNow, region, rows,
+            ["Escalated internally", "Escalated to Engineering"], ["Scheduled"]);
+
+    private void ShowTeam(TimeRegion? region, List<WorkloadRow>? rows, string? message, DateTime? at = null,
+        string[]? escalated = null, string[]? scheduled = null)
+    {
+        var key = $"{region}|{rows?.GetHashCode()}|{message}|{at:O}";
+        if (key == _teamShown)
+            return;
+        _teamShown = key;
+        _teamTitle.Text = region is { } r ? $"Your team \u00b7 {TimeRegions.Name(r)}" : "Your team";
+        _teamStatus.Text = message ?? (rows is { Count: > 0 }
+            ? $"Busiest first. Click a name to see their tickets; point at a heading for details. Updated " +
+                $"{(at is { } read ? Clock.Time(read.ToLocalTime()) : "")}."
+            : "No colleagues in your region in these groups.");
+        _team.SuspendLayout();
+        foreach (var old in _team.Controls.Cast<Control>().ToList())
+            old.Dispose();
+        _team.Controls.Clear();
+        _team.Visible = rows is { Count: > 0 };
+        if (rows is { Count: > 0 })
+        {
+            (string Text, string Tip)[] headers =
+            [
+                ("", ""), ("Open", "New and Open, also In progress and other open statuses"), ("P1/P2", "Of the open ones: Urgent or High"),
+                ("Escalated", escalated is { Length: > 0 } e ? string.Join(", ", e) : "No status with \u201cescalat\u201d in its name"),
+                ("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with \u201cscheduled\u201d in its name"),
+                ("Pending/On-hold", "Waiting on the customer or someone else")
+            ];
+            for (var c = 0; c < headers.Length; c++)
+            {
+                var header = Cell(headers[c].Text, Theme.Small, Theme.TextMuted, left: c == 0);
+                if (headers[c].Tip.Length > 0)
+                    _tips.SetToolTip(header, headers[c].Tip);
+                _team.Controls.Add(header, c, 0);
+            }
+            var baseUrl = Context.Current().BaseUrl;
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                var name = Kit.LinkLabel(row.Name, row.IsMe ? Theme.BodyBold : Theme.Body);
+                name.Margin = new Padding(0, 4, 18, 4);
+                var query = $"assignee:{row.AssigneeId} status<solved";
+                _tips.SetToolTip(name, $"{(row.IsMe ? "Your" : $"{row.Name}'s")} unsolved tickets \u2013 opens in Zendesk");
+                name.Click += (_, _) => OpenSearch(baseUrl, query);
+                _team.Controls.Add(name, 0, i + 1);
+                _team.Controls.Add(Number(row.Open), 1, i + 1);
+                _team.Controls.Add(Number(row.UrgentOrHigh), 2, i + 1);
+                _team.Controls.Add(Number(row.Escalated), 3, i + 1);
+                _team.Controls.Add(Number(row.Scheduled), 4, i + 1);
+                _team.Controls.Add(Number(row.Waiting), 5, i + 1);
+            }
+        }
+        _team.ResumeLayout();
+
+        static Label Number(int n) => Cell(n == 0 ? "\u2013" : n.ToString(), Theme.Body, n == 0 ? Theme.TextMuted : Theme.Text);
+    }
+
+    /// <summary>What each part last showed: shown again unchanged, it isn't rebuilt (about 100 labels).</summary>
+    private string? _statsShown, _nowShown, _teamShown;
 
     private void Refresh()
     {
-        ShowNow();
+        Panel.SuspendLayout(); // one layout for everything below, not one per label
+        try
+        {
+            ShowNow();
+            ShowStats();
+        }
+        finally
+        {
+            Panel.ResumeLayout(true);
+        }
+    }
+
+    private void ShowStats()
+    {
         var totals = Context.Notifier.Stats.Totals(DateOnly.FromDateTime(DateTime.Now));
+        var today_ = DateOnly.FromDateTime(DateTime.Now);
+        var key = string.Join(";", totals.OrderBy(kv => kv.Key.Kind).ThenBy(kv => kv.Key.Outcome).Select(kv => $"{kv.Key}={kv.Value}"))
+                  + $"|{Context.Notifier.Stats.ActiveDays(today_)}|{today_}|{Context.Current().ToJson().GetHashCode()}";
+        if (key == _statsShown)
+            return;
+        _statsShown = key;
         // "Opened" includes opening Zendesk from a notification about several tickets: the same reaction, no single ticket.
         int Count(NotificationKind kind, StatOutcome outcome) => outcome == StatOutcome.OpenedTicket
             ? totals.GetValueOrDefault((kind, StatOutcome.OpenedTicket)) + totals.GetValueOrDefault((kind, StatOutcome.OpenedZendesk))
@@ -83,11 +238,11 @@ internal sealed class StatisticsPage : SettingsPage
         int Total(StatOutcome outcome) => Kinds.Sum(k => Count(k.Kind, outcome));
 
         var shown = Total(StatOutcome.Shown);
-        var acted = Total(StatOutcome.OpenedTicket) + Total(StatOutcome.Took);
+        var acted = Total(StatOutcome.Acted);
         _summary.Text = shown == 0
             ? "No ticket notifications in the last 30 days yet."
-            : $"{shown} ticket notification{(shown == 1 ? "" : "s")}. You opened or took {acted} ({Percent(acted, shown)}), " +
-              $"snoozed {Total(StatOutcome.Snoozed)}, closed {Total(StatOutcome.Closed)}, and {Total(StatOutcome.TimedOut)} timed out.";
+            : $"{shown} ticket notification{(shown == 1 ? "" : "s")}. You acted on {acted} ({Percent(acted, shown)}), not on " +
+              $"{Math.Max(0, shown - acted)}; {Total(StatOutcome.Snoozed)} snoozed, {Total(StatOutcome.Closed)} closed and {Total(StatOutcome.TimedOut)} timed out.";
 
         _table.SuspendLayout();
         foreach (var old in _table.Controls.Cast<Control>().ToList())
@@ -159,13 +314,17 @@ internal sealed class StatisticsPage : SettingsPage
         if (Panel.IsDisposed)
             return;
         var snapshot = WatchStatus.Latest;
+        var key = $"{snapshot?.CheckedAt:O}|{WatchStatus.Problem}|{snapshot?.GetHashCode()}";
+        if (key == _nowShown)
+            return;
+        _nowShown = key;
         var settings = Context.Current();
         _nowStatus.Text = (snapshot, WatchStatus.Problem) switch
         {
             (null, { } problem) => problem,
             (null, null) => "Waiting for the first check\u2026",
-            (_, { } problem) => $"From the check at {snapshot.CheckedAt:HH:mm}. {problem}",
-            _ => $"From the last check, at {snapshot.CheckedAt:HH:mm}. Click a number to open the list in Zendesk."
+            (_, { } problem) => $"From the check at {Clock.Time(snapshot.CheckedAt)}. {problem}",
+            _ => $"From the last check, at {Clock.Time(snapshot.CheckedAt)}. Click a number to open the list in Zendesk."
         };
 
         _now.SuspendLayout();
@@ -248,7 +407,7 @@ internal sealed class StatisticsPage : SettingsPage
 
     private static Label Muted(string text)
     {
-        var label = Theme.Label(text, Theme.Body, Theme.TextMuted);
+        var label = Theme.Linked(text, Theme.Body, Theme.TextMuted);
         label.Margin = new Padding(0, 4, 4, 4);
         return label;
     }
@@ -306,6 +465,10 @@ internal sealed class StatisticsPage : SettingsPage
         Add(NotificationKind.HelpColleague, StatOutcome.Snoozed, 1);
         Add(NotificationKind.NewTicket, StatOutcome.Copied, 3);
         Add(NotificationKind.HelpColleague, StatOutcome.Copied, 1);
+        Add(NotificationKind.NewTicket, StatOutcome.Acted, 29);
+        Add(NotificationKind.MyTicket, StatOutcome.Acted, 40);
+        Add(NotificationKind.CcTicket, StatOutcome.Acted, 3);
+        Add(NotificationKind.HelpColleague, StatOutcome.Acted, 3);
         return stats;
     }
 }

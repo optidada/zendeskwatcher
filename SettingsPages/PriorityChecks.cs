@@ -15,12 +15,16 @@ internal sealed class PriorityChecks
     /// <summary>A box was ticked or unticked.</summary>
     public event Action? Changed;
 
-    public PriorityChecks(Padding margin)
+    /// <param name="label">Show "Priority" in front (off under a heading that already says it).</param>
+    public PriorityChecks(Padding margin, bool label = true)
     {
         Row = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = margin };
-        var label = Theme.Label("Priority");
-        label.Margin = new Padding(4, 6, 12, 0);
-        Row.Controls.Add(label);
+        if (label)
+        {
+            var text = Theme.Label("Priority");
+            text.Margin = new Padding(4, 6, 12, 0);
+            Row.Controls.Add(text);
+        }
         foreach (var (_, box) in _boxes)
         {
             box.Margin = new Padding(0, 3, 14, 3);

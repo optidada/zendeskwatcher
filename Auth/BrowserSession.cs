@@ -291,6 +291,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                 throw new OperationCanceledException("The sign-in window was closed.");
 
             Log.Info("Browser session: signed in");
+            SignInTime.Remember(); // for "Signed in for …" on the Account page
             _recoveredAt = DateTime.UtcNow;
             _recoveryFailedAt = default;
             File.Delete(SignedOutMarker);
@@ -308,6 +309,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     public void SignOut()
     {
         File.WriteAllText(SignedOutMarker, DateTime.Now.ToString("O")); // no silent sign-in until the user signs in again
+        SignInTime.Forget();
         if (_web.CoreWebView2 is null)
             return;
 

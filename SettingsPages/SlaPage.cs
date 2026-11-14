@@ -26,8 +26,9 @@ internal sealed class SlaPage : SettingsPage
     private readonly ChoicePills _which = new("First reply", "Follow-up");
     private readonly TableLayoutPanel _grid = new() { AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 10, 0, 4) };
     private readonly Label _explain = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-    private readonly Label _warning = Theme.Label("You've changed targets (orange): your deadlines differ from your colleagues'. " +
-        "Zendesk's own SLA timers still come first.", Theme.Small, Theme.Warning, Kit.CardWidth - 44);
+    /// <summary>"First reply targets" or "Follow-up targets": the table says which view the choice above shows.</summary>
+    private readonly Label _gridTitle = Theme.Label("", Theme.BodyBold, Theme.Text);
+    private readonly Label _warning = Theme.Label("You changed some targets (✎), so your deadlines differ from your colleagues'.", Theme.Small, Theme.Warning, Kit.CardWidth - 44);
     private readonly Label _reset = Kit.LinkLabel("Remove all my changes", Theme.Small);
     private readonly ToolTip _tips = new();
 
@@ -42,7 +43,7 @@ internal sealed class SlaPage : SettingsPage
     private readonly Dictionary<(string Type, int Column, bool FirstReply), SlaTarget> _custom = [];
 
     public SlaPage(SettingsContext context)
-        : base(context, "SLA", "How quickly we answer, by the client's SLA type in Zendesk and the ticket's priority.")
+        : base(context, "SLA", "How quickly we answer, by SLA type and priority.")
     {
         // What the checks learned; before the first check of this run, as saved last time.
         _learned = SlaLearning.Current ?? WatchState.Load().Sla;
@@ -50,14 +51,14 @@ internal sealed class SlaPage : SettingsPage
             .Where(t => !Sla.KnownTypes.Contains(t)).Distinct().OrderBy(t => Sla.Name(t, _learned), StringComparer.CurrentCultureIgnoreCase)];
         _cells = new Label[_types.Count, Priorities.Length];
 
-        var show = new Card("On notifications", "A deadline in red bold, e.g. “First reply due in 25 min” or “Reply overdue by 1 h”, " +
-            "counting down while it's on screen. When Zendesk has an SLA timer on the ticket, that's the deadline.", Kit.CardWidth);
+        var show = new Card("On notifications", "Shows e.g. “First reply due in 25 min” in red. When the ticket has a Zendesk SLA timer, that one is used.", Kit.CardWidth);
         show.Body.Controls.Add(_show);
         Panel.Controls.Add(show);
 
-        var targets = new Card("Targets", "For tickets without a Zendesk SLA timer. Clients without an SLA type count as Standard; " +
-            "new types in Zendesk get a row here.", Kit.CardWidth);
+        var targets = new Card("Targets", "Used when a ticket has no Zendesk SLA timer. Clients without an SLA type count as Standard.", Kit.CardWidth);
         targets.Body.Controls.Add(_which);
+        _gridTitle.Margin = new Padding(0, 10, 0, 0);
+        targets.Body.Controls.Add(_gridTitle);
         targets.Body.Controls.Add(_grid);
         targets.Body.Controls.Add(Legend());
         targets.Body.Controls.Add(_explain);
@@ -85,7 +86,7 @@ internal sealed class SlaPage : SettingsPage
             foreach (var cell in _cells)
                 cell.Cursor = readOnly ? Cursors.Default : Cursors.Hand;
             Fill(); // greyed while locked
-        }, "Not signed in: your choices still apply, but they're locked until you sign in.");
+        }, "Not signed in: your choices still apply. Sign in to change them.");
     }
 
     private Color ColorOf(SlaSource source) => Context.SignedOut ? Theme.TextMuted : source switch
@@ -99,17 +100,34 @@ internal sealed class SlaPage : SettingsPage
     private Control Legend()
     {
         var legend = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 4), WrapContents = false };
+        // A symbol as well as a color: in some themes the accent and the warning color are both orange or red.
         foreach (var (source, text) in new[] { (SlaSource.Default, "Default"), (SlaSource.Estimated, "Estimated from Zendesk"), (SlaSource.Custom, "Yours") })
         {
-            var label = Theme.Label($"● {text}", Theme.Small, source switch { SlaSource.Custom => Theme.Warning, SlaSource.Estimated => Theme.Accent, _ => Theme.Text });
+            var label = Theme.Label($"{Mark(source) ?? "●"} {text}", Theme.Small, source switch { SlaSource.Custom => Theme.Warning, SlaSource.Estimated => Theme.Accent, _ => Theme.Text });
             label.Margin = new Padding(0, 0, 14, 0);
             legend.Controls.Add(label);
         }
         return legend;
     }
 
+    /// <summary>The symbol in front of a target: ≈ estimated from Zendesk, ✎ yours, none for the default.</summary>
+    private static string? Mark(SlaSource source) => source switch { SlaSource.Estimated => "≈", SlaSource.Custom => "✎", _ => null };
+
     /// <summary>The grid, built once with the page (so it's scaled with it): SLA types down, priorities across.</summary>
     private void BuildGrid()
+    {
+        _grid.SuspendLayout(); // laid out once at the end, not after every cell (that was ~250 ms)
+        try
+        {
+            AddGridCells();
+        }
+        finally
+        {
+            _grid.ResumeLayout(true);
+        }
+    }
+
+    private void AddGridCells()
     {
         _grid.ColumnCount = Priorities.Length + 1;
         for (var c = 0; c <= Priorities.Length; c++)
@@ -190,7 +208,21 @@ internal sealed class SlaPage : SettingsPage
     /// <summary>Shows First reply or Follow-up in the cells, color coded by where each target comes from.</summary>
     private void Fill()
     {
+        _grid.SuspendLayout(); // one layout for the 20 targets, not one per cell
+        try
+        {
+            FillCells();
+        }
+        finally
+        {
+            _grid.ResumeLayout(true);
+        }
+    }
+
+    private void FillCells()
+    {
         var firstReply = _which.SelectedIndex == 0;
+        _gridTitle.Text = firstReply ? "First reply targets" : "Follow-up targets";
         for (var r = 0; r < _types.Count; r++)
             for (var c = 0; c < Priorities.Length; c++)
             {
@@ -198,23 +230,21 @@ internal sealed class SlaPage : SettingsPage
                 var (target, source) = Current(type, c, firstReply);
                 var team = Sla.TeamTarget(type, priority, firstReply);
                 var estimate = _learned.Estimate(type, priority, firstReply);
-                _cells[r, c].Text = $"{LabelOf(target)} ▾";
+                _cells[r, c].Text = $"{(Mark(source) is { } mark ? mark + " " : "")}{LabelOf(target)} ▾";
                 _cells[r, c].ForeColor = ColorOf(source);
                 _tips.SetToolTip(_cells[r, c], source switch
                 {
                     SlaSource.Custom => $"Yours. {(team is { } t ? $"Default: {t.Label}." : estimate is { } est ? $"Estimated: {est.Target.Label}." : "")}",
-                    SlaSource.Estimated => $"Estimated from {estimate!.Value.Tickets} tickets' SLA timers in Zendesk.",
+                    SlaSource.Estimated => $"From {estimate!.Value.Tickets} tickets' SLA timers in Zendesk." +
+                        (team is { } d && d != target ? $" Default: {d.Label}." : ""),
                     _ when team is null => "No default or estimate for this type yet: Standard's target is used until Zendesk's timers show its own.",
-                    _ => estimate is { } est2 && est2.Target != target
-                        ? $"Default. Zendesk's timers suggest {est2.Target.Label} ({est2.Tickets} tickets)."
-                        : "Default (the team's target)."
+                    _ => "Default (the team's target), until Zendesk's timers show the real one."
                 });
             }
         _explain.Text = (firstReply
-            ? "First reply: a new unassigned ticket, counted from when it was created."
-            : "Follow-up: a customer waiting for an answer on an assigned ticket, counted from when they wrote.") +
-            " P1, 24x7, Urgent (15 Min) and estimates count around the clock; the others only Monday to Friday. " +
-            "d = day, wd = working day. Hover a target for details.";
+            ? "Counted from when the ticket was created."
+            : "Counted from when the customer wrote.") +
+            " d = day, wd = working day (Mon–Fri). Point at a target for details.";
         _warning.Visible = _custom.Count > 0;
         _reset.Visible = _custom.Count > 0 && !Context.SignedOut;
     }

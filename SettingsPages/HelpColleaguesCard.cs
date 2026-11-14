@@ -34,30 +34,32 @@ internal sealed class HelpColleaguesCard
     private readonly AssigneeList _peopleList;
     private bool _peopleLoaded;
     private int _peopleFailed;
-    private readonly Label _peopleAll = Kit.LinkLabel("All");
-    private readonly Label _peopleNone = Kit.LinkLabel("None");
-    private readonly Label _peopleHint = Theme.Label("", Theme.Small, Theme.TextMuted, PeopleWidth);
-    private readonly ComboBox _workStart = Kit.HourCombo(0, 23);
-    private readonly ComboBox _workEnd = Kit.HourCombo(1, 24);
+    private readonly Label _peopleHint = Theme.Linked("", Theme.Small, Theme.TextMuted, PeopleWidth);
+    private readonly HourRange _workHours = new() { Margin = new Padding(0, 4, 0, 2) };
     private readonly DayChecks _workDays = new("Days", new Padding(0, 2, 0, 0));
-    private readonly PriorityChecks _priorities = new(new Padding(0, 8, 0, 0));
-    private readonly ComboBox _grace = Kit.Combo<int>([new(1, "1 hour"), new(2, "2 hours"), new(4, "4 hours"), new(8, "8 hours"), new(24, "1 day")], width: 130);
-    private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself (my hours: Notifications page)");
+    private readonly PriorityChecks _priorities = new(new Padding(0, 0, 0, 0), label: false);
+    private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself");
 
     /// <summary>Groups chosen under "Only these groups".</summary>
     private readonly HashSet<long> _chosen = [];
     /// <summary>Group names, for chosen groups that aren't loaded (yet).</summary>
     private readonly Dictionary<long, string> _names = [];
-    /// <summary>Unticked colleagues (id -> name): the only ones stored, so new group members are included automatically.</summary>
+    /// <summary>Unticked colleagues in ticked regions (id -> name).</summary>
     private readonly Dictionary<long, string> _excluded = [];
+    /// <summary>Ticked colleagues in unticked regions (id -> name).</summary>
+    private readonly Dictionary<long, string> _included = [];
+    /// <summary>Unticked regions: newcomers there aren't covered either. Only exceptions per person are stored.</summary>
+    private readonly HashSet<TimeRegion> _offRegions = [];
+    /// <summary>The region of each colleague shown (from their time zone), once the members are loaded.</summary>
+    private readonly Dictionary<long, TimeRegion> _regionOf = [];
     /// <summary>The colleagues currently shown in the list.</summary>
     private List<Member> _peopleShown = [];
     private int _peopleVersion;
     private TimeRegion _myRegion = TimeRegion.Other;
 
     /// <summary>
-    /// Help colleagues was never set up: when it's switched on and the members load, colleagues in your own region
-    /// start unticked (they usually work when you do). Only once.
+    /// Help colleagues was never set up: when it's switched on and the members load, your own region starts unticked
+    /// (they usually work when you do). Only once.
     /// </summary>
     private bool _applyRegionDefault;
 
@@ -80,16 +82,19 @@ internal sealed class HelpColleaguesCard
         _context = context;
         _groups = groups;
         _peopleList = new AssigneeList(PeopleWidth,
-            isCovered: id => !_excluded.ContainsKey(id),
-            setCovered: (person, covered) =>
-            {
-                if (covered) _excluded.Remove(person.Id); else _excluded[person.Id] = person.Name;
-            })
+            isCovered: IsCovered,
+            setCovered: (person, covered) => SetCovered(person.Id, person.Name, covered))
         {
             Margin = new Padding(20, 0, 0, 0),
             // "Working now" uses the hours and days below, as chosen right now (even before saving).
-            IsWorkingAt = local => !TicketRules.IsOutsideHours(local, _workStart.SelectedIndex,
-                Math.Max(_workEnd.SelectedIndex + 1, _workStart.SelectedIndex + 1), _workDays.Selected)
+            IsWorkingAt = local => !TicketRules.IsOutsideHours(local, _workHours.Start, _workHours.End, _workDays.Selected),
+            GroupTick = group => group.Tag is TimeRegion region ? RegionTick(region, group.People) : null,
+            GroupNote = group => group.Tag is TimeRegion region ? RegionNote(region, group.People) : ""
+        };
+        _peopleList.GroupToggled += group =>
+        {
+            if (group.Tag is TimeRegion region)
+                ToggleRegion(region, group.People);
         };
         _peopleList.Changed += () =>
         {
@@ -97,48 +102,51 @@ internal sealed class HelpColleaguesCard
             _context.Changed();
         };
 
-        Card = new Card("Who and when", "Which colleagues' tickets you cover, for which priorities, and their working hours.", Kit.CardWidth);
+        Card = new Card("Who and when", "Whose tickets you cover, which priorities, and their working hours.", Kit.CardWidth);
         Card.Body.Controls.Add(_help);
         var options = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(50, 2, 0, 0) };
-        options.Controls.Add(Theme.Label("Groups", Theme.BodyBold));
+        // Sections with the same heading and room above each, so the card reads in parts: groups, people, priorities, hours.
+        Label Section(string title, bool first = false)
+        {
+            var heading = Theme.Label(title, Theme.BodyBold);
+            heading.Margin = new Padding(0, first ? 2 : 18, 0, 4);
+            return heading;
+        }
+        Label Note(string text) => Theme.Label(text, Theme.Small, Theme.TextMuted, Kit.CardWidth - 100);
+
+        options.Controls.Add(Section("Groups", first: true));
         options.Controls.Add(_same);
         options.Controls.Add(_custom);
         options.Controls.Add(_groupList);
-        var peopleTitle = Theme.Label("Assignees", Theme.BodyBold);
-        peopleTitle.Margin = new Padding(0, 6, 14, 4);
-        options.Controls.Add(Kit.Row(peopleTitle, _peopleAll, _peopleNone));
-        options.Controls.Add(_peopleList);
-        _peopleHint.Margin = new Padding(20, 2, 0, 4);
-        options.Controls.Add(_peopleHint);
-        options.Controls.Add(_priorities.Row);
-        options.Controls.Add(Theme.Label("Tickets without a priority count as Normal (P3).", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
-        var graceRow = Kit.Row(Theme.Label("Trust \u201cIn progress\u201d and \u201cScheduled\u201d for"), _grace);
-        graceRow.Margin = new Padding(0, 8, 0, 0);
-        options.Controls.Add(graceRow);
-        options.Controls.Add(Theme.Label("Any status counts while the customer waits for a public answer (Pending, On-hold, Escalated, …). " +
-            "Only \u201cIn progress\u201d and \u201cScheduled\u201d wait this long first. Also used by Catch up.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
 
-        var hours = Kit.Row(Theme.Label("Assignee's working hours"), _workStart, Theme.Label("to"), _workEnd);
-        hours.Margin = new Padding(0, 8, 0, 0);
-        options.Controls.Add(hours);
+        options.Controls.Add(Section("Assignees"));
+        options.Controls.Add(_peopleList);
+        _peopleHint.Margin = new Padding(20, 2, 0, 0);
+        options.Controls.Add(_peopleHint);
+
+        options.Controls.Add(Section("Priorities"));
+        options.Controls.Add(_priorities.Row);
+        options.Controls.Add(Note("Tickets without a priority count as Normal (P3)."));
+
+        options.Controls.Add(Section("Their working hours"));
+        options.Controls.Add(_workHours);
         options.Controls.Add(_workDays.Row);
-        options.Controls.Add(Theme.Label("The same for every assignee, in their own time zone (from their Zendesk profile). " +
-            "Assignees without a time zone are skipped.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 100));
-        _myHours.Margin = new Padding(0, 8, 0, 0);
-        options.Controls.Add(_myHours);
+        options.Controls.Add(Note("In each colleague's own time zone (from Zendesk). Colleagues without a time zone are skipped."));
+
+        var myHoursLink = Theme.Linked("[[Set my hours|Notifications/Working hours]]", Theme.Body);
+        myHoursLink.Margin = new Padding(6, 4, 0, 0);
+        var myHoursRow = Kit.Row(_myHours, myHoursLink);
+        myHoursRow.Margin = new Padding(0, 18, 0, 0);
+        options.Controls.Add(myHoursRow);
         Card.Body.Controls.Add(options);
 
         foreach (var radio in new[] { _same, _custom })
             radio.CheckedChanged += (_, _) => { UpdateOptions(); _context.Changed(); if (radio.Checked) RefreshPeople(); };
         _help.CheckedChanged += (_, _) => { UpdateOptions(); RefreshPeople(); _context.Changed(); };
-        _peopleAll.Click += (_, _) => SetAllPeople(true);
-        _peopleNone.Click += (_, _) => SetAllPeople(false);
-        foreach (var combo in new[] { _workStart, _workEnd })
-            combo.SelectedIndexChanged += (_, _) => { _peopleList.Invalidate(); _context.Changed(); };
+        _workHours.RangeChanged += (_, _) => { _peopleList.Invalidate(); _context.Changed(); };
         _myHours.CheckedChanged += (_, _) => _context.Changed();
         _workDays.Changed += () => { _peopleList.Invalidate(); _context.Changed(); };
         _priorities.Changed += () => _context.Changed();
-        _grace.SelectedIndexChanged += (_, _) => _context.Changed();
 
         _context.SessionUpdated += reload =>
         {
@@ -158,9 +166,15 @@ internal sealed class HelpColleaguesCard
         _help.Checked = settings.HelpColleagues;
         _same.Checked = settings.HelpSameAsMonitored;
         _custom.Checked = !settings.HelpSameAsMonitored;
-        _applyRegionDefault = settings.HelpRegionDefaultDone != true && settings.HelpExcludedAssignees.Count == 0;
+        _applyRegionDefault = settings.HelpRegionDefaultDone != true && settings.HelpExcludedAssignees.Count == 0
+            && settings.HelpIncludedAssignees.Count == 0 && settings.HelpOffRegions.Count == 0;
         _chosen.Clear();
         _excluded.Clear();
+        _included.Clear();
+        _offRegions.Clear();
+        _offRegions.UnionWith(settings.HelpOffRegions);
+        foreach (var colleague in settings.HelpIncludedAssignees)
+            _included[colleague.Id] = colleague.Name;
         foreach (var group in settings.HelpGroups)
         {
             _chosen.Add(group.Id);
@@ -168,12 +182,10 @@ internal sealed class HelpColleaguesCard
         }
         foreach (var colleague in settings.HelpExcludedAssignees)
             _excluded[colleague.Id] = colleague.Name;
-        _workStart.SelectedIndex = Math.Clamp(settings.WorkdayStartHour, 0, 23);
-        _workEnd.SelectedIndex = Math.Clamp(settings.WorkdayEndHour, 1, 24) - 1;
+        _workHours.SetRange(settings.WorkdayStartHour, settings.WorkdayEndHour);
         _myHours.Checked = settings.HelpOnlyDuringMyHours;
         _workDays.Selected = settings.WorkDays;
         _priorities.Selected = settings.HelpPriorities;
-        Kit.Select(_grace, settings.InProgressGraceHours, fallback: 4);
         ShowGroups();
     }
 
@@ -183,16 +195,20 @@ internal sealed class HelpColleaguesCard
         s.HelpSameAsMonitored = _same.Checked;
         s.HelpGroups = _chosen.Select(id => new WatchedGroup { Id = id, Name = _names.GetValueOrDefault(id, $"Group {id}") })
             .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-        s.HelpExcludedAssignees = _excluded.Select(kv => new Colleague { Id = kv.Key, Name = kv.Value })
-            .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
+        s.HelpExcludedAssignees = Colleagues(_excluded);
+        s.HelpIncludedAssignees = Colleagues(_included);
+        s.HelpOffRegions = _offRegions.Order().ToList();
         s.HelpRegionDefaultDone = _applyRegionDefault ? null : true; // done once applied, or when it was already
-        s.WorkdayStartHour = _workStart.SelectedIndex;
-        s.WorkdayEndHour = Math.Max(_workEnd.SelectedIndex + 1, s.WorkdayStartHour + 1);
+        s.WorkdayStartHour = _workHours.Start;
+        s.WorkdayEndHour = _workHours.End;
         s.HelpOnlyDuringMyHours = _myHours.Checked;
         s.WorkDays = _workDays.Selected;
         s.HelpPriorities = _priorities.Selected;
-        s.InProgressGraceHours = Kit.Selected<int>(_grace);
     }
+
+    private static List<Colleague> Colleagues(Dictionary<long, string> people) =>
+        people.Select(kv => new Colleague { Id = kv.Key, Name = kv.Value })
+            .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
 
     /// <summary>For the screenshot tool: sample group members (cached, so nothing is requested), as if signed in.</summary>
     internal void ShowSample(Dictionary<long, List<Member>> members, TimeRegion myRegion)
@@ -214,7 +230,7 @@ internal sealed class HelpColleaguesCard
         var selected = _groups.SelectedIds;
         // Says right on the option when it covers nothing, instead of only a hint under the assignee list.
         var monitored = selected.Count(id => id != WatchedGroup.NoGroupId);
-        _same.Text = monitored == 0 ? "Same as my monitored groups (none yet: Groups page)" : $"Same as my monitored groups ({monitored})";
+        _same.Text = monitored == 0 ? "Same as my monitored groups (none yet)" : $"Same as my monitored groups ({monitored})";
         var suggestions = _groups.Suggestions;
         var offered = selected.Where(id => id != WatchedGroup.NoGroupId)
             .Concat(suggestions.Where(kv => kv.Value.Member).Select(kv => kv.Key))
@@ -233,7 +249,7 @@ internal sealed class HelpColleaguesCard
         _groupList.Controls.Clear();
         _hasGroupsToChoose = offered.Count > 0;
         if (!_hasGroupsToChoose)
-            _groupList.Controls.Add(Theme.Label("No groups to choose from yet: they come from the Groups page (monitored, or ones you're a member of).",
+            _groupList.Controls.Add(Theme.Label("No groups yet: tick groups on the Groups page first.",
                 Theme.Small, Theme.TextMuted, Kit.CardWidth - 130));
         foreach (var (id, name) in offered)
         {
@@ -340,8 +356,9 @@ internal sealed class HelpColleaguesCard
             return;
 
         List<Member> shown;
+        _regionOf.Clear();
         if (loaded is null)
-            shown = _excluded.Select(kv => new Member(kv.Key, kv.Value, null)).ToList();
+            shown = _excluded.Concat(_included).Select(kv => new Member(kv.Key, kv.Value, null)).ToList();
         else
         {
             var meId = _context.Me?.Id;
@@ -349,14 +366,25 @@ internal sealed class HelpColleaguesCard
                 .Where(m => m.Id != meId)
                 .DistinctBy(m => m.Id)
                 .ToList();
-            foreach (var m in shown.Where(m => _excluded.ContainsKey(m.Id)))
-                _excluded[m.Id] = m.Name; // keep the stored name current
+            foreach (var m in shown)
+            {
+                _regionOf[m.Id] = m.Region;
+                if (_excluded.ContainsKey(m.Id)) _excluded[m.Id] = m.Name; // keep the stored names current
+                if (_included.ContainsKey(m.Id)) _included[m.Id] = m.Name;
+            }
+            // From before regions had a tick: a region whose colleagues were all unticked one by one becomes an
+            // unticked region (the same for them; newcomers there now stay unticked too).
+            foreach (var region in shown.GroupBy(m => m.Region).Where(g => !_offRegions.Contains(g.Key) && g.All(m => _excluded.ContainsKey(m.Id))))
+            {
+                _offRegions.Add(region.Key);
+                foreach (var m in region)
+                    _excluded.Remove(m.Id);
+            }
 
             if (_applyRegionDefault && shown.Count > 0)
             {
                 _applyRegionDefault = false;
-                foreach (var m in RegionDefaultExclusions(shown, _myRegion))
-                    _excluded[m.Id] = m.Name;
+                _offRegions.Add(_myRegion);
                 _context.Changed();
             }
         }
@@ -369,13 +397,16 @@ internal sealed class HelpColleaguesCard
         // Signed in: by region (from each colleague's time zone), so e.g. only other regions can be covered.
         // Otherwise just the unticked colleagues, whose time zones aren't known.
         var sections = isLoaded
-            ? Arrange(_peopleShown, _excluded.Keys.ToHashSet(), _myRegion).Select(s => (Region: (TimeRegion?)s.Region, s.Members)).ToList()
+            ? Arrange(_peopleShown, IsCovered, _myRegion).Select(s => (Region: (TimeRegion?)s.Region, s.Members)).ToList()
             : [(Region: (TimeRegion?)null, Members: _peopleShown)];
         _peopleList.SetGroups(sections.Select(section => new AssigneeList.Group(
-            section.Region is { } r ? TimeRegions.Name(r) + (r == _myRegion ? "  ·  your region" : "") : null,
+            section.Region is { } r ? TimeRegions.Name(r) + (r == _myRegion ? " · your region" : "") : null,
             section.Members.Select(m => new AssigneeList.Person(m.Id, m.Name, !isLoaded ? null
                 : m.Zone is { } zone ? $"{m.Name} · {zone.Replace('_', ' ')}" : $"{m.Name} · no time zone in their Zendesk profile",
-                isLoaded ? TicketRules.ResolveTimeZone(m.Zone) : null)).ToList())).ToList());
+                isLoaded ? TicketRules.ResolveTimeZone(m.Zone) : null)).ToList(),
+            Tag: section.Region,
+            // A region with exceptions starts open, so you see who they are.
+            StartOpen: section.Region is { } open && section.Members.Any(m => IsException(m.Id, open)))).ToList());
         UpdatePeopleHint(isLoaded, failed);
         UpdateOptions();
     }
@@ -385,21 +416,63 @@ internal sealed class HelpColleaguesCard
     /// end. Within a region the covered (ticked) ones first, then by name. Sorted when the list is built, so ticking
     /// a box doesn't make it jump.
     /// </summary>
-    internal static List<(TimeRegion Region, List<Member> Members)> Arrange(IEnumerable<Member> members, IReadOnlySet<long> excluded, TimeRegion myRegion) =>
+    internal static List<(TimeRegion Region, List<Member> Members)> Arrange(IEnumerable<Member> members, Func<long, bool> isCovered, TimeRegion myRegion) =>
         members.GroupBy(m => m.Region)
             .OrderBy(g => g.Key == TimeRegion.NoTimeZone ? 2 : g.Key == myRegion ? 1 : 0)
             .ThenBy(g => g.Key)
-            .Select(g => (g.Key, g.OrderBy(m => excluded.Contains(m.Id) ? 1 : 0)
+            .Select(g => (g.Key, g.OrderBy(m => isCovered(m.Id) ? 0 : 1)
                 .ThenBy(m => m.Name, StringComparer.CurrentCultureIgnoreCase).ToList()))
             .ToList();
 
-    /// <summary>The first time: colleagues in your own region aren't covered (they're usually at work when you are).</summary>
-    internal static IEnumerable<Member> RegionDefaultExclusions(IEnumerable<Member> members, TimeRegion myRegion) =>
-        members.Where(m => m.Region == myRegion);
+    // ------------------------------------------------------------------ region ticks
+
+    /// <summary>Ticked: by their region's tick, unless they're an exception to it. Region unknown (signed out): the exceptions.</summary>
+    private bool IsCovered(long id) =>
+        _regionOf.TryGetValue(id, out var region) && _offRegions.Contains(region) ? _included.ContainsKey(id) : !_excluded.ContainsKey(id);
+
+    /// <summary>Unticked in a ticked region, or ticked in an unticked one.</summary>
+    private bool IsException(long id, TimeRegion region) =>
+        _offRegions.Contains(region) ? _included.ContainsKey(id) : _excluded.ContainsKey(id);
+
+    private void SetCovered(long id, string name, bool covered)
+    {
+        var off = _regionOf.TryGetValue(id, out var region) && _offRegions.Contains(region);
+        _excluded.Remove(id);
+        _included.Remove(id);
+        if (off && covered)
+            _included[id] = name;
+        else if (!off && !covered)
+            _excluded[id] = name;
+    }
+
+    /// <summary>The region's box: ticked, unticked, or mixed (null) when someone in it is an exception.</summary>
+    private bool? RegionTick(TimeRegion region, IEnumerable<AssigneeList.Person> people) =>
+        people.Any(p => IsException(p.Id, region)) ? null : !_offRegions.Contains(region);
+
+    /// <summary>"5 people · 1 unticked": how many, and the exceptions, so it's clear which way newcomers go.</summary>
+    private string RegionNote(TimeRegion region, IReadOnlyList<AssigneeList.Person> people)
+    {
+        var exceptions = people.Count(p => IsException(p.Id, region));
+        var count = people.Count == 1 ? "1 person" : $"{people.Count} people";
+        return exceptions == 0 ? count : $"{count} · {exceptions} {(_offRegions.Contains(region) ? "ticked" : "unticked")}";
+    }
+
+    /// <summary>A click on a region's box: mixed becomes ticked; otherwise ticked and unticked swap. No exceptions after.</summary>
+    private void ToggleRegion(TimeRegion region, IEnumerable<AssigneeList.Person> people)
+    {
+        var list = people.ToList();
+        var tick = RegionTick(region, list);
+        if (tick is true) _offRegions.Add(region); else _offRegions.Remove(region);
+        foreach (var p in list)
+        {
+            _excluded.Remove(p.Id);
+            _included.Remove(p.Id);
+        }
+    }
 
     private void UpdatePeopleHint(bool loaded, int failed)
     {
-        var excludedShown = _peopleShown.Count(m => _excluded.ContainsKey(m.Id));
+        var excludedShown = _peopleShown.Count(m => !IsCovered(m.Id));
         var everyone = excludedShown == 0 ? "Everyone in these groups." : "Everyone in these groups except the ones unticked above.";
         string text;
         if (CoveredGroupIds().Count == 0)
@@ -411,24 +484,17 @@ internal sealed class HelpColleaguesCard
         else if (_peopleShown.Count == 0)
             text = "No other members found in these groups.";
         else
-            text = $"{_peopleShown.Count - excludedShown} of {_peopleShown.Count} colleagues covered. New group members are included automatically.";
+            text = $"{_peopleShown.Count - excludedShown} of {_peopleShown.Count} colleagues covered. Newcomers follow their region's tick.";
         if (failed > 0)
             text += $" Could not load the members of {failed} group(s).";
         _peopleHint.Text = text;
-    }
-
-    private void SetAllPeople(bool covered)
-    {
-        if (!_help.Checked || _context.SignedOut)
-            return;
-        _peopleList.SetAll(covered);
     }
 
     private void UpdateOptions()
     {
         var on = _help.Checked;
         var signedIn = !_context.SignedOut; // signed out: the lists from Zendesk can't be changed
-        _workStart.Enabled = _workEnd.Enabled = _myHours.Enabled = _grace.Enabled = on;
+        _workHours.Enabled = _myHours.Enabled = on;
         // Which groups: a choice between lists from Zendesk, so it waits for sign-in too (the current choice stays).
         _same.Enabled = on && signedIn;
         _custom.Enabled = on && signedIn && _hasGroupsToChoose; // nothing to choose: greyed out
@@ -436,6 +502,5 @@ internal sealed class HelpColleaguesCard
         _priorities.Enabled = on;
         _groupList.Enabled = on && _custom.Checked && signedIn;
         _peopleList.Enabled = on;
-        _peopleAll.Enabled = _peopleNone.Enabled = on && signedIn;
     }
 }

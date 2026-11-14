@@ -23,6 +23,9 @@ public sealed class PopupPalette
     /// <summary>A soft glow next to the stripe and a tinted border on dark themes (off for Night: nothing bright).</summary>
     public bool Glow { get; init; } = true;
 
+    /// <summary>Native: the window border in the accent color and small Windows 11 corners (crisper than the round ones).</summary>
+    public bool AccentFrame { get; init; }
+
     /// <summary>Text on the accent-colored button (dark on pastel accents).</summary>
     public Color OnAccent { get; init; } = Color.White;
 
@@ -39,8 +42,43 @@ public sealed class PopupPalette
         NotificationTheme.Optimizely => Optimizely,
         NotificationTheme.Night => Night,
         NotificationTheme.Retro => Retro,
+        NotificationTheme.WindowsNative => Native(),
         _ => NeonDark
     };
+
+    /// <summary>
+    /// Native: Windows 11, edgier. Light or dark and the accent follow Windows (read each time, so a change in Windows
+    /// shows on the next notification); crisp border, no glow, a bold priority stripe in the accent.
+    /// </summary>
+    public static PopupPalette Native()
+    {
+        var dark = UiPalette.WindowsUsesDarkMode();
+        var accent = UiPalette.SystemAccent() ?? Color.FromArgb(0, 120, 212);
+        return new PopupPalette
+        {
+            ButtonRadius = UiPalette.ButtonRadiusFor(NotificationTheme.WindowsNative),
+            Name = "Native",
+            Dark = dark,
+            // Mica-like: a soft grey tint rather than white (or a deep grey in dark mode), like Windows 11's own windows.
+            Background = dark ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243),
+            BackgroundEnd = dark ? Color.FromArgb(24, 24, 24) : Color.FromArgb(235, 235, 235),
+            Border = dark ? Color.FromArgb(70, 70, 70) : Color.FromArgb(196, 196, 196),
+            Text = dark ? Color.White : Color.FromArgb(12, 12, 12),
+            Muted = dark ? Color.FromArgb(176, 176, 176) : Color.FromArgb(92, 92, 92),
+            FontFamily = "Segoe UI",
+            Stripe = true,
+            Glow = false,
+            AccentFrame = true,
+            OnAccent = accent.R * 0.299 + accent.G * 0.587 + accent.B * 0.114 > 170 ? Color.FromArgb(12, 12, 12) : Color.White,
+            Accent = (priority, _) => priority switch
+            {
+                "urgent" => Color.FromArgb(232, 17, 35),
+                "high" => Color.FromArgb(247, 99, 12),
+                // A red or orange Windows accent would look urgent on every ticket: then Windows blue.
+                _ => accent.GetHue() is < 50 or > 330 && accent.GetSaturation() > 0.35f ? Color.FromArgb(0, 120, 212) : accent
+            }
+        };
+    }
 
     public static readonly PopupPalette NeonDark = new()
     {

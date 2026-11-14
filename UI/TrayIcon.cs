@@ -1,6 +1,6 @@
 namespace ZendeskWatcher.UI;
 
-/// <summary>What the tray icon shows: not checking (dim), all clear (green), unassigned tickets waiting (orange).</summary>
+/// <summary>What the app is doing. The icon is green while online (also with tickets waiting: the menu says so), gray when not checking.</summary>
 public enum TrayState { Off, Ok, Attention }
 
 /// <summary>
@@ -16,7 +16,7 @@ public sealed class TrayIcon : IDisposable
     {
         [TrayState.Off] = AppIcon.CreateIcon(AppIcon.Dim),
         [TrayState.Ok] = AppIcon.CreateIcon(AppIcon.NeonGreen),
-        [TrayState.Attention] = AppIcon.CreateIcon(AppIcon.NeonOrange)
+        [TrayState.Attention] = AppIcon.CreateIcon(AppIcon.NeonGreen)
     };
 
     // "Working" pulse: shown while a check runs (after a short delay, so quick checks don't flicker).
@@ -81,7 +81,7 @@ public sealed class TrayIcon : IDisposable
     {
         if (!_pulseFrames.TryGetValue(State, out var frames))
         {
-            var color = State switch { TrayState.Attention => AppIcon.NeonOrange, TrayState.Off => AppIcon.Dim, _ => AppIcon.NeonGreen };
+            var color = State == TrayState.Off ? AppIcon.Dim : AppIcon.NeonGreen; // online: green, waiting tickets or not
             _pulseFrames[State] = frames = AppIcon.CreatePulseFrames(color);
         }
         _pulseFrame = (_pulseFrame + 1) % frames.Length;

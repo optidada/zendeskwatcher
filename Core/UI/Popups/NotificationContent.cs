@@ -1,6 +1,6 @@
 namespace ZendeskWatcher.UI.Popups;
 
-/// <summary>What a notification says. Each style (custom popup themes or Windows toasts) lays it out its own way.</summary>
+/// <summary>What a notification says. Each style (popup theme) lays it out its own way.</summary>
 /// <param name="Kind">Decides the sound and display settings that apply.</param>
 /// <param name="Heading">Short label, e.g. "New ticket" or "Ticket updated".</param>
 /// <param name="Title">Main line, e.g. "#123456 Customer cannot log in".</param>
@@ -90,6 +90,9 @@ public sealed record NotificationContent(
 
     /// <summary>A snoozed notification coming back (not counted as shown again).</summary>
     public bool IsSnoozedRepeat { get; init; }
+
+    /// <summary>The same for a notification and its snoozed repeats (copies keep it): "acted on" counts once per notification.</summary>
+    public Guid StatId { get; init; } = Guid.NewGuid();
 
     /// <summary>The customer's organization, shown prominently as "Client: Contoso". Null when the ticket has none.</summary>
     public string? Client { get; init; }

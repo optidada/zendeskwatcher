@@ -37,15 +37,19 @@ public class SlaTests
     }
 
     [Fact]
-    public void Yours_then_default_then_estimated_then_standards()
+    public void Yours_then_zendesks_timers_then_default_then_standards()
     {
         List<SlaOverride> yours = [new() { Type = "slapremium", Priority = "high", FirstReply = true, Minutes = 120 }];
         var learned = new SlaLearning();
         for (var id = 1; id <= 3; id++)
+        {
             learned.Record(id, "slagold", "high", true, Start, Start.AddMinutes(45));
+            learned.Record(id + 10, "slapremium", "normal", true, Start, Start.AddHours(2));
+        }
 
         Assert.Equal((SlaTarget.Hours(2), SlaSource.Custom), Sla.Resolve("slapremium", "high", true, yours, learned));
         Assert.Equal((SlaTarget.Hours(1), SlaSource.Default), Sla.Resolve("slapremium", "high", true, null, learned));
+        Assert.Equal((SlaTarget.Hours(2), SlaSource.Estimated), Sla.Resolve("slapremium", "normal", true, null, learned)); // Zendesk beats the default (4 h)
         Assert.Equal((SlaTarget.Min(45), SlaSource.Estimated), Sla.Resolve("slagold", "high", true, null, learned));
         // Nothing known about it: Standard's default.
         Assert.Equal((SlaTarget.Hours(4), SlaSource.Default), Sla.Resolve("slasilver", "high", true, null, learned));
@@ -109,7 +113,7 @@ public class SlaTests
         Assert.Equal("!!First reply due in 10 min!!\nCreated 09:00", body);
         var first = Markdown.Parse(body)[0];
         Assert.True(first.Alert && first.Bold);
-        Assert.Equal("First reply due in 10 min\nCreated 09:00", Markdown.Strip(body)); // Windows notifications: plain
+        Assert.Equal("First reply due in 10 min\nCreated 09:00", Markdown.Strip(body)); // plain text (copies, logs)
     }
 
     [Fact]

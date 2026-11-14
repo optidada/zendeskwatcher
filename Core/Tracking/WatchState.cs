@@ -39,9 +39,6 @@ public sealed class WatchState
     /// <summary>"Help colleagues": ticket id -> the updated_at already looked at.</summary>
     public Dictionary<long, DateTimeOffset> HelpSeen { get; set; } = [];
 
-    /// <summary>"Help colleagues": tickets "In progress" whose customer is waiting -> when the customer wrote. Looked at
-    /// again once they've waited <see cref="Settings.InProgressGraceHours"/>.</summary>
-    public Dictionary<long, DateTimeOffset> HelpInProgress { get; set; } = [];
 
     /// <summary>Groups whose current tickets were recorded silently on their first check.</summary>
     public HashSet<long> HelpBaselinedGroups { get; set; } = [];

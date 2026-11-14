@@ -28,13 +28,12 @@ internal sealed class UpdatesPage : SettingsPage
         updates.Body.Controls.Add(Kit.Row(_checkUpdates));
         Panel.Controls.Add(updates);
 
-        var feedback = new Card("Feedback", $"Ideas, questions or something not working? Send feedback opens an email to {FeedbackName} " +
-            "with your log and settings in a zip: classic Outlook attaches it, other mail apps show it to attach. Nothing is sent without you.", Kit.CardWidth);
+        var feedback = new Card("Feedback", $"Ideas, questions or a problem? Send feedback opens an email to {FeedbackName} with your log attached. Nothing " +
+            $"is sent without you.", Kit.CardWidth);
         feedback.Body.Controls.Add(Kit.Row(_sendFeedback, _openLogs));
         Panel.Controls.Add(feedback);
 
-        var reset = new Card("Reset", "Puts all settings back to their defaults, except your Zendesk account and monitored groups. " +
-            "Nothing changes until you click Save.", Kit.CardWidth);
+        var reset = new Card("Reset", "All settings back to their defaults, except your account and groups. Nothing changes until you save.", Kit.CardWidth);
         reset.Body.Controls.Add(Kit.Row(_reset));
         Panel.Controls.Add(reset);
         _reset.Click += (_, _) =>

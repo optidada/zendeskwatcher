@@ -15,11 +15,17 @@ public enum StatOutcome
     Snoozed,
     /// <summary>Closed with ✕ (or dismissed in Windows).</summary>
     Closed,
-    /// <summary>Disappeared on its own: the popup timed out, or the Windows notification went to the notification center.</summary>
+    /// <summary>Disappeared on its own: the countdown ran out.</summary>
     TimedOut,
 
     /// <summary>Copied (for Teams). Not an ending: the notification stays, so it can also be opened afterwards.</summary>
-    Copied
+    Copied,
+
+    /// <summary>
+    /// Acted on, counted once per notification: opened, took it or copied. Snoozing isn't (what's done when it comes
+    /// back is), nor is only reading it. Days before this was counted are estimated (see <see cref="Totals"/>).
+    /// </summary>
+    Acted
 }
 
 /// <summary>
@@ -97,7 +103,10 @@ public sealed class NotificationStats
 
     private const string ClientPrefix = "Client|";
 
-    /// <summary>Per client in the period: its last seen name, notifications shown, and how many were opened, taken or copied.</summary>
+    /// <summary>Before "acted on" was counted: the opened, taken and copied ones, at most as many as were shown.</summary>
+    private static int EstimatedActed(int shown, int[] positive) => Math.Min(shown, positive.Sum());
+
+    /// <summary>Per client in the period: its last seen name, notifications shown, and how many were acted on.</summary>
     public List<(long Id, string Name, int Shown, int Acted)> ClientTotals(DateOnly today, int days = KeepDays)
     {
         var oldest = today.AddDays(-(days - 1));
@@ -108,15 +117,23 @@ public sealed class NotificationStats
             {
                 if (!DateOnly.TryParse(day, out var date) || date < oldest || date > today)
                     continue;
+                var day_ = new Dictionary<long, (string Name, int Shown, int Acted, int Positive, bool Counted)>();
                 foreach (var (entry, count) in counts)
                 {
                     var parts = entry.Split('|');
                     if (parts.Length != 4 || parts[0] != "Client" || !long.TryParse(parts[1], out var id) || !Enum.TryParse<StatOutcome>(parts[3], out var outcome))
                         continue;
-                    var (_, shown, acted) = totals.GetValueOrDefault(id);
-                    totals[id] = (parts[2],
+                    var (_, shown, acted, positive, counted) = day_.GetValueOrDefault(id);
+                    day_[id] = (parts[2],
                         shown + (outcome == StatOutcome.Shown ? count : 0),
-                        acted + (outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied ? count : 0));
+                        acted + (outcome == StatOutcome.Acted ? count : 0),
+                        positive + (outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied ? count : 0),
+                        counted || outcome == StatOutcome.Acted);
+                }
+                foreach (var (id, d) in day_)
+                {
+                    var (_, shown, acted) = totals.GetValueOrDefault(id);
+                    totals[id] = (d.Name, shown + d.Shown, acted + (d.Counted ? d.Acted : EstimatedActed(d.Shown, [d.Positive])));
                 }
             }
         }
@@ -134,12 +151,21 @@ public sealed class NotificationStats
             {
                 if (!DateOnly.TryParse(day, out var date) || date < oldest || date > today)
                     continue;
+                var dayTotals = new Dictionary<(NotificationKind Kind, StatOutcome Outcome), int>();
                 foreach (var (name, count) in counts)
                 {
                     var parts = name.Split('.');
                     if (parts.Length == 2 && Enum.TryParse<NotificationKind>(parts[0], out var kind) && Enum.TryParse<StatOutcome>(parts[1], out var outcome))
-                        totals[(kind, outcome)] = totals.GetValueOrDefault((kind, outcome)) + count;
+                        dayTotals[(kind, outcome)] = dayTotals.GetValueOrDefault((kind, outcome)) + count;
                 }
+                // A day without "acted on" counts (before it was counted): estimated from the opened, taken and copied ones.
+                foreach (var kind in dayTotals.Keys.Select(k => k.Kind).Distinct().ToList())
+                    if (!dayTotals.ContainsKey((kind, StatOutcome.Acted)))
+                        dayTotals[(kind, StatOutcome.Acted)] = EstimatedActed(dayTotals.GetValueOrDefault((kind, StatOutcome.Shown)),
+                            [.. new[] { StatOutcome.OpenedTicket, StatOutcome.OpenedZendesk, StatOutcome.Took, StatOutcome.Copied }
+                                .Select(o => dayTotals.GetValueOrDefault((kind, o)))]);
+                foreach (var (key, count) in dayTotals)
+                    totals[key] = totals.GetValueOrDefault(key) + count;
             }
         }
         return totals;
@@ -164,15 +190,6 @@ public sealed class NotificationStats
             Save();
         }
     }
-
-    /// <summary>What a click on a Windows notification (or one of its buttons) means.</summary>
-    public static StatOutcome? ForToastAction(string action) => action switch
-    {
-        NotificationActions.OpenTicket => StatOutcome.OpenedTicket,
-        NotificationActions.OpenZendesk => StatOutcome.OpenedZendesk,
-        NotificationActions.Take => StatOutcome.Took,
-        _ => null
-    };
 
     private void Save()
     {

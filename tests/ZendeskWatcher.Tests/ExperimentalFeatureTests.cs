@@ -51,73 +51,6 @@ public class ExperimentalFeatureTests
     }
 
     [Fact]
-    public async Task Three_new_tickets_that_read_alike_get_one_same_issue_notification()
-    {
-        _settings.SameIssueAlert = true;
-        var watcher = await StartAsync();
-
-        _zendesk.AddUnassigned(201, subject: "Website down");
-        _zendesk.AddUnassigned(202, subject: "Invoice for October");
-        await watcher.PollAsync(CancellationToken.None);
-        Assert.DoesNotContain(TakeShown(), c => c.Heading == "Same issue?");
-
-        _zendesk.AddUnassigned(203, subject: "Our website is down");
-        _zendesk.AddUnassigned(204, subject: "Site down for everyone");
-        await watcher.PollAsync(CancellationToken.None);
-        var alert = Assert.Single(TakeShown(), c => c.Heading == "Same issue?");
-        Assert.Equal("3 new tickets read alike", alert.Title);
-        Assert.Contains("#201", alert.Body);
-        Assert.DoesNotContain("#202", alert.Body);
-        Assert.Equal(3, alert.TicketCount);
-
-        // A fourth one joins the same group: no second alert.
-        _zendesk.AddUnassigned(205, subject: "Website down again");
-        await watcher.PollAsync(CancellationToken.None);
-        Assert.DoesNotContain(TakeShown(), c => c.Heading == "Same issue?");
-    }
-
-    [Fact]
-    public async Task Without_the_switch_there_is_no_same_issue_notification()
-    {
-        var watcher = await StartAsync();
-        foreach (var (id, subject) in new[] { (301L, "Website down"), (302L, "Our website is down"), (303L, "Site down for everyone") })
-            _zendesk.AddUnassigned(id, subject: subject);
-        await watcher.PollAsync(CancellationToken.None);
-        Assert.DoesNotContain(TakeShown(), c => c.Heading == "Same issue?");
-    }
-
-    [Fact]
-    public async Task New_ticket_shows_a_similar_solved_ticket()
-    {
-        _settings.ShowSimilarTickets = true;
-        Solved(401, "Media library images broken", Jane);
-        Solved(402, "Images missing in the media library", _zendesk.Me.Id);
-        Solved(403, "Media library does not show images", _zendesk.Me.Id);
-        Solved(404, "Invoice question", Jane);
-        var watcher = await StartAsync();
-
-        _zendesk.AddUnassigned(410, subject: "Images not showing in media library");
-        await watcher.PollAsync(CancellationToken.None);
-        var shown = Assert.Single(TakeShown());
-        var lines = shown.Body.Split('\n');
-        Assert.StartsWith("Like #40", lines[1]);
-        Assert.Contains("solved by", lines[1]);
-        Assert.Equal(2, lines.Length);
-    }
-
-    [Fact]
-    public async Task Unrelated_new_ticket_gets_no_similar_line()
-    {
-        _settings.ShowSimilarTickets = true;
-        Solved(501, "Media library images broken", Jane);
-        var watcher = await StartAsync();
-
-        _zendesk.AddUnassigned(510, subject: "Change the invoice address");
-        await watcher.PollAsync(CancellationToken.None);
-        Assert.Single(Assert.Single(TakeShown()).Body.Split('\n'));
-    }
-
-    [Fact]
     public async Task Priority_guess_counts_similar_earlier_urgent_tickets()
     {
         _settings.GuessPriority = true;
@@ -150,7 +83,7 @@ public class ExperimentalFeatureTests
         Assert.True(Assert.Single(shown, c => c.TicketId == 701).Quiet);
         Assert.False(Assert.Single(shown, c => c.TicketId == 702).Quiet);
         Assert.Equal(ToastSound.Silent, _settings.SoundFor(shown.Single(c => c.TicketId == 701)));
-        Assert.Equal(_settings.TicketDisplay.For("low"), _settings.DisplaySecondsFor(shown.Single(c => c.TicketId == 701)));
+        Assert.Equal(TicketDisplayTimes.For(_settings.TicketDisplayLength, "low"), _settings.DisplaySecondsFor(shown.Single(c => c.TicketId == 701)));
     }
 
     [Theory]

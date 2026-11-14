@@ -11,21 +11,23 @@ internal sealed class GeneralPage : SettingsPage
     [
         new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
         new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"), new(NotificationTheme.Night, "Night"), new(NotificationTheme.Retro, "Retro"),
-        new(NotificationTheme.WindowsNative, "Windows")
+        new(NotificationTheme.WindowsNative, "Native")
     ];
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
     private readonly ToggleSwitch _startSummary = new("Show a summary when Zendesk Watcher starts");
     public GeneralPage(SettingsContext context, string version)
         : base(context, "General", $"Zendesk Watcher {version}, by {Author}.")
     {
-        var theme = new Card("App theme", "The look of this window and its dialogs, and of notifications unless they have their own style " +
-            "(Notifications → Look & sound). The Windows theme follows Windows' light or dark mode and accent color.", Kit.CardWidth);
+        var theme = new Card("App theme", "The look of this window, and of notifications unless they have their own style. Native follows your Windows " +
+            "colors.", Kit.CardWidth);
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface };
         tiles.Controls.AddRange(_appThemeTiles);
         theme.Body.Controls.Add(tiles);
         Panel.Controls.Add(theme);
         foreach (var tile in _appThemeTiles)
             tile.Click += (_, _) => SelectAppTheme(tile.Value);
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += FollowWindows;
+        Panel.Disposed += (_, _) => Microsoft.Win32.SystemEvents.UserPreferenceChanged -= FollowWindows;
 
         var startup = new Card("Startup", null, Kit.CardWidth);
         startup.Body.Controls.Add(_startup);
@@ -50,6 +52,22 @@ internal sealed class GeneralPage : SettingsPage
         settings.ShowStartSummary = _startSummary.Checked;
         if (_appThemeTiles.FirstOrDefault(t => t.Selected) is { } tile)
             settings.AppTheme = tile.Value;
+    }
+
+    /// <summary>Native follows Windows: when Windows switches light/dark or the accent color, the window does too.</summary>
+    private void FollowWindows(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is not (Microsoft.Win32.UserPreferenceCategory.General or Microsoft.Win32.UserPreferenceCategory.Color
+                or Microsoft.Win32.UserPreferenceCategory.VisualStyle) || Context.Window.IsDisposed)
+            return;
+        Context.Window.BeginInvoke(() =>
+        {
+            if (_appThemeTiles.FirstOrDefault(t => t.Selected)?.Value != NotificationTheme.WindowsNative)
+                return;
+            var from = Theme.Use(NotificationTheme.WindowsNative);
+            if (from != Theme.Current)
+                Theme.Recolor(Context.Window, from, Theme.Current);
+        });
     }
 
     /// <summary>Selects the app theme and shows it on the whole window right away (only kept if saved).</summary>

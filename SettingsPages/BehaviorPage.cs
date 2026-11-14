@@ -8,141 +8,82 @@ internal sealed class BehaviorPage : SettingsPage
     private static readonly Option<int>[] SnoozeMinuteOptions =
         [new(5, "5 minutes"), new(10, "10 minutes"), new(15, "15 minutes"), new(30, "30 minutes"), new(60, "1 hour")];
 
-    private static readonly Option<SnoozeBehavior>[] SnoozeBehaviorOptions =
-    [
-        new(SnoozeBehavior.IfStillNeeded, "Only if the ticket still needs attention"),
-        new(SnoozeBehavior.Always, "Always")
-    ];
+    /// <summary>The pills, in this order (Normal in the middle).</summary>
+    private static readonly DisplayLength[] Lengths = [DisplayLength.Short, DisplayLength.Normal, DisplayLength.Long];
 
-    private static readonly Option<int>[] TicketTimeOptions =
-        [new(10, "10 seconds"), new(15, "15 seconds"), new(30, "30 seconds"), new(60, "1 minute"), new(0, "Until dismissed")];
-
-    private static readonly Option<ToastDisplay>[] DisplayOptions =
-    [
-        new(ToastDisplay.Standard, "5 seconds"), new(ToastDisplay.Medium, "10 seconds"), new(ToastDisplay.Long, "25 seconds"),
-        new(ToastDisplay.UntilDismissed, "Until dismissed")
-    ];
-
-    private static readonly Option<int>[] RecheckOptions =
-        [new(0, "Never"), new(5, "5 minutes"), new(15, "15 minutes"), new(30, "30 minutes"), new(60, "1 hour")];
-
-    private static readonly Option<int>[] SummarizeOptions =
-        [new(0, "Never"), new(3, "3 are waiting"), new(5, "5 are waiting"), new(10, "10 are waiting"), new(20, "20 are waiting")];
-
-    private readonly ComboBox _urgentTime = Kit.Combo(TicketTimeOptions, width: 160);
-    private readonly ComboBox _highTime = Kit.Combo(TicketTimeOptions, width: 160);
-    private readonly ComboBox _normalTime = Kit.Combo(TicketTimeOptions, width: 160);
-    private readonly ComboBox _lowTime = Kit.Combo(TicketTimeOptions, width: 160);
-    private readonly ComboBox _summaryTime = Kit.Combo(DisplayOptions, width: 160);
-    private readonly ComboBox _appTime = Kit.Combo(DisplayOptions, width: 160);
-    private readonly ComboBox _recheck = Kit.Combo(RecheckOptions, width: 160);
-    private readonly ComboBox _summarize = Kit.Combo(SummarizeOptions, width: 160);
-    private readonly ToggleSwitch _dropAnswered = new("Also drop it once it's been answered");
-    private readonly ToggleSwitch _takeTurns = new("Several notifications take turns: one counts down at a time");
+    private readonly ChoicePills _ticketLength = new("Short", "Normal", "Long");
+    private readonly Label _ticketTimes = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+    private readonly Label _otherTimes = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+    private readonly ToggleSwitch _dropAnswered = new("Also drop it when someone from your side already replied");
     private readonly ToggleSwitch _pauseAway = new("Hold the countdown while I'm away");
-    private readonly ComboBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
-    private readonly ComboBox _snoozeBehavior = Kit.Combo(SnoozeBehaviorOptions, width: 300);
+    private readonly ChoiceBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
 
     public BehaviorPage(SettingsContext context)
         : base(context, "Behavior", "How long notifications stay, what happens to ones that waited, and Snooze.")
     {
-        var screen = new Card("On screen", "How long a notification stays before it closes by itself; hovering pauses the countdown. " +
-            "Windows notifications can only stay about 5 s (15 s or less here), about 25 s (longer) or until dismissed.", Kit.CardWidth);
-        AddTimeSection(screen, "Ticket notifications, by priority (none counts as Normal)",
-            ("Urgent (P1)", _urgentTime), ("High (P2)", _highTime), ("Normal (P3)", _normalTime), ("Low (P4)", _lowTime));
-        AddTimeSection(screen, "Other notifications (\"Sign-in required\" always stays until dismissed)",
-            ("Start summary", _summaryTime), ("App messages", _appTime));
-        screen.Body.Controls.Add(_takeTurns);
+        var screen = new Card("On screen", "How long notifications stay. Pointing at one pauses it.", Kit.CardWidth);
+        _ticketLength.Margin = new Padding(3, 2, 0, 4);
+        screen.Body.Controls.Add(_ticketLength);
+        _ticketTimes.Margin = new Padding(3, 0, 0, 0);
+        screen.Body.Controls.Add(_ticketTimes);
+        _otherTimes.Margin = new Padding(3, 0, 0, 12);
+        screen.Body.Controls.Add(_otherTimes);
+        _ticketLength.SelectedIndexChanged += (_, _) => ShowTicketTimes();
         screen.Body.Controls.Add(_pauseAway);
-        screen.Body.Controls.Add(Theme.Label("You're away while the screen is locked, or after a minute without mouse or keyboard. " +
-            "Taking turns and holding: not for the Windows style.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
+        screen.Body.Controls.Add(Theme.Label("Away means the screen is locked, or no mouse or keyboard for a minute.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(screen);
 
-        var back = new Card("After waiting", "Notifications that waited (behind others, or while you were away) are checked first and " +
-            "dropped if the ticket was taken, solved or closed meanwhile. Not for the Windows style.", Kit.CardWidth);
-        var backGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
-        backGrid.Controls.Add(Theme.Label("Check again after"), 0, 0);
-        backGrid.Controls.Add(_recheck, 1, 0);
-        backGrid.Controls.Add(Theme.Label("One summary instead when more than"), 0, 1);
-        backGrid.Controls.Add(_summarize, 1, 1);
-        foreach (Control control in backGrid.Controls)
-            if (control is Label) control.Anchor = AnchorStyles.Left;
-        back.Body.Controls.Add(backGrid);
+        var back = new Card("Skip old news", "A notification that had to wait is checked again first. If the ticket was taken, solved " +
+            "or closed meanwhile, it's dropped, and with the switch below also when someone from your side (the assignee or another " +
+            "agent) already replied to the customer.", Kit.CardWidth);
         back.Body.Controls.Add(_dropAnswered);
-        back.Body.Controls.Add(Theme.Label("Answered: an agent replied to the customer on a colleague's ticket, or you acted on " +
-            "your own or CC'd ticket. Also used by Snooze, and no \"Customer waiting\" when a colleague already replied.",
-            Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(back);
 
-        var snooze = new Card("Snooze", "Snooze hides a notification and shows it again later, if the ticket still needs you: a new ticket " +
-            "still unassigned, others not solved or closed. While notifications are paused, snoozed ones wait.", Kit.CardWidth);
+        var snooze = new Card("Snooze", "Snooze hides a notification and brings it back later, if the ticket still needs you.", Kit.CardWidth);
         var snoozeGrid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
         snoozeGrid.Controls.Add(Theme.Label("Show again after"), 0, 0);
         snoozeGrid.Controls.Add(_snoozeMinutes, 1, 0);
-        snoozeGrid.Controls.Add(Theme.Label("Show it"), 0, 1);
-        snoozeGrid.Controls.Add(_snoozeBehavior, 1, 1);
         foreach (Control control in snoozeGrid.Controls)
             if (control is Label) control.Anchor = AnchorStyles.Left;
         snooze.Body.Controls.Add(snoozeGrid);
         Panel.Controls.Add(snooze);
 
-        TrackChanges(_urgentTime, _highTime, _normalTime, _lowTime, _summaryTime, _appTime, _takeTurns, _pauseAway, _recheck, _summarize, _dropAnswered, _snoozeMinutes, _snoozeBehavior);
+        TrackChanges(_pauseAway, _dropAnswered, _snoozeMinutes);
+        _ticketLength.SelectedIndexChanged += (_, _) => Changed();
     }
 
     public override bool IsSubPage => true; // under Notifications
 
     public override void Load(Settings settings)
     {
-        Kit.Select(_urgentTime, settings.TicketDisplay.Urgent, fallback: 0);
-        Kit.Select(_highTime, settings.TicketDisplay.High, fallback: 60);
-        Kit.Select(_normalTime, settings.TicketDisplay.Normal, fallback: 30);
-        Kit.Select(_lowTime, settings.TicketDisplay.Low, fallback: 15);
-        Kit.Select(_summaryTime, settings.SummaryStyle.Display);
-        Kit.Select(_appTime, settings.AppMessageStyle.Display);
-        _takeTurns.Checked = settings.PopupsTakeTurns;
+        _ticketLength.SelectedIndex = Math.Max(0, Array.IndexOf(Lengths, settings.TicketDisplayLength));
+        ShowTicketTimes();
         _pauseAway.Checked = settings.PausePopupsWhenAway;
-        Kit.Select(_recheck, settings.RecheckWaitingAfterMinutes, fallback: 15);
-        Kit.Select(_summarize, settings.SummarizeWaitingAbove, fallback: 5);
         _dropAnswered.Checked = settings.DropAnswered;
         Kit.Select(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
-        Kit.Select(_snoozeBehavior, settings.SnoozeBehavior);
     }
 
     public override void Apply(Settings s)
     {
-        s.TicketDisplay = new TicketDisplayTimes
-        {
-            Urgent = Kit.Selected<int>(_urgentTime), High = Kit.Selected<int>(_highTime),
-            Normal = Kit.Selected<int>(_normalTime), Low = Kit.Selected<int>(_lowTime)
-        };
+        s.TicketDisplayLength = Lengths[_ticketLength.SelectedIndex];
+        s.ApplyDisplayLength(); // the start summary and app messages follow the same choice
         // Only the duration: the sound is set on Look & sound.
-        s.SummaryStyle.Display = Kit.Selected<ToastDisplay>(_summaryTime);
-        s.AppMessageStyle.Display = Kit.Selected<ToastDisplay>(_appTime);
-        s.PopupsTakeTurns = _takeTurns.Checked;
         s.PausePopupsWhenAway = _pauseAway.Checked;
-        s.RecheckWaitingAfterMinutes = Kit.Selected<int>(_recheck);
-        s.SummarizeWaitingAbove = Kit.Selected<int>(_summarize);
         s.DropAnswered = _dropAnswered.Checked;
         s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);
-        s.SnoozeBehavior = Kit.Selected<SnoozeBehavior>(_snoozeBehavior);
     }
 
-    /// <summary>A muted heading, then one row per label with its duration dropdown.</summary>
-    private static void AddTimeSection(Card card, string heading, params (string Label, ComboBox Combo)[] rows)
+    /// <summary>"Urgent until dismissed · High 1 min · Normal 30 s · Low 15 s" for the chosen length.</summary>
+    private void ShowTicketTimes()
     {
-        var title = Theme.Label(heading, Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-        title.Margin = new Padding(0, 4, 0, 2); // level with the card text above
-        card.Body.Controls.Add(title);
-        // The table keeps its default left margin, like the other cards' tables: the labels line up.
-        var table = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(3, 0, 3, 10) };
-        for (var i = 0; i < rows.Length; i++)
-        {
-            var text = Theme.Label(rows[i].Label);
-            text.Anchor = AnchorStyles.Left;
-            text.MinimumSize = new Size(140, 0);
-            table.Controls.Add(text, 0, i);
-            table.Controls.Add(rows[i].Combo, 1, i);
-        }
-        card.Body.Controls.Add(table);
+        // Short enough for one line in every choice (a second line made the page jump).
+        var length = Lengths[_ticketLength.SelectedIndex];
+        static string Time(int seconds) => seconds == 0 ? "until closed" : seconds >= 60 ? $"{seconds / 60} min" : $"{seconds} s";
+        var (high, normal, low) = (TicketDisplayTimes.For(length, "high"), TicketDisplayTimes.For(length, "normal"), TicketDisplayTimes.For(length, "low"));
+        _ticketTimes.Text = high == 0
+            ? $"Tickets: Urgent and High until closed · Normal {Time(normal)} · Low {Time(low)}"
+            : $"Tickets: Urgent until closed · High {Time(high)} · Normal {Time(normal)} · Low {Time(low)}";
+        var (summary, app) = TicketDisplayTimes.Others(length);
+        _otherTimes.Text = $"Start summary {Time(summary.Seconds())} · App messages {Time(app.Seconds())} · Sign-in required until closed";
     }
 }

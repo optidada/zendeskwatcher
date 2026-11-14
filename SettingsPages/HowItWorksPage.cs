@@ -16,7 +16,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
             "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
-            "Muted clients stay quiet and aren't counted; \u201conly urgent\u201d clients only for Urgent (P1) and High (P2). Groups → Clients, or Mute \u25be on a notification."
+            "Muted clients stay quiet and aren't counted; \u201conly urgent\u201d clients only for Urgent (P1) and High (P2). [[Groups → Clients|Clients]], or Mute \u25be on a notification."
         ]),
         ("Clients",
         [
@@ -31,17 +31,19 @@ internal sealed class HowItWorksPage : SettingsPage
             "status, priority or reassignment (Notifications → Which changes).",
             "Changes you make yourself never notify. Status changes leave out New → Open, Solved → Closed, " +
             "and a ticket reopened by a reply (the reply says it).",
-            "Each for the priorities you choose; CC / following is Urgent (P1) and High (P2) by default."
+            "Each for the priorities you choose (the ticket's current priority; none counts as Normal). CC / following is Urgent (P1) " +
+            "and High (P2) by default. Custom statuses count too, e.g. In progress → Escalated."
         ]),
         ("Colleagues' tickets: Customer waiting",
         [
             "When a customer has written on a colleague's ticket and the colleague is off work (their working hours, in " +
-            "their own time zone), so you can step in. Notifications → Colleagues.",
+            "their own time zone), so you can step in. [[Notifications → Colleagues|Colleagues]].",
             "The customer: someone outside your company. Colleagues on the ticket, also as CC, count as you, " +
             "except the person who opened it.",
             "Waiting: the customer's message is the newest public comment. An internal note isn't an answer.",
-            "Any status counts (Pending, On-hold, Escalated, …), except “In progress” and “Scheduled”: they're trusted for a while first (4 hours by default).",
-            "Colleagues in your own region are left out to begin with: they usually work when you do.",
+            "Any status counts (Pending, On-hold, Escalated, In progress, Scheduled, …): a customer who wrote needs an answer.",
+            "Colleagues are chosen by region: newcomers follow their region's tick, and you can tick or untick people one by " +
+            "one (› opens a region). Your own region starts unticked: they usually work when you do.",
             "Not for muted clients, and only Urgent (P1) and High (P2) for \u201conly urgent\u201d ones (Groups → Clients).",
             "Only while you're working yourself, if you chose that on the Colleagues page; Catch up brings up what was held back."
         ]),
@@ -51,9 +53,11 @@ internal sealed class HowItWorksPage : SettingsPage
             "New tickets show when the first reply is due, counted from when they were created. A customer waiting on an " +
             "assigned ticket shows when the next reply is due, counted from when they wrote.",
             "When Zendesk runs an SLA timer on the ticket, its deadline is used. Otherwise the target for the type and priority " +
-            "(Notifications → SLA): yours if you changed it, else the team's default, else one estimated from Zendesk's timers on other tickets.",
+            "(Notifications → SLA): yours if you changed it, else what Zendesk's timers on other tickets show, else the team's default.",
             "New SLA types in Zendesk appear there by themselves; until enough tickets show their targets, Standard's are used.",
-            "In red bold on the notification, counting down; once late it says by how much. Switch it off under Notifications → SLA."
+            "P1, 24x7 and Urgent (15 Min) count around the clock; the others only Monday to Friday. First reply counts from when the " +
+            "ticket was created, a follow-up from when the customer wrote.",
+            "In red bold on the notification, counting down; once late it says by how much. Switch it off under [[Notifications → SLA|SLA/On notifications]]."
         ]),
         ("Experimental features",
         [
@@ -65,9 +69,6 @@ internal sealed class HowItWorksPage : SettingsPage
             "site is down, security, data loss, lost sales, everyone affected, a deadline, a frustrated tone, and similar earlier " +
             "P1 or P2 tickets. Shown when that's higher than the priority. A long wait or a demanding SLA type adds a little, never on its own; " +
             "“no rush” and “that fixed it” keep it quiet.",
-            "Same issue?: 3 or more new tickets within an hour whose subjects read alike, once per group of tickets.",
-            "Similar solved ticket: compared with the subjects of the last 90 days of your monitored groups, read again every " +
-            "6 hours and kept in memory only.",
             "Quiet thank-yous: a short reply that thanks or says it's solved, with no question and no “but”."
         ]),
         ("Catch up",
@@ -79,12 +80,14 @@ internal sealed class HowItWorksPage : SettingsPage
         ]),
         ("On screen",
         [
-            "How long a ticket notification stays depends on its priority (Behavior → On screen). Hover over it to pause the countdown.",
+            "How long a ticket notification stays: Short, Normal or Long (Behavior → On screen), then by priority; Urgent stays until you close it. The start summary and app messages follow the same choice. Hover over it to pause the countdown.",
             "Peek from the edge (Look & sound): it waits as a tab and counts down only after you've slid it out. " +
-            "Urgent and important ones come out by themselves.",
+            "Urgent and important ones, app messages and the welcome summary come out by themselves.",
             "Several take turns, and while you're away (screen locked, or no mouse or keyboard for a minute) they wait for you. " +
             "So they do while you present or use a full-screen app, silently, and nothing pops up over your screen. " +
-            "When you're back, ones that waited are checked again and dropped if they're no longer needed."
+            "When you're back, ones that waited 15 minutes or more are checked again and dropped if they're no longer needed: " +
+            "taken, solved or closed, or (with Behavior → Skip old news) already answered by someone.",
+            "Snooze brings a notification back after the time you chose, but only if the ticket still needs you."
         ]),
         ("Summaries",
         [
@@ -95,6 +98,7 @@ internal sealed class HowItWorksPage : SettingsPage
         ("Your data",
         [
             "The app reads Zendesk with your own sign-in and changes nothing, except when you click Take it.",
+            "It checks every minute (Zendesk's own search can lag 1–3 minutes behind).",
             "Insights are counted on this PC only; nothing is sent anywhere."
         ])
     ];

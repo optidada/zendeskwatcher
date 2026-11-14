@@ -33,7 +33,7 @@ internal static class ClientMenu
         var mutedFor = muted && current.MutedUntil is { } until ? until : (DateTimeOffset?)null;
         if (muted)
             Item("Unmute", false, c => WithMute(c, false, null));
-        Item(mutedFor is { } u ? $"Muted until {u.ToLocalTime().ToString("ddd HH:mm", CultureInfo.GetCultureInfo("en-GB"))}" : "Mute for 1 day",
+        Item(mutedFor is { } u ? $"Muted until {Clock.DayTime(u.ToLocalTime().DateTime)}" : "Mute for 1 day",
             mutedFor is not null, c => WithMute(c, true, now.AddDays(1)));
         Item("Mute for 1 week", false, c => WithMute(c, true, now.AddDays(7)));
         Item("Mute", muted && mutedFor is null, c => WithMute(c, true, null));

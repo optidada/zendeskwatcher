@@ -77,7 +77,7 @@ public static class Markdown
         return runs;
     }
 
-    /// <summary>The plain text, without markers (Windows notifications, logs, plain-text copies).</summary>
+    /// <summary>The plain text, without markers (logs, plain-text copies).</summary>
     public static string Strip(string? markdown) => string.Concat(Parse(markdown).Select(r => r.Text));
 
     /// <summary>HTML with &lt;b&gt; for bold, red for alerts (copies for Teams).</summary>

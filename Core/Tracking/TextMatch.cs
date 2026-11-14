@@ -11,10 +11,10 @@ public static partial class TextMatch
 }
 
 /// <summary>A ticket remembered for the Experimental features: only what they need, kept in memory, never saved.</summary>
-public sealed record IndexedTicket(long Id, string Subject, long? AssigneeId, bool Solved, DateTimeOffset CreatedAt, string? Priority = null)
+public sealed record IndexedTicket(long Id, string Subject, DateTimeOffset CreatedAt, string? Priority = null)
 {
     public static IndexedTicket From(Ticket t) =>
-        new(t.Id, TextCleanup.Plain(t.Subject), t.AssigneeId, t.Status is "solved" or "closed", t.CreatedAt, t.Priority);
+        new(t.Id, TextCleanup.Plain(t.Subject), t.CreatedAt, t.Priority);
 }
 
 /// <summary>
@@ -23,9 +23,6 @@ public sealed record IndexedTicket(long Id, string Subject, long? AssigneeId, bo
 /// </summary>
 public sealed class TicketIndex
 {
-    /// <summary>Same issue, other words: from about here on (tuned on support subjects; unrelated ones score ≤ 0.15).</summary>
-    public const float SameIssue = 0.40f;
-
     /// <summary>Close enough to name it as a similar ticket.</summary>
     public const float Similar = 0.50f;
 

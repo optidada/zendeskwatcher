@@ -8,7 +8,6 @@ public class SettingsWindowTests
     {
         Subdomain = "acme",
         WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }],
-        PollIntervalSeconds = 120,
         TrackMyTickets = false,
         TrackCcTickets = true,
         NotifyUnassigned = false,
@@ -22,20 +21,18 @@ public class SettingsWindowTests
         HelpSameAsMonitored = false,
         HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
         HelpExcludedAssignees = [new Colleague { Id = 9, Name = "Alex Example" }],
+        HelpIncludedAssignees = [new Colleague { Id = 8, Name = "Maria Svensson" }],
+        HelpOffRegions = [TimeRegion.EuropeAfrica],
         Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipBlip }],
         WorkdayStartHour = 9,
         WorkdayEndHour = 18,
         HelpPriorities = ["normal", "low"],
-        InProgressGraceHours = 8,
         HelpOnlyDuringMyHours = false,
         ShowStartSummary = false,
         SnoozeMinutes = 30,
-        SnoozeBehavior = SnoozeBehavior.Always,
         ShowCommentText = false,
         ShowSlaDeadlines = false,
         GuessPriority = true,
-        SameIssueAlert = true,
-        ShowSimilarTickets = true,
         QuietThankYous = true,
         SlaOverrides = [new SlaOverride { Type = "slapremium", Priority = "high", FirstReply = true, Minutes = 120 }],
         MyTicketPriorities = ["urgent"],
@@ -44,15 +41,12 @@ public class SettingsWindowTests
         MyTicketStyle = new NotificationStyle { Sound = ToastSound.Mail },
         HelpStyle = new NotificationStyle { Sound = ToastSound.SongGroove },
         CcTicketStyle = new NotificationStyle { Sound = ToastSound.ChipAlert },
-        TicketDisplay = new TicketDisplayTimes { Urgent = 60, High = 30, Normal = 15, Low = 0 },
-        SummaryStyle = new NotificationStyle { Sound = ToastSound.ChipFanfare, Display = ToastDisplay.UntilDismissed },
-        AppMessageStyle = new NotificationStyle { Sound = ToastSound.Sms, Display = ToastDisplay.Medium },
+        TicketDisplayLength = DisplayLength.Long,
+        SummaryStyle = new NotificationStyle { Sound = ToastSound.ChipFanfare, Display = ToastDisplay.Long },      // Long: 25 s
+        AppMessageStyle = new NotificationStyle { Sound = ToastSound.Sms, Display = ToastDisplay.UntilDismissed }, // Long: until closed
         Theme = NotificationTheme.CleanLight,
         AppTheme = NotificationTheme.Terminal,
-        PopupsTakeTurns = false,
         PausePopupsWhenAway = false,
-        RecheckWaitingAfterMinutes = 60,
-        SummarizeWaitingAbove = 0,
         DropAnswered = false,
         OnlyNotifyDuringMyHours = true,
         CatchUpAtDayStart = false,
@@ -63,9 +57,7 @@ public class SettingsWindowTests
         NotificationsLikeApp = false,
         Position = PopupPosition.TopCenter, // (Center isn't possible with Peek)
         Stacking = PopupStacking.Peek,
-        NotificationSize = 130,
-        ShowAppLogo = false,
-        GroupNotificationsByType = false
+        NotificationSize = 130
     };
 
     [Fact]
@@ -97,21 +89,6 @@ public class SettingsWindowTests
         Assert.Equal(expected.ToJson(), shown.ToJson());
     }
 
-    [Theory]
-    [InlineData(75, 60)]     // from an older version: the nearest step
-    [InlineData(100, 120)]
-    [InlineData(600, 300)]   // longer than the longest choice: 5 min
-    [InlineData(10, 30)]
-    public void Check_interval_snaps_to_the_nearest_step(int saved, int shown)
-    {
-        var result = OnUiThread(() =>
-        {
-            using var form = new SettingsForm(new Settings { Subdomain = "acme", PollIntervalSeconds = saved }, _ => new FakeZendesk(), new Notifier((_, _) => { }));
-            return form.PagesAsSettings().PollIntervalSeconds;
-        });
-        Assert.Equal(shown, result);
-    }
-
     [Fact]
     public void Reset_shows_the_defaults_but_keeps_account_groups_and_clients()
     {
@@ -131,9 +108,24 @@ public class SettingsWindowTests
     [Fact]
     public void Ticket_notifications_stay_longer_the_higher_the_priority_by_default()
     {
-        var times = new Settings().TicketDisplay;
-        Assert.Equal((0, 60, 30, 15), (times.Urgent, times.High, times.Normal, times.Low)); // 0: until dismissed
-        Assert.Equal(30, times.For(null)); // no priority counts as normal
+        var length = new Settings().TicketDisplayLength;
+        Assert.Equal((0, 60, 30, 15), (TicketDisplayTimes.For(length, "urgent"), TicketDisplayTimes.For(length, "high"),
+            TicketDisplayTimes.For(length, "normal"), TicketDisplayTimes.For(length, "low"))); // 0: until dismissed
+        Assert.Equal(30, TicketDisplayTimes.For(length, null)); // no priority counts as normal
+    }
+
+    [Fact]
+    public void A_link_in_a_text_opens_that_page()
+    {
+        var shown = OnUiThread(() =>
+        {
+            using var form = new SettingsForm(new Settings { Subdomain = "acme" }, _ => new FakeZendesk(), new Notifier((_, _) => { }));
+            UI.SettingsLinks.Go!("Notifications", "Working hours");
+            var nav = (System.Collections.IEnumerable)typeof(SettingsForm).GetField("_nav",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(form)!;
+            return nav.Cast<Control>().Where(n => (bool)n.GetType().GetProperty("Selected")!.GetValue(n)!).Select(n => n.Text).ToList();
+        });
+        Assert.Equal(["Notifications"], shown);
     }
 
     [Fact]

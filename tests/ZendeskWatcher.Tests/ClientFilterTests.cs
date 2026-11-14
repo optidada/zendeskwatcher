@@ -86,23 +86,6 @@ public class ClientFilterTests
     }
 
     [Fact]
-    public void A_label_from_an_organization_field_shows_a_dropdowns_option_name_a_ticked_checkbox_or_text() // groundwork, not used yet
-    {
-        var plan = new OrganizationField { Key = "plan", Title = "Plan", CustomFieldOptions = [new FieldOption { Name = "Enterprise", Value = "plan_enterprise" }] };
-        var vip = new OrganizationField { Key = "vip", Title = "VIP" };
-        Organization Org(string key, object? value) => new()
-        {
-            Name = "Contoso",
-            OrganizationFields = new() { [key] = System.Text.Json.JsonSerializer.SerializeToElement(value) }
-        };
-        Assert.Equal("Enterprise", TicketRules.ClientLabel(Org("plan", "plan_enterprise"), plan));
-        Assert.Equal("VIP", TicketRules.ClientLabel(Org("vip", true), vip));
-        Assert.Null(TicketRules.ClientLabel(Org("vip", false), vip));
-        Assert.Null(TicketRules.ClientLabel(Org("plan", null), plan));
-        Assert.Null(TicketRules.ClientLabel(Org("plan", "plan_enterprise"), null)); // no field chosen
-    }
-
-    [Fact]
     public async Task Important_clients_notify_outside_my_hours_with_a_star_their_sound_and_stay_until_closed()
     {
         var hour = DateTime.Now.Hour; // working hours that are over right now

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ZendeskWatcher.Tracking;
 
 namespace ZendeskWatcher;
 
@@ -10,7 +11,9 @@ public sealed class Settings
 
     // What to watch
     public List<WatchedGroup> WatchedGroups { get; set; } = [];
-    public int PollIntervalSeconds { get; set; } = 60;
+
+    /// <summary>How often Zendesk is checked (fixed: Zendesk search lags 1–3 minutes anyway).</summary>
+    public static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(60);
     public bool TrackMyTickets { get; set; } = true;
 
     /// <summary>Also notify about changes on tickets where I'm CC'd or a follower (same change types as my tickets).</summary>
@@ -51,6 +54,24 @@ public sealed class Settings
     public List<Colleague> HelpExcludedAssignees { get; set; } = [];
 
     /// <summary>
+    /// Regions unticked on the Colleagues page: nobody there is covered (newcomers neither), except
+    /// <see cref="HelpIncludedAssignees"/>. In other regions everyone is, except <see cref="HelpExcludedAssignees"/>.
+    /// </summary>
+    public List<TimeRegion> HelpOffRegions { get; set; } = [];
+
+    /// <summary>Colleagues ticked one by one in an unticked region (see <see cref="HelpOffRegions"/>).</summary>
+    public List<Colleague> HelpIncludedAssignees { get; set; } = [];
+
+    /// <summary>
+    /// Whether "Help colleagues" covers this colleague: their region's tick, then the exceptions. Until the list was
+    /// shown once, your own region counts as unticked (<see cref="HelpRegionDefaultDone"/>).
+    /// </summary>
+    public bool CoversColleague(long id, TimeRegion region, TimeRegion myRegion) =>
+        HelpOffRegions.Contains(region) || (HelpRegionDefaultDone != true && region == myRegion)
+            ? HelpIncludedAssignees.Any(c => c.Id == id)
+            : HelpExcludedAssignees.All(c => c.Id != id);
+
+    /// <summary>
     /// Choices per client (Zendesk organization) on the Clients page or from a notification: muted (for good or for a
     /// while), only urgent, important, an own sound. Only clients with a choice are stored; everyone else is Normal,
     /// so new clients are included automatically. See <see cref="ClientChoice"/>.
@@ -89,12 +110,6 @@ public sealed class Settings
     /// </summary>
     public List<string> HelpPriorities { get; set; } = ["urgent", "high"];
 
-    /// <summary>
-    /// A ticket whose status is "In progress" or "Scheduled" is trusted this many hours after the customer wrote: only then does a
-    /// waiting customer notify (Colleagues, and Catch up). Other statuses notify right away.
-    /// </summary>
-    public int InProgressGraceHours { get; set; } = 4;
-
     /// <summary>"Help colleagues" only notifies while it's within the same working hours on this PC (your own time).</summary>
     public bool HelpOnlyDuringMyHours { get; set; } = true;
 
@@ -122,9 +137,6 @@ public sealed class Settings
     /// <summary>How long the Snooze button on a popup hides it before it shows again.</summary>
     public int SnoozeMinutes { get; set; } = 10;
 
-    /// <summary>Whether a snoozed popup shows again only if its ticket still needs attention.</summary>
-    public SnoozeBehavior SnoozeBehavior { get; set; } = SnoozeBehavior.IfStillNeeded;
-
     /// <summary>The ticket priorities, in Zendesk's words. Tickets without a priority count as "normal".</summary>
     public static readonly string[] AllPriorities = ["urgent", "high", "normal", "low"];
 
@@ -145,24 +157,18 @@ public sealed class Settings
     /// (Experimental page). Plain rules on this PC; ticket text never leaves it.</summary>
     public bool GuessPriority { get; set; }
 
-    /// <summary>Experimental: one notification when 3+ new tickets within an hour look like the same issue (maybe an incident).</summary>
-    public bool SameIssueAlert { get; set; }
-
-    /// <summary>Experimental: "Like #123 … · solved by Jane" on new tickets, from 90 days of the monitored groups.</summary>
-    public bool ShowSimilarTickets { get; set; }
-
     /// <summary>Experimental: a customer's plain thank-you notifies without sound and briefly; Catch up and colleagues' tickets skip it.</summary>
     public bool QuietThankYous { get; set; }
 
     /// <summary>A feature that uses the language model and 90 days of tickets is on.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool NeedsTicketHistory => GuessPriority || SameIssueAlert || ShowSimilarTickets;
+    public bool NeedsTicketHistory => GuessPriority;
 
     /// <summary>SLA targets changed from the team's (Notifications → SLA); empty: the team's targets.</summary>
     public List<Tracking.SlaOverride> SlaOverrides { get; set; } = [];
 
     // Appearance of the notifications
-    // Ticket notifications: the sound by type; how long they stay is by priority (TicketDisplay), so their Display isn't used.
+    // Ticket notifications: the sound by type; how long they stay is by length and priority (TicketDisplayLength), so their Display isn't used.
     // Silent by default (since 1.3.19): most people turn sounds off; they're one click away under Look & sound.
     // Except new tickets: a very quiet chime, so one isn't missed while you look elsewhere. Saved settings keep the
     // sounds chosen before.
@@ -196,12 +202,20 @@ public sealed class Settings
     /// </summary>
     public bool CatchUpAtDayStart { get; set; } = true;
 
-    /// <summary>How long ticket notifications stay on screen, by the ticket's priority (all ticket types).</summary>
-    public TicketDisplayTimes TicketDisplay { get; set; } = new();
+    /// <summary>How long ticket notifications stay on screen: Short, Normal or Long, then by priority (all ticket types).</summary>
+    public DisplayLength TicketDisplayLength { get; set; } = DisplayLength.Normal;
+
+    /// <summary>The start summary and app messages stay as long as the same Short / Normal / Long choice says.</summary>
+    public void ApplyDisplayLength()
+    {
+        var (summary, app) = TicketDisplayTimes.Others(TicketDisplayLength);
+        SummaryStyle.Display = summary;
+        AppMessageStyle.Display = app;
+    }
 
     /// <summary>Seconds on screen, 0 = until dismissed: app messages and the summary by their style, ticket notifications by priority.</summary>
     public int DisplaySecondsFor(UI.Popups.NotificationContent content) =>
-        content.Style is { } style ? style.Display.Seconds() : content.Important ? 0 : TicketDisplay.For(content.Quiet ? "low" : content.Priority);
+        content.Style is { } style ? style.Display.Seconds() : content.Important ? 0 : TicketDisplayTimes.For(TicketDisplayLength, content.Quiet ? "low" : content.Priority);
 
     public NotificationStyle StyleFor(NotificationKind kind) => kind switch
     {
@@ -236,20 +250,17 @@ public sealed class Settings
     /// <summary>Size of Zendesk Watcher's own notifications in percent (text, buttons and spacing together).</summary>
     public int NotificationSize { get; set; } = 100;
 
-    /// <summary>Several popups take turns: one counts down at a time, the others wait.</summary>
-    public bool PopupsTakeTurns { get; set; } = true;
-
     /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
     public bool PausePopupsWhenAway { get; set; } = true;
 
     /// <summary>
     /// Notifications that waited this long (in the line, or on screen while away) are checked against Zendesk before
-    /// they show, and dropped when no longer needed. 0: never checked.
+    /// they show, and dropped when no longer needed.
     /// </summary>
-    public int RecheckWaitingAfterMinutes { get; set; } = 15;
+    public static readonly TimeSpan RecheckWaitingAfter = TimeSpan.FromMinutes(15);
 
-    /// <summary>Coming back to more than this many waiting notifications: one summary instead. 0: never.</summary>
-    public int SummarizeWaitingAbove { get; set; } = 5;
+    /// <summary>Coming back to more than this many waiting notifications: one summary instead.</summary>
+    public const int SummarizeWaitingAbove = 5;
 
     /// <summary>
     /// A customer reply counts as handled once an agent answered it publicly (colleagues' tickets), and changes on
@@ -257,8 +268,6 @@ public sealed class Settings
     /// "Customer waiting" (no notification when a colleague already answered).
     /// </summary>
     public bool DropAnswered { get; set; } = true;
-    public bool ShowAppLogo { get; set; } = true;
-    public bool GroupNotificationsByType { get; set; } = true;
 
     public string BaseUrl => $"https://{Subdomain}.zendesk.com";
     public string TicketUrl(long id) => $"{BaseUrl}/agent/tickets/{id}";
@@ -352,9 +361,8 @@ public sealed class Settings
         if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Silent;
         // Before 1.3.19 the own-region untick happened when Help colleagues was first switched on.
         HelpRegionDefaultDone ??= HelpColleagues || HelpExcludedAssignees.Count > 0 ? true : null;
-        InProgressGraceHours = Math.Clamp(InProgressGraceHours, 1, 24);
-        TicketDisplay ??= new TicketDisplayTimes();
-        TicketDisplay.Normalize();
+        if (!Enum.IsDefined(TicketDisplayLength)) TicketDisplayLength = DisplayLength.Normal;
+        ApplyDisplayLength();
     }
 
     public void Save() => Save(FilePath);
@@ -365,7 +373,6 @@ public sealed class Settings
     /// </summary>
     internal void Save(string path)
     {
-        PollIntervalSeconds = Math.Clamp(PollIntervalSeconds, 30, 3600);
         var temp = path + ".tmp";
         File.WriteAllText(temp, ToJson());
         if (File.Exists(path))
@@ -488,15 +495,6 @@ public sealed class NotificationStyle
 public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent, ChipBlip, ChipArpeggio, ChipBounce, ChipAlert, ChipFanfare,
     SongBouncy, SongGroove, SongCelebration, SongQuest, SongTurbo, SongStarfield, SoftChime }
 
-public enum SnoozeBehavior
-{
-    /// <summary>Checks the ticket first: a new ticket must still be unassigned, any ticket not solved or closed.</summary>
-    IfStillNeeded,
-
-    /// <summary>Shows it again whatever happened to the ticket.</summary>
-    Always
-}
-
 public enum ToastDisplay
 {
     /// <summary>About 5 seconds, then it moves to the notification center.</summary>
@@ -524,35 +522,37 @@ public static class ToastDisplayExtensions
     };
 }
 
-/// <summary>Seconds a ticket notification stays on screen, by priority; 0 = until dismissed.</summary>
-public sealed class TicketDisplayTimes
+/// <summary>How long ticket notifications stay (Notifications → Behavior); Normal first, so it's the default.</summary>
+public enum DisplayLength { Normal, Short, Long }
+
+/// <summary>Seconds a ticket notification stays on screen, by length and priority; 0 = until dismissed.</summary>
+public static class TicketDisplayTimes
 {
-    /// <summary>The choices in Settings; other values (an edited file) snap to the nearest.</summary>
-    public static readonly int[] Choices = [10, 15, 30, 60, 0];
-
-    public int Urgent { get; set; }
-    public int High { get; set; } = 60;
-    public int Normal { get; set; } = 30;
-    public int Low { get; set; } = 15;
-
-    /// <summary>Tickets without a priority count as normal.</summary>
-    public int For(string? priority) => priority?.ToLowerInvariant() switch
+    /// <summary>The start summary and app messages: Short 5 s / 10 s, Normal 10 s / 25 s, Long 25 s / until closed.</summary>
+    public static (ToastDisplay Summary, ToastDisplay AppMessages) Others(DisplayLength length) => length switch
     {
-        "urgent" => Urgent,
-        "high" => High,
-        "low" => Low,
-        _ => Normal
+        DisplayLength.Short => (ToastDisplay.Standard, ToastDisplay.Medium),
+        DisplayLength.Long => (ToastDisplay.Long, ToastDisplay.UntilDismissed),
+        _ => (ToastDisplay.Medium, ToastDisplay.Long)
     };
 
-    internal void Normalize()
+    /// <summary>Urgent always stays until dismissed; the others longer the higher the priority. No priority counts as normal.</summary>
+    public static int For(DisplayLength length, string? priority)
     {
-        Urgent = Snap(Urgent);
-        High = Snap(High);
-        Normal = Snap(Normal);
-        Low = Snap(Low);
+        var (high, normal, low) = length switch
+        {
+            DisplayLength.Short => (30, 15, 10),
+            DisplayLength.Long => (0, 60, 30),
+            _ => (60, 30, 15)
+        };
+        return priority?.ToLowerInvariant() switch
+        {
+            "urgent" => 0,
+            "high" => high,
+            "low" => low,
+            _ => normal
+        };
     }
-
-    private static int Snap(int seconds) => seconds <= 0 ? 0 : Choices.Where(c => c > 0).MinBy(c => Math.Abs(c - seconds));
 }
 
 public enum NotificationTheme
@@ -561,7 +561,10 @@ public enum NotificationTheme
     Terminal,
     CleanLight,
 
-    /// <summary>The built-in Windows toasts (work with Focus / Do Not Disturb and the notification center).</summary>
+    /// <summary>
+    /// Native: like Windows 11, a bit edgier; follows Windows' light/dark and accent color. (Was the Windows toast style
+    /// until 1.7.0; the stored number stays, so those settings get Native.)
+    /// </summary>
     WindowsNative,
 
     /// <summary>Dusky purple with warm cream text and soft pastel accents. (Added last: settings store the number.)</summary>

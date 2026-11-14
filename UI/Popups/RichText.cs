@@ -9,7 +9,7 @@ internal sealed class RichText(Font regular, Font bold)
     private const TextFormatFlags Flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
 
     /// <summary>Style: 0 regular, 1 bold, 2 alert (bold in the alert color).</summary>
-    private readonly record struct Piece(string Text, int Style, int X, int Line);
+    private readonly record struct Piece(string Text, int Style, int X, int Line, int Paragraph = 0);
 
     private string? _cachedText;
     private int _cachedWidth, _cachedMaxLines;
@@ -44,6 +44,26 @@ internal sealed class RichText(Font regular, Font bold)
             return rect.Location;
         var last = _pieces[^1];
         return new Point(rect.Left + last.X + Width(last.Text, last.Style), rect.Top + last.Line * LineHeight);
+    }
+
+    /// <summary>
+    /// Lines of a ticket list ("#123456 Subject"): each ticket and where its text is, so a click on it can open it.
+    /// </summary>
+    public List<(long TicketId, Rectangle Bounds)> TicketLines(string markdown, Rectangle rect, int maxLines)
+    {
+        Layout(markdown, rect.Width, maxLines);
+        var lines = new List<(long, Rectangle)>();
+        foreach (var paragraph in _pieces.GroupBy(p => p.Paragraph))
+        {
+            var text = string.Concat(paragraph.Select(p => p.Text));
+            var match = System.Text.RegularExpressions.Regex.Match(text, @"^#(\d+) ");
+            if (!match.Success || !long.TryParse(match.Groups[1].Value, out var id))
+                continue;
+            var bounds = paragraph.Select(p => new Rectangle(rect.Left + p.X, rect.Top + p.Line * LineHeight, Width(p.Text.TrimEnd(), p.Style), LineHeight))
+                .Aggregate(Rectangle.Union);
+            lines.Add((id, bounds));
+        }
+        return lines;
     }
 
     private int Width(string text, int style) =>
@@ -85,6 +105,7 @@ internal sealed class RichText(Font regular, Font bold)
         var pieces = new List<Piece>();
         var line = 0;
         var x = 0;
+        var paragraph = 0;
         var truncated = false;
         void NewLine()
         {
@@ -96,6 +117,7 @@ internal sealed class RichText(Font regular, Font bold)
         {
             if (raw == "\n")
             {
+                paragraph++;
                 NewLine();
                 if (line >= maxLines) { truncated = true; break; }
                 continue;
@@ -116,14 +138,14 @@ internal sealed class RichText(Font regular, Font bold)
                 var fit = text.Length - 1;
                 while (fit > 1 && Width(text[..fit], tokenStyle) > width - x)
                     fit--;
-                pieces.Add(new Piece(text[..fit], tokenStyle, x, line));
+                pieces.Add(new Piece(text[..fit], tokenStyle, x, line, paragraph));
                 text = text[fit..];
                 NewLine();
                 if (line >= maxLines) { truncated = true; break; }
             }
             if (truncated)
                 break;
-            pieces.Add(new Piece(text, tokenStyle, x, line));
+            pieces.Add(new Piece(text, tokenStyle, x, line, paragraph));
             x += Width(text, tokenStyle);
         }
 
@@ -131,7 +153,7 @@ internal sealed class RichText(Font regular, Font bold)
         var merged = new List<Piece>();
         foreach (var piece in pieces)
         {
-            if (merged.Count > 0 && merged[^1].Line == piece.Line && merged[^1].Style == piece.Style)
+            if (merged.Count > 0 && merged[^1].Line == piece.Line && merged[^1].Style == piece.Style && merged[^1].Paragraph == piece.Paragraph)
                 merged[^1] = merged[^1] with { Text = merged[^1].Text + piece.Text };
             else
                 merged.Add(piece);

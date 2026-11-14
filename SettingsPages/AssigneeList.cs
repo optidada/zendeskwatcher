@@ -4,7 +4,9 @@ using ZendeskWatcher.UI;
 namespace ZendeskWatcher.SettingsPages;
 
 /// <summary>
-/// The "Help colleagues" assignees: headings with All / None, then the people in two columns with a check box each.
+/// The "Help colleagues" assignees (and the Clients page's clients): headings with All / None, then the people in two
+/// columns with a check box each. With <see cref="GroupTick"/> a heading is a tick box for the whole group instead, folded
+/// until opened with ›.
 /// Drawn as one control instead of a check box window per person, so long lists scroll smoothly (no smears).
 /// People with a time zone show their local time and a dot: filled when they're working now, empty when they're off.
 /// </summary>
@@ -14,9 +16,11 @@ internal sealed class AssigneeList : Control
     public sealed record Person(long Id, string Name, string? Tip, TimeZoneInfo? Zone = null);
 
     /// <param name="Title">A heading (a region), or null for no heading.</param>
-    public sealed record Group(string? Title, IReadOnlyList<Person> People);
+    /// <param name="Tag">The caller's own key for the group (e.g. the region).</param>
+    /// <param name="StartOpen">With <see cref="GroupTick"/>: shown open until folded (e.g. it has exceptions).</param>
+    public sealed record Group(string? Title, IReadOnlyList<Person> People, object? Tag = null, bool StartOpen = false);
 
-    private enum ItemKind { Heading, All, None, Person, Legend }
+    private enum ItemKind { Heading, All, None, Person, Legend, GroupTick, Fold }
 
     private sealed record Item(ItemKind Kind, RectangleF Rect, string Text, Group Group, Person? Person = null);
 
@@ -34,6 +38,25 @@ internal sealed class AssigneeList : Control
 
     /// <summary>Someone was ticked or unticked (after <c>setCovered</c>).</summary>
     public event Action? Changed;
+
+    /// <summary>
+    /// Optional: headings become a tick box for the whole group (true, false, or null for mixed) that folds; the
+    /// people only show when it's opened. A click on the box raises <see cref="GroupToggled"/>.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<Group, bool?>? GroupTick { get; set; }
+
+    /// <summary>With <see cref="GroupTick"/>: a short note after the heading ("5 people · 1 unticked").</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<Group, string>? GroupNote { get; set; }
+
+    /// <summary>A group's tick box was clicked (then <see cref="Changed"/>).</summary>
+    public event Action<Group>? GroupToggled;
+
+    /// <summary>Groups opened or folded (by title) since the window opened; the others use their StartOpen.</summary>
+    private readonly Dictionary<string, bool> _open = [];
+
+    private bool IsOpen(Group group) => GroupTick is null || group.Title is null || _open.GetValueOrDefault(group.Title, group.StartOpen);
 
     /// <summary>
     /// Optional: a short label at the right end of a row ("★ Important"), in the accent color when Accent. Used by the
@@ -96,9 +119,6 @@ internal sealed class AssigneeList : Control
         Invalidate();
     }
 
-    /// <summary>Ticks or unticks everyone in the list.</summary>
-    public void SetAll(bool covered) => SetCovered(_groups.SelectMany(g => g.People), covered);
-
     private float DpiScale => DeviceDpi / 96f;
 
     private void LayoutItems()
@@ -106,11 +126,26 @@ internal sealed class AssigneeList : Control
         var s = DpiScale;
         var items = new List<Item>();
         var y = 0f;
-        var column = (Width - 8 * s) / 2;
         var first = true;
         foreach (var group in _groups)
         {
-            if (group.Title is { } title)
+            var indent = 0f;
+            if (group.Title is { } foldTitle && GroupTick is not null)
+            {
+                // [›] [☑] Americas  5 people · 1 unticked
+                y += first ? 2 * s : 4 * s;
+                var height = 28 * s;
+                items.Add(new Item(ItemKind.GroupTick, new RectangleF(16 * s, y, 22 * s, height), foldTitle, group));
+                items.Add(new Item(ItemKind.Fold, new RectangleF(0, y, Width, height), foldTitle, group));
+                y += height;
+                indent = 40 * s;
+                if (!IsOpen(group))
+                {
+                    first = false;
+                    continue;
+                }
+            }
+            else if (group.Title is { } title)
             {
                 y += first ? 2 * s : 8 * s;
                 var height = 24 * s;
@@ -122,17 +157,18 @@ internal sealed class AssigneeList : Control
                 items.Add(new Item(ItemKind.None, new RectangleF(titleWidth + allWidth, y, noneWidth, height), "None", group));
                 y += height;
             }
+            var width = (Width - indent - 8 * s) / 2;
             for (var i = 0; i < group.People.Count; i++)
             {
                 var rowHeight = 26 * s;
-                var x = i % 2 == 0 ? 0 : column + 8 * s;
-                items.Add(new Item(ItemKind.Person, new RectangleF(x, y, column, rowHeight), group.People[i].Name, group, group.People[i]));
+                var x = indent + (i % 2 == 0 ? 0 : width + 8 * s);
+                items.Add(new Item(ItemKind.Person, new RectangleF(x, y, width, rowHeight), group.People[i].Name, group, group.People[i]));
                 if (i % 2 == 1 || i == group.People.Count - 1)
                     y += rowHeight;
             }
             first = false;
         }
-        if (_groups.Any(g => g.People.Any(p => p.Zone is not null)))
+        if (items.Any(i => i.Person?.Zone is not null))
         {
             y += 6 * s;
             items.Add(new Item(ItemKind.Legend, new RectangleF(0, y, Width, 22 * s), "", _groups[0]));
@@ -186,25 +222,8 @@ internal sealed class AssigneeList : Control
                         using var markPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
                         g.FillPath(mark, markPath);
                     }
-                    var covered = _isCovered(item.Person!.Id);
                     var box = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s);
-                    using (var path = Theme.RoundedRect(box, 3 * s))
-                    {
-                        if (covered)
-                        {
-                            using var fill = new SolidBrush(Active ? Theme.Accent : Theme.Border);
-                            g.FillPath(fill, path);
-                            using var tick = new Pen(Active ? Theme.OnAccent : Theme.Surface, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-                            g.DrawLines(tick, [
-                                new PointF(box.X + 4 * s, box.Y + 8.5f * s), new PointF(box.X + 7 * s, box.Y + 11.5f * s), new PointF(box.X + 12 * s, box.Y + 5 * s)
-                            ]);
-                        }
-                        else
-                        {
-                            using var border = new Pen(Active && item == _hover ? Theme.Accent : Theme.Neutral, 1.2f * s);
-                            g.DrawPath(border, path);
-                        }
-                    }
+                    DrawBox(g, box, _isCovered(item.Person!.Id), item == _hover, s);
                     var text = new Rectangle((int)(box.Right + 8 * s), rect.Y, rect.Width - (int)(24 * s), rect.Height);
                     if (Badge?.Invoke(item.Person.Id) is { } badge)
                     {
@@ -219,7 +238,7 @@ internal sealed class AssigneeList : Control
                     {
                         // Right-aligned: their local time, with a dot that says whether they're working now.
                         var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone);
-                        var time = local.ToString("HH:mm");
+                        var time = Clock.Time(local);
                         var timeWidth = TextRenderer.MeasureText(time, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
                         var right = rect.Right - (int)(10 * s);
                         TextRenderer.DrawText(g, time, Theme.Small, new Rectangle(right - timeWidth, rect.Y, timeWidth, rect.Height), Theme.TextMuted,
@@ -231,6 +250,30 @@ internal sealed class AssigneeList : Control
                     TextRenderer.DrawText(g, item.Text, Font, text, Active ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                     break;
+
+                case ItemKind.GroupTick:
+                    DrawBox(g, new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s),
+                        GroupTick!(item.Group), item == _hover, s);
+                    break;
+
+                case ItemKind.Fold:
+                {
+                    // A chevron (› folded, ⌄ open), then the title and the muted note, right of the group's tick box.
+                    var cx = item.Rect.X + 6 * s;
+                    var cy = item.Rect.Y + item.Rect.Height / 2;
+                    using (var chevron = new Pen(Active && item == _hover ? Theme.Accent : Theme.TextMuted, 1.5f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                        g.DrawLines(chevron, IsOpen(item.Group)
+                            ? [new PointF(cx - 3.5f * s, cy - 2 * s), new PointF(cx, cy + 2 * s), new PointF(cx + 3.5f * s, cy - 2 * s)]
+                            : [new PointF(cx - 1.5f * s, cy - 4 * s), new PointF(cx + 2.5f * s, cy), new PointF(cx - 1.5f * s, cy + 4 * s)]);
+                    var titleX = (int)(item.Rect.X + 46 * s);
+                    var titleWidth = TextRenderer.MeasureText(item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
+                    TextRenderer.DrawText(g, item.Text, Font, new Rectangle(titleX, rect.Y, titleWidth + 2, rect.Height), Active ? Theme.Text : Theme.TextMuted,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    if (GroupNote?.Invoke(item.Group) is { Length: > 0 } note)
+                        TextRenderer.DrawText(g, note, Theme.Small, new Rectangle(titleX + titleWidth + 4, rect.Y, Math.Max(0, rect.Right - titleX - titleWidth - 4), rect.Height),
+                            Theme.TextMuted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    break;
+                }
 
                 case ItemKind.Legend:
                     // "● working now   ○ off work: you hear about their customers' replies", with the same dots.
@@ -248,6 +291,27 @@ internal sealed class AssigneeList : Control
             }
         }
         PaintFocus(g);
+    }
+
+    /// <summary>A tick box: ticked, empty, or (null) mixed with a dash.</summary>
+    private void DrawBox(Graphics g, RectangleF box, bool? state, bool hover, float s)
+    {
+        using var path = Theme.RoundedRect(box, 3 * s);
+        if (state is false)
+        {
+            using var border = new Pen(Active && hover ? Theme.Accent : Theme.Neutral, 1.2f * s);
+            g.DrawPath(border, path);
+            return;
+        }
+        using var fill = new SolidBrush(Active ? Theme.Accent : Theme.Border);
+        g.FillPath(fill, path);
+        using var mark = new Pen(Active ? Theme.OnAccent : Theme.Surface, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        if (state is true)
+            g.DrawLines(mark, [
+                new PointF(box.X + 4 * s, box.Y + 8.5f * s), new PointF(box.X + 7 * s, box.Y + 11.5f * s), new PointF(box.X + 12 * s, box.Y + 5 * s)
+            ]);
+        else
+            g.DrawLine(mark, box.X + 4 * s, box.Y + 8 * s, box.X + 12 * s, box.Y + 8 * s);
     }
 
     /// <summary>A small dot centered at (x, y): filled in the success color when working, an empty ring when off.</summary>
@@ -297,7 +361,7 @@ internal sealed class AssigneeList : Control
     /// <summary>The keyboard moved to another row: the scrolling host can bring it into view.</summary>
     public event Action<Rectangle>? FocusMoved;
 
-    private static bool IsInteractive(Item item) => item.Kind is ItemKind.Person or ItemKind.All or ItemKind.None;
+    private static bool IsInteractive(Item item) => item.Kind is ItemKind.Person or ItemKind.All or ItemKind.None or ItemKind.GroupTick or ItemKind.Fold;
 
     private static (ItemKind, long, string?) KeyOf(Item item) => (item.Kind, item.Person?.Id ?? 0, item.Group.Title);
 
@@ -320,7 +384,9 @@ internal sealed class AssigneeList : Control
         Invalidate();
     }
 
-    /// <summary>Arrows (and Home/End) move between rows, Space ticks or unticks (All/None for a group), Enter opens the menu.</summary>
+    // Arrows (and Home/End) move between rows, Space ticks or unticks (All/None for a group), Enter opens the menu
+    // (or a group, like a click on its ›).
+
     /// <summary>The keyboard is being used (Tab or a key): show the outline.</summary>
     private bool _keyboard = true;
 
@@ -360,6 +426,11 @@ internal sealed class AssigneeList : Control
             Activate(item);
             e.Handled = e.SuppressKeyPress = true;
         }
+        else if (e.KeyCode == Keys.Enter && item.Kind is ItemKind.Fold or ItemKind.GroupTick)
+        {
+            ToggleOpen(item.Group);
+            e.Handled = e.SuppressKeyPress = true;
+        }
         else if (e.KeyCode is Keys.Enter or Keys.Apps && item.Kind == ItemKind.Person && MenuRequested is not null)
         {
             var rect = Rectangle.Round(item.Rect);
@@ -381,7 +452,31 @@ internal sealed class AssigneeList : Control
             case ItemKind.None:
                 SetCovered(item.Group.People, false);
                 break;
+            case ItemKind.GroupTick:
+                ToggleGroup(item.Group);
+                break;
+            case ItemKind.Fold:
+                ToggleOpen(item.Group);
+                break;
         }
+    }
+
+    private void ToggleGroup(Group group)
+    {
+        GroupToggled?.Invoke(group);
+        Invalidate();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Opens or folds a group; the rows below move, so they're laid out again.</summary>
+    private void ToggleOpen(Group group)
+    {
+        if (group.Title is not { } title)
+            return;
+        _open[title] = !IsOpen(group);
+        _hover = null;
+        LayoutItems();
+        Invalidate();
     }
 
     /// <summary>A rounded outline around the keyboard's row, only while the list has the focus.</summary>
@@ -406,8 +501,8 @@ internal sealed class AssigneeList : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        if (!Active || HitTest(e.Location) is not { } hit)
-            return;
+        if (HitTest(e.Location) is not { } hit || !(Active || (Enabled && hit.Kind == ItemKind.Fold)))
+            return; // read-only (signed out): groups still open and fold
         if (IsInteractive(hit))
             _focusKey = KeyOf(hit); // the keyboard continues from the clicked row
         // With a menu: the name (or a right-click) opens it, the check box toggles.
@@ -417,20 +512,8 @@ internal sealed class AssigneeList : Control
             MenuRequested(hit.Person!, PointToScreen(e.Location));
             return;
         }
-        if (e.Button != MouseButtons.Left)
-            return;
-        switch (hit.Kind)
-        {
-            case ItemKind.Person:
-                SetCovered([hit.Person!], !_isCovered(hit.Person!.Id));
-                break;
-            case ItemKind.All:
-                SetCovered(hit.Group.People, true);
-                break;
-            case ItemKind.None:
-                SetCovered(hit.Group.People, false);
-                break;
-        }
+        if (e.Button == MouseButtons.Left)
+            Activate(hit);
     }
 
     /// <summary>Shown greyed and ignores clicks, but still scrolls (e.g. while signed out).</summary>

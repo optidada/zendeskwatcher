@@ -4,12 +4,12 @@ using System.Drawing.Drawing2D;
 namespace ZendeskWatcher.UI;
 
 /// <summary>
-/// A row of buttons where exactly one is selected (a segmented control), in the current theme's colors and button shape.
-/// Click a pill, or use the arrow keys when it has focus.
+/// A segmented control: the choices joined in one frame (the theme's button shape), the chosen one filled, so it reads
+/// as "pick one view" rather than separate buttons. Click a choice, or use the arrow keys when it has focus.
 /// </summary>
 public sealed class ChoicePills : Control
 {
-    private const int PillHeight = 30, PadX = 12, Gap = 6; // at 96 dpi
+    private const int PillHeight = 32, PadX = 16, Inset = 3; // at 96 dpi
 
     private readonly string[] _labels;
     private readonly int[] _widths; // at 96 dpi
@@ -28,7 +28,7 @@ public sealed class ChoicePills : Control
         bitmap.SetResolution(96, 96);
         using var g = Graphics.FromImage(bitmap);
         _widths = labels.Select(l => TextRenderer.MeasureText(g, l, Theme.BodyBold).Width + PadX * 2).ToArray();
-        Size = new Size(_widths.Sum() + Gap * (labels.Length - 1) + 2, PillHeight + 2);
+        Size = new Size(_widths.Sum() + 2 * Inset + 2, PillHeight + 2);
         Margin = new Padding(0, 3, 0, 3);
         Cursor = Cursors.Hand;
         TabStop = true;
@@ -54,16 +54,22 @@ public sealed class ChoicePills : Control
     /// <summary>The pills' rectangles at the current size (the window scales the control with the display).</summary>
     private RectangleF[] PillRects()
     {
-        var scale = (Width - 2) / (float)(_widths.Sum() + Gap * (_labels.Length - 1));
+        var s = DeviceDpi / 96f;
+        var frame = Frame();
+        var inset = Inset * s;
+        var scale = (frame.Width - 2 * inset) / _widths.Sum();
         var rects = new RectangleF[_labels.Length];
-        var x = 1f;
+        var x = frame.X + inset;
         for (var i = 0; i < _labels.Length; i++)
         {
-            rects[i] = new RectangleF(x, 1, _widths[i] * scale, Height - 3);
-            x += (_widths[i] + Gap) * scale;
+            rects[i] = new RectangleF(x, frame.Y + inset, _widths[i] * scale, frame.Height - 2 * inset);
+            x += _widths[i] * scale;
         }
         return rects;
     }
+
+    /// <summary>The shared frame around all choices.</summary>
+    private RectangleF Frame() => new(1, 1, Width - 3, Height - 3);
 
     /// <summary>A pill in the theme's button shape (square in Terminal).</summary>
     private GraphicsPath Shape(RectangleF r)
@@ -84,6 +90,15 @@ public sealed class ChoicePills : Control
         g.Clear(Theme.Surface);
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
+        var s = DeviceDpi / 96f;
+        using (var frame = Shape(Frame()))
+        using (var track = new SolidBrush(Theme.Window))
+        using (var border = new Pen(Theme.Border))
+        {
+            g.FillPath(track, frame);
+            g.DrawPath(border, frame);
+        }
+
         var rects = PillRects();
         for (var i = 0; i < rects.Length; i++)
         {
@@ -95,10 +110,16 @@ public sealed class ChoicePills : Control
                 using var fill = new SolidBrush(Theme.Accent);
                 g.FillPath(fill, path);
             }
-            else
+            else if (i == _hover)
             {
-                using var pen = new Pen(i == _hover ? Theme.Neutral : Theme.Border);
-                g.DrawPath(pen, path);
+                using var hover = new SolidBrush(Theme.Border);
+                g.FillPath(hover, path);
+            }
+            // A thin divider between two choices that aren't chosen.
+            if (i > 0 && !selected && i - 1 != _selected)
+            {
+                using var divider = new Pen(Theme.Border, 1);
+                g.DrawLine(divider, r.X, r.Y + 6 * s, r.X, r.Bottom - 6 * s);
             }
             if (selected && Focused && ShowFocusCues)
             {

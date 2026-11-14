@@ -70,6 +70,17 @@ public class HelpColleaguesTests
     }
 
     [Fact]
+    public async Task In_progress_notifies_right_away_like_any_status()
+    {
+        _settings.HelpRegionDefaultDone = true;
+        _zendesk.CustomStatuses.Add(new CustomStatus { Id = 88, AgentLabel = "In progress", StatusCategory = "open" });
+        _zendesk.Tickets[302].CustomStatusId = 88;
+
+        Assert.Equal([301L, 302L], await CustomerRepliesNotifiedAsync());
+        Assert.EndsWith(" · In progress", _notifier.Shown.Single(n => n.TicketId == 302).Body);
+    }
+
+    [Fact]
     public async Task Any_status_counts_while_the_customer_waits_and_the_status_is_shown()
     {
         _settings.HelpRegionDefaultDone = true;
@@ -84,35 +95,16 @@ public class HelpColleaguesTests
     }
 
     [Fact]
-    public async Task In_progress_is_trusted_for_a_while_then_followed_up()
+    public async Task An_unticked_region_skips_its_colleagues_except_the_ones_ticked()
     {
         _settings.HelpRegionDefaultDone = true;
-        _settings.InProgressGraceHours = 4; // the customers wrote about 2 hours ago (the fake clock)
-        _zendesk.CustomStatuses.Add(new CustomStatus { Id = 88, AgentLabel = "In progress", StatusCategory = "open" });
-        _zendesk.Tickets[302].CustomStatusId = 88;
+        _settings.HelpOffRegions = [TimeRegion.Americas];
+        Assert.Equal([301L], await CustomerRepliesNotifiedAsync()); // New York's region is unticked
 
-        Assert.Equal([301L], await CustomerRepliesNotifiedAsync()); // 302 is in progress: not yet
-
-        // Later (here: a shorter trust time), it's looked at again: still no answer, so it comes after all.
-        _settings.InProgressGraceHours = 1;
-        var watcher = new TicketWatcher(_settings, new ZendeskClient(_settings, _zendesk), _notifier);
-        await watcher.InitializeAsync(CancellationToken.None);
-        await watcher.PollAsync(CancellationToken.None);
-        var followUp = _notifier.Shown.Single(n => n.Kind == NotificationKind.HelpColleague && n.TicketId == 302);
-        Assert.Matches(@" · In progress, no answer for \d h$", followUp.Body);
-    }
-
-    [Theory]
-    [InlineData("In progress", 1, false)]  // someone is on it: trusted
-    [InlineData("Scheduled", 1, false)]    // a time was agreed: trusted too
-    [InlineData("Scheduled", 6, true)]
-    [InlineData("In Progress", 5, true)]   // waited longer than 4 hours
-    [InlineData("Escalated", 0, true)]     // any other status: right away
-    [InlineData("Pending", 0, true)]
-    public void Only_in_progress_waits(string status, int hoursWaited, bool expected)
-    {
-        var now = DateTimeOffset.UtcNow;
-        Assert.Equal(expected, TicketRules.CustomerWaitingNeedsNotice(status, now.AddHours(-hoursWaited), now, TimeSpan.FromHours(4)));
+        _notifier.Shown.Clear();
+        _settings.HelpIncludedAssignees = [new Colleague { Id = NewYork, Name = "Nia NewYork" }];
+        _settings.HelpExcludedAssignees = [new Colleague { Id = Berlin, Name = "Berit Berlin" }];
+        Assert.Equal([302L], await CustomerRepliesNotifiedAsync()); // ticked one by one; Berlin unticked one by one
     }
 
     [Fact]

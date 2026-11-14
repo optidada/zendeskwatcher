@@ -5,8 +5,7 @@ namespace ZendeskWatcher.UI;
 /// <summary>
 /// Chiptune jingles and short songs in the spirit of Amiga tracker music, synthesized in code: pulse-wave melody and
 /// bass, noise drums, tracker-style arpeggios and a soft low-pass like the Amiga's audio filter. All original little
-/// tunes, not taken from any existing game or song. Windows toasts can't play custom sounds for an unpackaged app,
-/// so these are played by the app itself.
+/// tunes, not taken from any existing game or song. Played by the app itself.
 /// </summary>
 public static class ChipSounds
 {

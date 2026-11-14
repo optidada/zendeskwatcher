@@ -317,7 +317,7 @@ public class TicketListTests
 
         Assert.Equal(6, lines.Length);
         Assert.Equal("#1 Problem 1", lines[0]);
-        Assert.Equal("… and 2 more", lines[^1]);
+        Assert.Equal("… and 2 more: click to see them all", lines[^1]);
         Assert.True(lines.Length <= ZendeskWatcher.Tracking.TicketWatcher.ListLines);
     }
 }

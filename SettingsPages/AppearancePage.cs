@@ -25,28 +25,26 @@ internal sealed class AppearancePage : SettingsPage
     [
         new(NotificationTheme.Optimizely, "Optimizely"), new(NotificationTheme.NeonDark, "Neon dark"), new(NotificationTheme.Terminal, "Terminal"),
         new(NotificationTheme.CleanLight, "Clean light"), new(NotificationTheme.CozyPurple, "Cozy"), new(NotificationTheme.Night, "Night"), new(NotificationTheme.Retro, "Retro"),
-        new(NotificationTheme.WindowsNative, "Windows")
+        new(NotificationTheme.WindowsNative, "Native")
     ];
-    private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme (General page)");
+    private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme");
     private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
-    private readonly ComboBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
+    private readonly ChoiceBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
         new(PopupPosition.RightCenter, "Right center"), new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.BottomCenter, "Bottom center"),
         new(PopupPosition.LeftCenter, "Left center"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
-    private readonly ComboBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge")], width: PlacementWidth);
+    private readonly ChoiceBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge")], width: PlacementWidth);
     private readonly Label _peekNote = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 60);
 
     /// <summary>The same width for the position, stacking and size choices, so they line up.</summary>
     private const int PlacementWidth = 200;
-    private readonly ComboBox _size = Kit.Combo<int>([new(100, "100%"), new(115, "115%"), new(130, "130%"), new(150, "150%"), new(175, "175%")], width: PlacementWidth);
-    private readonly ComboBox _newSound = Kit.Combo(SoundOptions);
-    private readonly ComboBox _mySound = Kit.Combo(SoundOptions);
-    private readonly ComboBox _helpSound = Kit.Combo(SoundOptions);
-    private readonly ComboBox _ccSound = Kit.Combo(SoundOptions);
-    private readonly ComboBox _summarySound = Kit.Combo(SoundOptions);
-    private readonly ComboBox _appSound = Kit.Combo(SoundOptions);
+    private readonly ChoiceBox _size = Kit.Combo<int>([new(100, "100%"), new(115, "115%"), new(130, "130%"), new(150, "150%"), new(175, "175%")], width: PlacementWidth);
+    private readonly ChoiceBox _newSound = Kit.Combo(SoundOptions);
+    private readonly ChoiceBox _mySound = Kit.Combo(SoundOptions);
+    private readonly ChoiceBox _helpSound = Kit.Combo(SoundOptions);
+    private readonly ChoiceBox _ccSound = Kit.Combo(SoundOptions);
+    private readonly ChoiceBox _summarySound = Kit.Combo(SoundOptions);
+    private readonly ChoiceBox _appSound = Kit.Combo(SoundOptions);
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
-    private readonly ToggleSwitch _showLogo = new("Show the Zendesk Watcher logo");
-    private readonly ToggleSwitch _groupByType = new("Group notifications by type in the notification center");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
     private readonly Button _testMine = Theme.SecondaryButton("My ticket");
     private readonly Button _testHelp = Theme.SecondaryButton("Colleague");
@@ -56,24 +54,19 @@ internal sealed class AppearancePage : SettingsPage
     public AppearancePage(SettingsContext context)
         : base(context, "Look & sound", "How notifications look and sound. Try it uses your choices, even before saving.")
     {
-        var style = new Card("Notification style", "Zendesk Watcher's own styles appear where you choose below. While you present or use a full-screen app " +
-            "they wait, silently, and appear when you're done.", Kit.CardWidth);
+        var style = new Card("Notification style", "While you present or use a full-screen app, notifications wait quietly until you're done. " +
+            "The app theme is set under [[General → App theme|General/App theme]].", Kit.CardWidth);
         style.Body.Controls.Add(_likeApp);
         style.Body.Controls.Add(_ownStyle);
         // Two rows of three tiles.
         var tiles = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(Kit.CardWidth - 44, 0), BackColor = Theme.Surface, Margin = new Padding(20, 4, 0, 12) };
         tiles.Controls.AddRange(_themeTiles);
-        // The Windows style can't do everything the own styles do: marked quietly, the details on hover.
-        var native = _themeTiles.First(t => t.Value == NotificationTheme.WindowsNative);
-        native.Note = "Fewer features";
-        _tips.SetToolTip(native, "Windows decides where and how long notifications show. No position, stacking, size or Peek, " +
-            "no taking turns or waiting while you're away, and no re-check before showing.");
         style.Body.Controls.Add(tiles);
         // Labels in one column, choices lined up in the next.
         var placement = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
         placement.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         placement.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        foreach (var (text, combo) in new[] { ("Position on screen", _position), ("Several at once", _stacking), ("Size", _size) })
+        foreach (var (text, combo) in new[] { ("Position on screen", _position), ("How they appear", _stacking), ("Size", _size) })
         {
             var label = Theme.Label(text);
             label.Anchor = AnchorStyles.Left;
@@ -86,14 +79,13 @@ internal sealed class AppearancePage : SettingsPage
         _peekNote.Visible = false;
         style.Body.Controls.Add(_peekNote);
         // Peek waits at a screen edge: Center has none, so it's greyed out (and left) while Peek is chosen.
-        ((RoomyComboBox)_position).IsItemDisabled = i =>
+        _position.IsItemDisabled = i =>
             Kit.Selected<PopupStacking>(_stacking) == PopupStacking.Peek && _position.Items[i] is Option<PopupPosition> { Value: PopupPosition.Center };
         _stacking.SelectedIndexChanged += (_, _) => UpdatePeekNote(userChoice: true);
         _position.SelectedIndexChanged += (_, _) => UpdatePeekNote(userChoice: false);
         Panel.Controls.Add(style);
 
-        var sound = new Card("Sound", "App messages: update ready, welcome, group not found, sign-in required. " +
-            "Answers to your own clicks (e.g. \"No updates\") stay quiet.", Kit.CardWidth);
+        var sound = new Card("Sound", "App messages are things like \"Update ready\" or \"Sign in again\".", Kit.CardWidth);
         var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface };
         AddSoundRow(grid, 0, "New tickets", _newSound);
         AddSoundRow(grid, 1, "My tickets", _mySound);
@@ -104,18 +96,14 @@ internal sealed class AppearancePage : SettingsPage
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
 
-        var content = new Card("Content", "Replies and notes on your tickets, CC / following tickets and colleagues' tickets.", Kit.CardWidth);
+        var content = new Card("Content", "For replies and notes.", Kit.CardWidth);
         content.Body.Controls.Add(_commentText);
-        var privacy = Theme.Label("When off, notifications only say who replied or added a note. Windows keeps its notifications in " +
-            "the notification center; Zendesk Watcher's own styles store nothing.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50); // minus the indent below
+        var privacy = Theme.Label("When off, notifications only say who replied.",
+            Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50); // minus the indent below
         privacy.Margin = new Padding(50, 0, 0, 0);
         content.Body.Controls.Add(privacy);
         Panel.Controls.Add(content);
 
-        var windows = new Card("Windows notifications", "Used with the Windows style. While you present or use a full-screen app, Windows decides (Do Not Disturb), without sound.", Kit.CardWidth);
-        windows.Body.Controls.Add(_showLogo);
-        windows.Body.Controls.Add(_groupByType);
-        Panel.Controls.Add(windows);
 
         var test = new Card("Try it", "Sends sample notifications; clicking them does nothing.", Kit.CardWidth);
         test.Body.Controls.Add(Kit.Row(_testNew, _testMine, _testHelp, _testBurst));
@@ -130,7 +118,7 @@ internal sealed class AppearancePage : SettingsPage
         foreach (var radio in new[] { _likeApp, _ownStyle })
             radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
         TrackChanges(_position, _stacking, _size, _newSound, _mySound, _ccSound, _helpSound,
-            _summarySound, _appSound, _commentText, _showLogo, _groupByType);
+            _summarySound, _appSound, _commentText);
     }
 
     public override bool IsSubPage => true; // under Notifications: how they look and sound
@@ -144,7 +132,6 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_summarySound, settings.SummaryStyle.Sound);
         Kit.Select(_appSound, settings.AppMessageStyle.Sound);
         _commentText.Checked = settings.ShowCommentText;
-        _showLogo.Checked = settings.ShowAppLogo;
         _likeApp.Checked = settings.NotificationsLikeApp;
         _ownStyle.Checked = !settings.NotificationsLikeApp;
         SelectNotificationTheme(settings.Theme);
@@ -152,7 +139,6 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_position, settings.Position);
         UpdatePeekNote(userChoice: false);
         Kit.Select(_size, settings.NotificationSize, fallback: 100);
-        _groupByType.Checked = settings.GroupNotificationsByType;
     }
 
     /// <summary>
@@ -184,14 +170,12 @@ internal sealed class AppearancePage : SettingsPage
         s.SummaryStyle.Sound = Kit.Selected<ToastSound>(_summarySound);
         s.AppMessageStyle.Sound = Kit.Selected<ToastSound>(_appSound);
         s.ShowCommentText = _commentText.Checked;
-        s.ShowAppLogo = _showLogo.Checked;
         s.NotificationsLikeApp = _likeApp.Checked;
         if (_themeTiles.FirstOrDefault(t => t.Selected) is { } tile)
             s.Theme = tile.Value;
         s.Position = Kit.Selected<PopupPosition>(_position);
         s.Stacking = Kit.Selected<PopupStacking>(_stacking);
         s.NotificationSize = Kit.Selected<int>(_size);
-        s.GroupNotificationsByType = _groupByType.Checked;
     }
 
     public override void OnShowing() => UpdateStyleOptions(); // the app theme may have changed on the General page
@@ -203,12 +187,11 @@ internal sealed class AppearancePage : SettingsPage
         UpdateStyleOptions();
     }
 
-    /// <summary>The tiles only count with "a different style"; the position only for popups (not Windows notifications).</summary>
+    /// <summary>The tiles only count with "a different style".</summary>
     private void UpdateStyleOptions()
     {
         foreach (var tile in _themeTiles)
             tile.Enabled = _ownStyle.Checked;
-        _position.Enabled = _stacking.Enabled = _size.Enabled = Context.Current().ActiveNotificationTheme != NotificationTheme.WindowsNative;
     }
 
     /// <summary>Sends samples of one kind, or several of both kinds when <paramref name="kind"/> is null.</summary>
@@ -228,32 +211,18 @@ internal sealed class AppearancePage : SettingsPage
         }
     }
 
-    private void AddSoundRow(TableLayoutPanel grid, int row, string label, ComboBox sound)
+    private void AddSoundRow(TableLayoutPanel grid, int row, string label, ChoiceBox sound)
     {
         var text = Theme.Label(label);
         text.Anchor = AnchorStyles.Left;
         text.Margin = new Padding(0, 4, 10, 4);
         sound.Width = 182; // fits "Nostalgic – Celebration"
-        sound.Margin = new Padding(0, 3, 4, 3);
+        sound.Margin = new Padding(0, 3, 6, 3);
+        sound.Anchor = AnchorStyles.Left; // the label, the drop-down and ▶ all centered in the row
 
-        // ▶ plays the selected sound, without showing a notification.
-        // The triangle is drawn, not a ▶ character: fonts draw that one differently (emoji, off-center) per theme.
-        var play = Theme.SecondaryButton("");
-        play.AutoSize = false;
-        play.MinimumSize = Size.Empty;
-        play.Padding = Padding.Empty;
-        play.Size = new Size(32, sound.Height);
-        if (play is RoundButton round)
-            round.Glyph = (g, color, area) =>
-            {
-                var s = play.DeviceDpi / 96f;
-                float cx = area.Width / 2f + 1 * s, cy = area.Height / 2f, h = 5f * s;
-                using var brush = new SolidBrush(color);
-                g.FillPolygon(brush, new[] { new PointF(cx - h * 0.8f, cy - h), new PointF(cx - h * 0.8f, cy + h), new PointF(cx + h, cy) });
-            };
-        play.Margin = new Padding(0, 3, 10, 3);
-        play.Anchor = AnchorStyles.Left | AnchorStyles.Top; // level with the dropdown next to it, and as tall
-        sound.SizeChanged += (_, _) => play.Height = sound.Height;
+        // ▶ plays the selected sound, without showing a notification; round, as tall as the drop-down.
+        var play = new PlayButton { Margin = new Padding(0, 3, 10, 3), Anchor = AnchorStyles.Left };
+        play.MatchHeight(sound);
         _tips.SetToolTip(play, "Play this sound");
         play.Click += (_, _) => PopupManager.PlaySound(Kit.Selected<ToastSound>(sound));
 

@@ -89,7 +89,7 @@ public static class StatsInsights
             double Share(StatOutcome outcome) => Count(kind, outcome) / (double)shown;
             // Copying for Teams is using it too; a copied one is often closed afterwards, so it doesn't count as ignored.
             var copied = Share(StatOutcome.Copied);
-            var acted = Share(StatOutcome.OpenedTicket) + Share(StatOutcome.Took) + copied;
+            var acted = Share(StatOutcome.Acted); // opened, took or copied: once per notification
             var timedOut = Share(StatOutcome.TimedOut);
             var closed = Math.Max(0, Share(StatOutcome.Closed) - copied);
             var snoozed = Share(StatOutcome.Snoozed);
@@ -108,7 +108,7 @@ public static class StatsInsights
                 insights.Add(new Insight(Tone.Hint, $"You snoozed {Percent(snoozed)} of {name} notifications. " +
                     "A longer snooze time (Notifications → Behavior → Snooze) may suit you better."));
             else if (acted >= 0.5)
-                insights.Add(new Insight(Tone.Good, $"{capitalized} notifications work well: you opened, took or copied {Percent(acted)} of them."));
+                insights.Add(new Insight(Tone.Good, $"{capitalized} notifications work well: you acted on {Percent(acted)} of them."));
         }
 
         // Judged, and nothing to say: say so, instead of an empty card.
