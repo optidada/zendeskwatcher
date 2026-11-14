@@ -26,7 +26,7 @@ public interface INotificationSink
     void ShowMissingGroups(IReadOnlyCollection<string> names);
 }
 
-/// <summary>What a click on a notification does (also the arguments of Windows notifications, so keep the values).</summary>
+/// <summary>What a click on a notification does.</summary>
 public static class NotificationActions
 {
     public const string OpenTicket = "open";
@@ -40,4 +40,14 @@ public static class NotificationActions
     public const string Settings = "settings";
     public const string Copy = "copy";
     public const string MuteClient = "muteclient";
+
+    /// <summary>Opens a ticket search in Zendesk: "search:" and the query (e.g. a group's unassigned tickets).</summary>
+    public const string SearchPrefix = "search:";
+
+    public static string Search(string query) => SearchPrefix + query;
+
+    /// <summary>Opens a web page: "url:" and the address (e.g. the release notes).</summary>
+    public const string UrlPrefix = "url:";
+
+    public static string Url(string address) => UrlPrefix + address;
 }

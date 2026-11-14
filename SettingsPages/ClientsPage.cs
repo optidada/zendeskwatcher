@@ -19,13 +19,13 @@ internal sealed class ClientsPage : SettingsPage
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
 
     public ClientsPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Clients", "Click a client to make it important, hear only its urgent tickets, mute it for a while or give it its own sound. " +
-            "Untick to mute. New clients are normal.")
+        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Click a name for more: important, only urgent, or its own sound.")
     {
         _groups = groups;
         var card = new Card("Clients of your monitored groups",
-            $"From the last {ZendeskClient.ClientLookBackDays} days of each group's tickets. Muted and \u201conly urgent\u201d apply to new " +
-            "and colleagues' tickets; your own and CC'd tickets always notify. Important ones always notify and stay until closed.", Kit.CardWidth);
+            $"Clients from the last {ZendeskClient.ClientLookBackDays} days of tickets. Muting never affects your own or " +
+                $"CC'd tickets. Important clients notify even outside your hours and for priorities you unticked, and stay until " +
+                $"closed.", Kit.CardWidth);
         _clients.Host.Size = new Size(ListWidth, 280);
         _clients.Host.Margin = new Padding(0, 10, 0, 10);
         _clients.Host.Visible = true;

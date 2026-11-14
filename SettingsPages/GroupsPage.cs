@@ -34,8 +34,9 @@ internal sealed class GroupsPage : SettingsPage
         FullRowSelect = true, MultiSelect = false, ShowGroups = true, BorderStyle = BorderStyle.None, HideSelection = false, // "find" selects while typing
         BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body, Margin = new Padding(0, 10, 0, 10)
     };
-    private readonly Label _loading = new()
+    private readonly Label _loading = new LinkedLabel
     {
+        AutoSize = false,
         Text = "Loading your groups…", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
         Font = Theme.Body, ForeColor = Theme.TextMuted, BackColor = Theme.Surface, Visible = false
     };
@@ -92,11 +93,10 @@ internal sealed class GroupsPage : SettingsPage
     public IReadOnlyList<GroupItem> AllGroups => _allGroups;
 
     public GroupsPage(SettingsContext context)
-        : base(context, "Groups", "The groups to monitor for new unassigned tickets. Their count shows on the tray icon. Your own tickets notify you whatever group they're in.")
+        : base(context, "Groups", "Groups to watch for new unassigned tickets. Your own tickets notify you in any group.")
     {
         var card = new Card("Monitored groups",
-            $"The groups your account can see. \"{WatchedGroup.NoGroupName}\" covers tickets with neither a group nor an assignee. " +
-            "To leave out clients you don't need: Clients, below Groups.", Kit.CardWidth);
+            $"\"{WatchedGroup.NoGroupName}\" means tickets with no group and no assignee. To skip some clients: [[Groups → Clients|Clients]].", Kit.CardWidth);
         _list.Columns.Add("Group");
         _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         _listHost.Size = _list.Size;
@@ -145,6 +145,12 @@ internal sealed class GroupsPage : SettingsPage
         _list.HandleCreated += (_, _) =>
         {
             _checkImagesFor = null; // set again now that the list exists (and its real DPI is known)
+            UpdateCheckImages();
+        };
+        // Dark/light styling (and Windows' own theme changes) make Windows swap in its own, faint tick boxes: ours again.
+        _list.ThemeChanged += () =>
+        {
+            _checkImagesFor = null;
             UpdateCheckImages();
         };
         context.SignedOutChanged += () =>

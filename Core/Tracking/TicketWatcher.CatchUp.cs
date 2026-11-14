@@ -50,6 +50,7 @@ public sealed partial class TicketWatcher
     public async Task<CatchUpResult> CatchUpAsync(CancellationToken ct, DateTime? since = null, bool requestedByUser = true)
     {
         _state.LastCatchUp = DateTime.Now;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var start = since ?? TicketRules.CatchUpStart(DateTime.Now, settings.MyWorkdayStartHour, settings.MyWorkdayEndHour, settings.MyWorkDays);
         var sinceUtc = new DateTimeOffset(start).ToUniversalTime();
         var me = Me!.Id;
@@ -58,64 +59,57 @@ public sealed partial class TicketWatcher
         // 1. Still unassigned: from the check that just ran (verified, not the search index).
         foreach (var (group, tickets) in _unassigned)
             foreach (var ticket in tickets.OrderBy(t => t.CreatedAt))
-                result.Unassigned.Add(await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, "Catch up · Unassigned",
-                    $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group))
-                    { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true }, ticket, group, ct));
+                result.Unassigned.Add(await UnassignedTicketAsync(ticket, group, "Catch up · Unassigned", ct));
 
         // 2 and 3. Your own and CC'd / followed tickets where a customer wrote last (copied first: the check may change them).
         var mineIds = settings.TrackMyTickets ? _state.MyTickets.Keys.ToList() : [];
         var ccIds = settings.TrackCcTickets ? _state.CcTickets.Keys.Except(mineIds).ToList() : [];
         var tracked = mineIds.Count + ccIds.Count > 0 ? await zendesk.GetTicketsAsync(mineIds.Concat(ccIds).ToList(), ct) : [];
         var now = DateTimeOffset.UtcNow;
-        // Any status before solved: a customer who wrote last needs an answer (only "In progress" and "Scheduled" are trusted a while).
+        // Any status before solved: a customer who wrote last needs an answer.
         foreach (var ticket in tracked.Where(t => t.IsOpen && t.UpdatedAt >= sinceUtc))
         {
-            if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting)
+            if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting || IsQuietThankYou(waiting.Comment))
                 continue;
             var (customer, comment, at) = waiting;
-            if (!TicketRules.CustomerWaitingNeedsNotice(StatusName(ticket), at, now, InProgressGrace))
-                continue;
             var isMine = ticket.AssigneeId == me;
             var said = settings.ShowCommentText ? $"**{Markdown.Escape(customer)}** wrote: {Markdown.Escape(Snippet(comment))}" : $"**{Markdown.Escape(customer)}** wrote";
             var content = new NotificationContent(isMine ? NotificationKind.MyTicket : NotificationKind.CcTicket,
                 isMine ? "Catch up · Waiting for you" : "Catch up · CC / following",
                 $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                (isMine ? $"{said}\nNo reply yet" : $"{said}\nNo agent has answered yet") + StatusSuffix(ticket, at, now),
+                (isMine ? $"{said}\nNo reply yet" : $"{said}\nNo agent has answered yet") + StatusSuffix(ticket),
                 ticket.Id, ticket.Priority, GroupName(ticket.GroupId))
             { EventTime = at, ChangedAt = at, IsTicketNotification = true };
-            content = await WithClientAsync(content, ticket, null, ct);
+            content = await WithClientAsync(content, ticket, null, ct, sla: (at, FirstReply: false));
             (isMine ? result.Mine : result.Cc).Add(content);
         }
 
         // 4. Colleagues' tickets, by the Colleagues rules: customer waiting, colleague off work right now.
-        var excluded = settings.HelpExcludedAssignees.Select(c => c.Id).ToHashSet();
         var skip = mineIds.Concat(ccIds).ToHashSet();
         foreach (var group in settings.EffectiveHelpGroups)
         {
             foreach (var ticket in await zendesk.GetAssignedOpenTicketsUpdatedSinceAsync(group.Id, sinceUtc, ct))
             {
-                if (ticket.AssigneeId is not { } assigneeId || assigneeId == me || excluded.Contains(assigneeId) || !skip.Add(ticket.Id))
+                if (ticket.AssigneeId is not { } assigneeId || assigneeId == me || !skip.Add(ticket.Id))
                     continue;
                 if ((!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket)) || !TicketRules.IsWantedClient(ticket, ClientMode(ticket)))
                     continue;
                 var assignee = await zendesk.GetUserAsync(assigneeId, ct);
-                if (settings.HelpRegionDefaultDone != true && TimeRegions.Of(TimeRegions.ZoneOf(assignee)) == TimeRegions.Mine(Me))
+                if (!settings.CoversColleague(assigneeId, TimeRegions.Of(TimeRegions.ZoneOf(assignee)), TimeRegions.Mine(Me)))
                     continue;
                 var (away, local) = OutsideWorkingHours(assignee, DateTimeOffset.UtcNow);
                 if (away is not true)
                     continue;
-                if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting)
+                if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting || IsQuietThankYou(waiting.Comment))
                     continue;
                 var (customer, comment, at) = waiting;
-                if (!TicketRules.CustomerWaitingNeedsNotice(StatusName(ticket), at, now, InProgressGrace))
-                    continue;
                 var who = assignee?.Name ?? $"User {assigneeId}";
                 var said = settings.ShowCommentText ? $"**{Markdown.Escape(customer)}** wrote: {Markdown.Escape(Snippet(comment))}" : $"**{Markdown.Escape(customer)}** wrote";
                 result.Colleagues.Add(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Catch up · Customer waiting",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                    $"{said}\n{Markdown.Escape(who)} is off work · {English(local, "ddd HH:mm")} their time{StatusSuffix(ticket, at, now)}",
+                    $"{said}\n{Markdown.Escape(who)} is off work · {Clock.DayTime(local)} their time{StatusSuffix(ticket)}",
                     ticket.Id, ticket.Priority, GroupLabel(group))
-                { EventTime = at, ChangedAt = at, IsTicketNotification = true }, ticket, group, ct));
+                { EventTime = at, ChangedAt = at, IsTicketNotification = true }, ticket, group, ct, sla: (at, FirstReply: false)));
             }
         }
 
@@ -128,7 +122,7 @@ public sealed partial class TicketWatcher
                 list.RemoveAll(c => c.TicketId is { } id && _notifiedAt.TryGetValue(id, out var at) && at >= recent);
         }
 
-        Log.Info($"Catch up since {start:yyyy-MM-dd HH:mm}: {result.Unassigned.Count} unassigned, {result.Mine.Count} waiting on mine, " +
+        Log.Info($"Catch up since {start:yyyy-MM-dd HH:mm} ({clock.Elapsed.TotalSeconds:0.0}s): {result.Unassigned.Count} unassigned, {result.Mine.Count} waiting on mine, " +
                  $"{result.Cc.Count} on CC'd, {result.Colleagues.Count} on colleagues' tickets");
 
         _state.Save();
@@ -143,7 +137,8 @@ public sealed partial class TicketWatcher
         if (separate.Count < result.Count || result.Count == 0)
             notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Catch up",
                 result.Count == 0 ? "All caught up" : result.Count == 1 ? "1 thing needs attention" : $"{result.Count} things need attention",
-                TicketRules.CatchUpText(start, DateTime.Now, result.Unassigned.Count, result.Mine.Count, result.Cc.Count, result.Colleagues.Count))
+                TicketRules.CatchUpText(start, DateTime.Now, result.Unassigned.Count, result.Mine.Count, result.Cc.Count, result.Colleagues.Count,
+                    result.Unassigned.Sum(c => c.ScheduledCount)))
             { Action = NotificationActions.OpenZendesk, MaxBodyLines = 7, Style = settings.AppMessageStyle, RequestedByUser = requestedByUser });
         foreach (var content in separate)
             notifier.Show(content with { RequestedByUser = requestedByUser });

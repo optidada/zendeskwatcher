@@ -41,7 +41,8 @@ On first start the **Settings** window opens:
 
 1. **Account:** enter the subdomain (`yourcompany` for yourcompany.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
 2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon. On **Clients** (under Groups) untick clients you don't need to hear about (or click **Mute** on a notification's client line); everyone is included by default, new clients too.
-3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, your working hours, and how often to check. Below it: **Colleagues**, **Behavior** (how long notifications stay, snooze) and **Look & sound** (style, sounds, and where they appear: below each other, stacked like cards, or peeking from the screen edge).
+3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, and your working hours. Below it: **Colleagues**, **Behavior** (how long notifications stay: Short, Normal or Long; snooze), **Look & sound** (style, sounds, and how they appear: below each other, stacked like cards, or peeking from the screen edge) and **SLA**.
+4. **Insights** shows what's waiting now, your team's workload in your region, and how you used notifications in the last 30 days. **Experimental** has two optional extras worked out on your PC: a priority guess and quiet thank-yous.
 
 **How it works**, the last page, explains in plain words when and why each notification appears.
 
@@ -55,8 +56,7 @@ To reopen Settings, click the tray icon or right-click it and choose **Settingsâ
 
 | Color | Meaning |
 |---|---|
-| Green | Watching; no unassigned tickets in your groups |
-| Orange | There are unassigned tickets in your groups |
+| Green | Online and watching (hover the icon for how many unassigned tickets are waiting) |
 | Gray | Not configured, sign-in needed, or an error (hover the icon for details) |
 
 ## How it works
@@ -65,11 +65,11 @@ To reopen Settings, click the tray icon or right-click it and choose **Settingsâ
 - **Unassigned check:** search results are re-read directly before notifying, because the search index can still list tickets that were assigned long ago.
 - **Your tickets:** your assigned-tickets list plus the ticket audits. These are exact, with no search lag. Changes you make yourself are ignored.
 - **CC / follower:** your CC'd and followed ticket lists plus audits, the same way. Tickets assigned to you are left to "Your tickets", so nothing is reported twice.
-- **Help colleagues:** one search per covered group for assigned tickets updated since the last check (any status before solved). A notification when the newest public comment is from the customer (an end-user who isn't from your own email domain; the requester always counts) and the assignee is outside working hours in their own time zone. "In progress" and "Scheduled" (custom status names) are trusted for a while first (4 hours by default) and looked at again afterwards.
+- **Help colleagues:** one search per covered group for assigned tickets updated since the last check (any status before solved). A notification when the newest public comment is from the customer (an end-user who isn't from your own email domain; the requester always counts) and the assignee is outside working hours in their own time zone. Any status counts, so the customer is never left waiting because of a status.
 - **Catch up:** since the end of your previous working day: tickets still unassigned, and customers still waiting on your own, CC'd and colleagues' tickets (same rules). Up to 5 waiting customers as separate notifications, the rest in one summary.
 - **Status changes:** custom statuses are read once at start (`/api/v2/custom_statuses.json`) and shown by name; New â†’ Open and Solved â†’ Closed don't notify.
 - **First run:** the first poll only records what already exists, so you're not flooded with notifications.
-- **Pause notifications:** changes are still recorded but no toasts are shown, so nothing floods in when you resume.
+- **Pause notifications:** changes are still recorded but no notifications are shown, so nothing floods in when you resume.
 
 ## Files (`%LOCALAPPDATA%\ZendeskWatcher`)
 
@@ -81,7 +81,7 @@ To reopen Settings, click the tray icon or right-click it and choose **Settingsâ
 | `cache\` | The lists Settings loads from Zendesk (groups, group members, clients: names only), reused for 24 hours so Settings opens fast; **Reload** fetches them again |
 | `log.txt` | Log, useful when something doesn't work. Ticket IDs, names and change types, but never comment text, so it's safe to share |
 
-**What is read from Zendesk:** the API always returns complete objects (tickets with their description, audits with comment text, user profiles); the app keeps only what it needs in memory (ticket ID, subject, status, priority, group, assignee, CC/follower IDs, timestamps; change types and, for notifications, the first 140 characters of a comment; user names, roles, time zones and email addresses, the last only to tell your company's people from customers; the names of custom statuses) and discards the rest. The only change it ever makes is **Take it** (assigning a ticket to you). Turn off *Show the comment text in notifications* under Notifications to keep comment text out of notifications too.
+**What is read from Zendesk:** the API always returns complete objects (tickets with their description, audits with comment text, user profiles); the app keeps only what it needs in memory (ticket ID, subject, status, priority, group, assignee, CC/follower IDs, timestamps; change types and, for notifications, the first 140 characters of a comment; user names, roles, time zones and email addresses, the last only to tell your company's people from customers; the names of custom statuses) and discards the rest. The only change it ever makes is **Take it** (assigning a ticket to you). Turn off *Show the comment text in notifications* (Notifications â†’ Look & sound) to keep comment text out of notifications too.
 
 Delete `state.json` to reset what has been seen. Use **Sign out** in Settings to clear the cookies.
 

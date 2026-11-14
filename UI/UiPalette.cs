@@ -26,7 +26,7 @@ public sealed record UiPalette(
         NotificationTheme.Retro => 2,         // nearly square, like the old desktops
         NotificationTheme.NeonDark or NotificationTheme.CozyPurple => Pill,
         NotificationTheme.CleanLight => 8,
-        NotificationTheme.WindowsNative => 4, // like Windows 11
+        NotificationTheme.WindowsNative => 2, // Native: like Windows 11, a bit squarer and edgier
         _ => 6                                // Optimizely
     };
 
@@ -102,28 +102,41 @@ public sealed record UiPalette(
         Dark: true);
 
     /// <summary>Follows the Windows light/dark app mode and accent color.</summary>
+    /// <summary>
+    /// Native: Windows 11's look, edgier. Light or dark and the accent color follow Windows (Settings → Personalization),
+    /// with more contrast than Windows' soft greys and crisp borders.
+    /// </summary>
     private static UiPalette WindowsNative()
     {
         var accent = SystemAccent() ?? Rgb(0, 120, 212);
-        var hover = Blend(accent, Color.Black, 0.15f);
         if (!WindowsUsesDarkMode())
-            return CleanLight with { Accent = accent, AccentHover = hover, AccentSoft = Blend(accent, Color.White, 0.92f) };
+            return new UiPalette(
+                Window: Rgb(238, 238, 238), Surface: Rgb(255, 255, 255), Border: Rgb(204, 204, 204), Text: Rgb(12, 12, 12), TextMuted: Rgb(92, 92, 92),
+                Accent: accent, AccentHover: Blend(accent, Color.Black, 0.15f), AccentSoft: Blend(accent, Color.White, 0.9f), OnAccent: OnColor(accent),
+                Success: Rgb(16, 124, 16), Warning: Rgb(157, 93, 0), Danger: Rgb(196, 43, 28), Neutral: Rgb(138, 138, 138),
+                // A light sidebar like the Windows Settings app: what tells Native apart from Clean light at a glance.
+                Sidebar: Rgb(228, 228, 228), SidebarHover: Rgb(214, 214, 214), SidebarText: Rgb(28, 28, 28), SidebarTitle: Rgb(0, 0, 0),
+                Dark: false);
 
         return new UiPalette(
-            Window: Rgb(32, 32, 32), Surface: Rgb(43, 43, 43), Border: Rgb(64, 64, 64), Text: Rgb(255, 255, 255), TextMuted: Rgb(170, 170, 170),
-            Accent: accent, AccentHover: Blend(accent, Color.White, 0.15f), AccentSoft: Blend(accent, Rgb(43, 43, 43), 0.8f), OnAccent: Rgb(255, 255, 255),
+            Window: Rgb(14, 14, 14), Surface: Rgb(28, 28, 28), Border: Rgb(66, 66, 66), Text: Rgb(255, 255, 255), TextMuted: Rgb(176, 176, 176),
+            Accent: accent, AccentHover: Blend(accent, Color.White, 0.15f), AccentSoft: Blend(accent, Rgb(28, 28, 28), 0.78f), OnAccent: OnColor(accent),
             Success: Rgb(108, 203, 95), Warning: Rgb(252, 225, 0), Danger: Rgb(255, 153, 164), Neutral: Rgb(120, 120, 120),
-            Sidebar: Rgb(25, 25, 25), SidebarHover: Rgb(45, 45, 45), SidebarText: Rgb(200, 200, 200), SidebarTitle: Rgb(255, 255, 255),
+            Sidebar: Rgb(6, 6, 6), SidebarHover: Rgb(34, 34, 34), SidebarText: Rgb(204, 204, 204), SidebarTitle: Rgb(255, 255, 255),
             Dark: true);
     }
 
-    private static bool WindowsUsesDarkMode()
+    /// <summary>Readable text on the accent: white, or near-black on a light accent (e.g. yellow).</summary>
+    private static Color OnColor(Color accent) =>
+        accent.R * 0.299 + accent.G * 0.587 + accent.B * 0.114 > 170 ? Rgb(12, 12, 12) : Rgb(255, 255, 255);
+
+    internal static bool WindowsUsesDarkMode()
     {
         using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
         return key?.GetValue("AppsUseLightTheme") is int light && light == 0;
     }
 
-    private static Color? SystemAccent()
+    internal static Color? SystemAccent()
     {
         using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\DWM");
         if (key?.GetValue("AccentColor") is not int abgr)

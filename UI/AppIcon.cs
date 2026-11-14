@@ -95,13 +95,6 @@ public static class AppIcon
             w.Write(data);
     }
 
-    /// <summary>The icon as a PNG file (Windows toasts need an image file for the logo).</summary>
-    public static string SavePng(string path, int size)
-    {
-        using var bmp = Render(size, NeonGreen);
-        bmp.Save(path, ImageFormat.Png);
-        return path;
-    }
 
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]

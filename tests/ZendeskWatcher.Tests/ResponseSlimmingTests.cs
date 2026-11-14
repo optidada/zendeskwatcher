@@ -30,6 +30,24 @@ public class ResponseSlimmingTests
     }
 
     [Fact]
+    public void An_event_whose_body_is_not_text_does_not_break_reading_the_audits()
+    {
+        // Seen in Catch up (1.5.0): a chat/call event sends "body" as an object.
+        const string json = """
+            {"audits":[{"id":1,"author_id":5,"events":[{"type":"ChatStartedEvent","body":{"history":[1,2]},"plain_body":["x"]}]},
+                       {"id":2,"author_id":5,"events":[{"type":"Comment","public":true,"body":"Hello","plain_body":"Hello"}]}]}
+            """;
+        var options = new System.Text.Json.JsonSerializerOptions
+            { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower, PropertyNameCaseInsensitive = true };
+
+        var audits = System.Text.Json.JsonSerializer.Deserialize<AuditsResponse>(json, options)!.Audits;
+
+        Assert.Null(audits[0].Events[0].Body);
+        Assert.Null(audits[0].Events[0].PlainBody);
+        Assert.Equal("Hello", audits[1].Events[0].PlainBody);
+    }
+
+    [Fact]
     public void Script_is_one_function_with_the_field_lists()
     {
         Assert.StartsWith("(text => {", ResponseSlimming.Script);

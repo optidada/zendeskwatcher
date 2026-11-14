@@ -1,4 +1,3 @@
-using Microsoft.Toolkit.Uwp.Notifications;
 using Velopack;
 
 namespace ZendeskWatcher;
@@ -26,6 +25,14 @@ internal static class Program
         {
             ApplicationConfiguration.Initialize();
             Tools.WebMeasure.Run(Settings.Load().Subdomain, int.Parse(args[1]), args[2]);
+            return;
+        }
+
+        // Developer helper: what SLA data Zendesk has (policies, timers on tickets, plan-like fields), then exit.
+        if (args.Length >= 2 && args[0] == "--probe-sla")
+        {
+            ApplicationConfiguration.Initialize();
+            Tools.SlaProbe.Run(Settings.Load().Subdomain, args[1]);
             return;
         }
 
@@ -86,10 +93,8 @@ internal static class Program
         using var mutex = new Mutex(initiallyOwned: true, @"Local\ZendeskWatcher", out var isFirstInstance);
         if (!isFirstInstance)
         {
-            // A click on a toast is delivered to the running instance; a second manual start asks the running one
-            // to say it's there (as a notification), then exits.
-            if (!ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
-                SignalRunningInstance();
+            // A second start asks the running one to say it's there (as a notification), then exits.
+            SignalRunningInstance();
             return;
         }
 
@@ -104,9 +109,6 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         Application.ThreadException += (_, e) => Log.Error("Unhandled UI exception", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error("Unhandled exception", e.ExceptionObject as Exception);
-
-        ToastNotificationManagerCompat.OnActivated += e =>
-            TrayAppContext.Current?.OnToastActivated(ToastArguments.Parse(e.Argument));
 
         Log.DropOldLogsOnce();
         FeedbackPackage.CleanUp(TimeSpan.FromDays(1)); // a feedback zip from an earlier day: the email has its own copy

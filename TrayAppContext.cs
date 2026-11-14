@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Microsoft.Toolkit.Uwp.Notifications;
 using ZendeskWatcher.Auth;
 using ZendeskWatcher.Tracking;
 using ZendeskWatcher.UI;
@@ -123,35 +122,10 @@ public sealed class TrayAppContext : ApplicationContext
         // Run once the message loop is up; this may open the Settings window on first start.
         _ui = SynchronizationContext.Current ?? _ui;
         _ui.Post(_ => Start(openSettingsIfNeeded: true), null);
+        _ui.Post(_ => ShowWhatsNew(), null);
         if (Settings.LoadProblem is { } problem)
             _ui.Post(_ => _notifier.ShowSettingsProblem(problem), null);
     }
-
-    /// <summary>Called by the toast library on a background thread when a notification is clicked.</summary>
-    public void OnToastActivated(ToastArguments args) => _ui.Post(_ =>
-    {
-        ChipSounds.Stop(); // acted on: the music can stop
-        args.TryGetValue("action", out var action);
-        long? ticketId = args.TryGetValue("ticketId", out var id) && long.TryParse(id, out var parsed) ? parsed : null;
-        if (action == Notifier.ActionCopy)
-        {
-            // Counted by Copy. Unknown after a restart: copy at least the link.
-            if (!(args.TryGetValue("copyId", out var copyId) && _notifier.CopyFromToast(copyId)) && ticketId is { } linkId)
-                _notifier.Copy(new NotificationContent(NotificationKind.MyTicket, "", $"#{linkId}", TicketId: linkId));
-            return;
-        }
-        if (action == Notifier.ActionMuteClient)
-        {
-            if (args.TryGetValue("clientId", out var clientId) && long.TryParse(clientId, out var orgId))
-                _notifier.MuteFromToast(orgId, args.TryGetValue("clientName", out var name) ? name : $"Organization {orgId}",
-                    args.TryGetValue("clientGroup", out var group) && long.TryParse(group, out var groupId) ? groupId : 0);
-            return;
-        }
-        if (args.TryGetValue(Notifier.StatArgument, out var kindName) && Enum.TryParse<NotificationKind>(kindName, out var kind) &&
-            NotificationStats.ForToastAction(action ?? "") is { } outcome)
-            _notifier.CountToastClick(kind, outcome, args.TryGetValue(Notifier.StatClientArgument, out var client) ? client : null);
-        HandleAction(action ?? "", ticketId);
-    }, null);
 
     /// <summary>Zendesk Watcher was started again: say it's already running (from any thread).</summary>
     public void ShowAlreadyRunning() => _ui.Post(_ => _notifier.ShowAlreadyRunning(), null);
@@ -159,7 +133,7 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>Shows sample notifications with the saved settings once the app is running.</summary>
     public void ShowTestPopups() => _ui.Post(_ => _notifier.ShowTestBurst(_settings), null);
 
-    /// <summary>What a click on a notification (popup or Windows toast) does. Runs on the UI thread.</summary>
+    /// <summary>What a click on a notification does. Runs on the UI thread.</summary>
     private void HandleAction(string action, long? ticketId)
     {
         switch (action)
@@ -169,6 +143,13 @@ public sealed class TrayAppContext : ApplicationContext
                 break;
             case Notifier.ActionOpenZendesk:
                 OpenUrl($"{_settings.BaseUrl}/agent");
+                break;
+            case var url when url.StartsWith(NotificationActions.UrlPrefix, StringComparison.Ordinal):
+                OpenUrl(url[NotificationActions.UrlPrefix.Length..]);
+                break;
+            case var search when search.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal):
+                // A list in Zendesk, e.g. all of a group's unassigned tickets when the notification could show only five.
+                OpenUrl($"{_settings.BaseUrl}/agent/search/1?type=ticket&q={Uri.EscapeDataString(search[NotificationActions.SearchPrefix.Length..])}");
                 break;
             case Notifier.ActionSignIn:
             case Notifier.ActionSettings:
@@ -204,6 +185,18 @@ public sealed class TrayAppContext : ApplicationContext
     }
 
     // ------------------------------------------------------------------ checking
+
+    /// <summary>The first start after an update: what's new since the version that ran before (once).</summary>
+    private void ShowWhatsNew()
+    {
+        var current = typeof(TrayAppContext).Assembly.GetName().Version?.ToString(3);
+        if (current is null || WhatsNew.UpdatedFrom(current) is not { } from || WhatsNew.Summary(from, current) is not var (title, body))
+            return;
+        Log.Info($"Updated from {from} to {current}: showing what's new");
+        // One version: its own release notes; several: the list of all releases.
+        var oneVersion = title.StartsWith("What's new in", StringComparison.Ordinal);
+        _notifier.ShowWhatsNew(title, body, WhatsNew.ReleaseNotesUrl(oneVersion ? current : null));
+    }
 
     /// <summary>(Re)starts watching with the current settings, or opens Settings if something is missing.</summary>
     private void Start(bool openSettingsIfNeeded)
@@ -284,7 +277,7 @@ public sealed class TrayAppContext : ApplicationContext
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
                     _me = watcher.Me;
                     initialized = true;
-                    // Signed in: show it right away; the first check (a few seconds) then sets green/orange.
+                    // Signed in: show it right away; the first check (a few seconds) then sets the state (green while online).
                     _tray.SetStatus("Signed in · checking…", _tray.State == TrayState.Off ? TrayState.Ok : null);
                 }
 
@@ -321,7 +314,7 @@ public sealed class TrayAppContext : ApplicationContext
                         }
                     }
                 }
-                var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}";
+                var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {Clock.Time(DateTime.Now)}";
                 _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
                     watcher.UnassignedCount > 0 ? TrayState.Attention : TrayState.Ok);
             }
@@ -348,7 +341,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
                 using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(_settings.PollIntervalSeconds), waiting.Token), _wakeUp.WaitAsync(waiting.Token));
+                await Task.WhenAny(Task.Delay(Settings.CheckInterval, waiting.Token), _wakeUp.WaitAsync(waiting.Token));
                 waiting.Cancel();
                 ct.ThrowIfCancellationRequested();
             }

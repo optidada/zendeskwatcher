@@ -16,8 +16,9 @@ internal sealed class ClientsView
 
     private readonly AssigneeList _list;
     private readonly ThinScrollBar _scrollBar = new() { BackColor = Theme.Surface };
-    private readonly Label _message = new()
+    private readonly Label _message = new LinkedLabel
     {
+        AutoSize = false,
         Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Font = Theme.Body, ForeColor = Theme.TextMuted,
         BackColor = Theme.Surface, Visible = false
     };
@@ -61,7 +62,23 @@ internal sealed class ClientsView
                 Store(choice);
             })
         {
-            Badge = id => _choices.GetValueOrDefault(id) is { } c ? BadgeFor(c) : null
+            Badge = id => _choices.GetValueOrDefault(id) is { } c ? BadgeFor(c) : null,
+            // Each group: a tick box for all its clients (mixed when some are muted) and a count; folded until opened.
+            GroupTick = group => group.People.All(p => ModeOf(p.Id) != ClientMode.Muted) ? true
+                : group.People.All(p => ModeOf(p.Id) == ClientMode.Muted) ? false : null,
+            GroupNote = GroupNote
+        };
+        _list.GroupToggled += group =>
+        {
+            // All ticked: mute them all; otherwise (none or some): all notify. Other choices (important, sound) stay.
+            var mute = group.People.All(p => ModeOf(p.Id) != ClientMode.Muted);
+            foreach (var client in group.People)
+            {
+                var choice = ChoiceFor(client);
+                choice.IsMuted = mute;
+                choice.MutedUntil = null;
+                Store(choice);
+            }
         };
         _list.Changed += () => { UpdateHint(); Changed?.Invoke(); };
         _list.FocusMoved += row =>
@@ -94,6 +111,15 @@ internal sealed class ClientsView
         _list.Resize += (_, _) => ScrollTo(_scroll);
     }
 
+    /// <summary>"14 clients · 2 muted · 1 customized" on a group's line.</summary>
+    private string GroupNote(AssigneeList.Group group)
+    {
+        var muted = group.People.Count(p => ModeOf(p.Id) == ClientMode.Muted);
+        var customized = group.People.Count(p => ModeOf(p.Id) != ClientMode.Muted && _choices.TryGetValue(p.Id, out var c) && !c.IsDefaultAt(DateTimeOffset.UtcNow));
+        var text = group.People.Count == 1 ? "1 client" : $"{group.People.Count} clients";
+        return text + (muted > 0 ? $" · {muted} muted" : "") + (customized > 0 ? $" · {customized} customized" : "");
+    }
+
     private ClientMode ModeOf(long id) => _choices.GetValueOrDefault(id)?.ModeAt(DateTimeOffset.UtcNow) ?? ClientMode.Normal;
 
     /// <summary>A copy of the client's choice, or a new Normal one.</summary>
@@ -123,7 +149,7 @@ internal sealed class ClientsView
             _ => null
         };
         var until = choice.IsMutedAt(now) && choice.MutedUntil is { } end
-            ? $"muted until {end.ToLocalTime().ToString("ddd HH:mm", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))}"
+            ? $"muted until {Clock.DayTime(end.ToLocalTime().DateTime)}"
             : null;
         var text = string.Join("  ", new[] { mode, until, choice.Sound is null ? null : "\u266a" }.Where(t => t is not null));
         return text.Length == 0 ? null : (text, choice.ModeAt(now) == ClientMode.Important);
@@ -309,7 +335,9 @@ internal sealed class ClientsView
             _list.Highlighted = Rectangle.Empty;
             return true;
         }
-        var matches = _list.PersonRows().Where(r => r.Person.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        // Every client, also in folded groups: the one found opens its group.
+        var matches = _list.Groups.SelectMany(g => g.People.Select(p => (Group: g, Person: p)))
+            .Where(m => m.Person.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)).ToList();
         if (matches.Count == 0)
         {
             _list.Highlighted = Rectangle.Empty;
@@ -317,9 +345,11 @@ internal sealed class ClientsView
         }
         var index = next && _find.Text == text ? (_find.Index + 1) % matches.Count : 0;
         _find = (text, index);
-        var rect = matches[index].Rect;
+        _list.Open(matches[index].Group);
+        var rect = _list.PersonRows().FirstOrDefault(r => ReferenceEquals(r.Person, matches[index].Person)).Rect;
         _list.Highlighted = rect;
-        CenterOn(rect);
+        if (!rect.IsEmpty)
+            CenterOn(rect);
         return true;
     }
 
@@ -351,7 +381,8 @@ internal sealed class ClientsView
         _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
             s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, c.Tickets > 0
                 ? $"{c.Name} · {c.Tickets} ticket{(c.Tickets == 1 ? "" : "s")} in the last {ZendeskClient.ClientLookBackDays} days"
-                : c.Name)).ToList())).ToList());
+                : c.Name)).ToList(),
+            StartOpen: s.Changed)).ToList()); // groups with muted or customized clients start open
         if (!keepScroll)
             _scroll = 0;
         LayoutList();
@@ -366,33 +397,19 @@ internal sealed class ClientsView
     }
 
     /// <summary>
-    /// The list as shown, in sections like the Groups page: first "Premium Support · ★ Customized" (important, only
-    /// urgent, own sound) for each group, then each group's other clients, then "Premium Support · Muted". A client in
-    /// two groups shows in both. By name, "(No client)" last; empty sections are left out.
+    /// The list as shown: one foldable section per group (customized clients first, muted last, as sorted by
+    /// <see cref="Sections"/>). <c>Changed</c>: it has muted or customized clients, so it starts open. A client in two
+    /// groups shows in both; empty groups are left out.
     /// </summary>
-    internal static List<(string Title, List<Client> Clients)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
+    internal static List<(string Title, List<Client> Clients, bool Changed)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
         IReadOnlyList<ClientChoice> choices)
     {
         var now = DateTimeOffset.UtcNow;
         var byId = choices.ToDictionary(c => c.Id);
-        bool Muted(Client c) => byId.GetValueOrDefault(c.Id)?.ModeAt(now) == ClientMode.Muted;
-        bool Customized(Client c) => byId.GetValueOrDefault(c.Id) is { } choice && !Muted(c) && !choice.IsDefaultAt(now);
-        static string Name(WatchedGroup g) => g.IsNoGroup ? "No group" : g.Name;
-
-        var layout = new List<(string Title, List<Client> Clients)>();
-        void Add(string title, IEnumerable<Client> clients)
-        {
-            var list = clients.ToList(); // already sorted by Sections
-            if (list.Count > 0)
-                layout.Add((title, list));
-        }
-        foreach (var (group, clients) in sections)
-            Add($"{Name(group)} \u00b7 \u2605 Customized", clients.Where(Customized));
-        foreach (var (group, clients) in sections)
-            Add(Name(group), clients.Where(c => !Muted(c) && !Customized(c)));
-        foreach (var (group, clients) in sections)
-            Add($"{Name(group)} \u00b7 Muted", clients.Where(Muted));
-        return layout;
+        bool Changed(Client c) => byId.GetValueOrDefault(c.Id) is { } choice && !choice.IsDefaultAt(now);
+        return sections.Where(s => s.Clients.Count > 0)
+            .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed)))
+            .ToList();
     }
 
     /// <summary>

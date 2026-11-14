@@ -54,6 +54,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
     /// <summary>Ticket id -> its changes.</summary>
     public Dictionary<long, List<Audit>> Audits { get; } = [];
 
+    /// <summary>Group id → its members (agents), for the group's users list.</summary>
+    public Dictionary<long, List<long>> GroupMembers { get; } = [];
+
     public Dictionary<long, User> Users { get; } = [];
     public List<CustomStatus> CustomStatuses { get; } = [];
     public Dictionary<long, string> Organizations { get; } = [];
@@ -99,6 +102,15 @@ internal sealed partial class FakeZendesk : IZendeskSession
             Tickets[ticketId].Priority = to;
     }
 
+    /// <summary>A public reply and field changes in one update (e.g. a customer reply that reopens the ticket).</summary>
+    public void ReplyAndChange(long ticketId, long authorId, string text, params (string Field, string From, string To)[] changes) =>
+        AddAudit(ticketId, authorId, [new AuditEvent { Type = "Comment", Public = true, PlainBody = text },
+            .. changes.Select(c => new AuditEvent
+            {
+                Type = "Change", FieldName = c.Field,
+                PreviousValue = JsonSerializer.SerializeToElement(c.From), Value = JsonSerializer.SerializeToElement(c.To)
+            })]);
+
     /// <summary>Several field changes in one update, e.g. "status" and "custom_status_id" together.</summary>
     public void ChangeTogether(long ticketId, long authorId, params (string Field, string From, string To)[] changes)
     {
@@ -131,6 +143,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
         {
             "/api/v2/users/me.json" => new { user = Me },
             "/api/v2/groups.json" => new { groups = Groups },
+            _ when GroupUsersPath().Match(path) is { Success: true } gm =>
+                new { users = GroupMembers.GetValueOrDefault(long.Parse(gm.Groups[1].Value), []).Where(Users.ContainsKey).Select(id => Users[id]).ToList() },
             "/api/v2/custom_statuses.json" => new { custom_statuses = CustomStatuses },
             "/api/v2/search.json" => new { results = Search(query) },
             "/api/v2/tickets/show_many.json" => new { tickets = ShowMany(query) },
@@ -161,6 +175,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     private List<Ticket> Search(string query)
     {
+        if (query.Contains("assignee:me") && query.Contains("status>=solved")) // Experimental: tickets I solved
+            return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.Status is "solved" or "closed").ToList();
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
         var match = GroupQuery().Match(query);
@@ -180,7 +196,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     private List<Ticket> ShowMany(string query)
     {
-        var ids = query.Split("ids=")[1].Split(',').Select(long.Parse);
+        var ids = query.Split("ids=")[1].Split('&')[0].Split(',').Select(long.Parse);
         return ids.Where(Tickets.ContainsKey).Select(id => Tickets[id]).ToList();
     }
 
@@ -189,6 +205,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     [GeneratedRegex(@"^/api/v2/tickets/(\d+)/audits\.json$")]
     private static partial Regex AuditsPath();
+
+    [GeneratedRegex(@"^/api/v2/groups/(\d+)/users\.json$")]
+    private static partial Regex GroupUsersPath();
 
     [GeneratedRegex(@"^/api/v2/users/(\d+)\.json$")]
     private static partial Regex UserPath();

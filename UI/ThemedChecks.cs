@@ -11,6 +11,21 @@ public sealed class ThemedCheckBox : CheckBox
 {
     private bool _hover;
 
+    /// <summary>A priority ("urgent" … "low") shown as a colored tag after the text: "Urgent [P1]".</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string? Priority { get; set; }
+
+    private string? Tag_ => PriorityTag.Short(Priority);
+
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        var size = base.GetPreferredSize(proposedSize);
+        if (Tag_ is not { } tag)
+            return size;
+        var s = DeviceDpi / 96f;
+        return new Size(size.Width + PriorityTag.Measure(tag, s).Width + (int)(6 * s), size.Height);
+    }
+
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
 
@@ -43,6 +58,12 @@ public sealed class ThemedCheckBox : CheckBox
             }
         }
         ThemedGlyph.Text(this, g, glyph.Width, Focused && ShowFocusCues);
+        if (Tag_ is { } priorityTag)
+        {
+            var textWidth = TextRenderer.MeasureText(g, Text, Font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width;
+            PriorityTag.Draw(g, priorityTag, Enabled ? PriorityTag.ColorOf(Priority!) : Theme.Border,
+                glyph.Width + Padding.Left + 5 + textWidth + (int)(6 * s), Height / 2, s);
+        }
     }
 }
 

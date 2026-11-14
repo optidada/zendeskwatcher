@@ -1,11 +1,10 @@
-using Microsoft.Toolkit.Uwp.Notifications;
 using ZendeskWatcher.UI;
 using ZendeskWatcher.UI.Popups;
 
 namespace ZendeskWatcher;
 
 /// <summary>
-/// Shows notifications as custom popups (Neon dark, Terminal, Clean light) or as Windows toasts, depending on the theme.
+/// Shows notifications in Zendesk Watcher's own styles (popups in the chosen theme).
 /// While presenting or in full screen, popups wait until it's over, and nothing makes a sound.
 /// </summary>
 public sealed class Notifier : INotificationSink
@@ -19,10 +18,7 @@ public sealed class Notifier : INotificationSink
     public const string ActionTake = NotificationActions.Take;
     public const string ActionCatchUp = NotificationActions.CatchUp;
     public const string ActionSettings = NotificationActions.Settings;
-    public const string ActionCopy = NotificationActions.Copy;
-    public const string ActionMuteClient = NotificationActions.MuteClient;
 
-    private static readonly Lazy<Uri> Logo = new(CreateLogo);
     private readonly PopupManager _popups;
 
     public Notifier(Action<string, long?> onAction) =>
@@ -44,32 +40,32 @@ public sealed class Notifier : INotificationSink
         ClientChoiceRequested?.Invoke(choice);
     }
 
-    /// <summary>"Mute client" on a Windows notification: muted for good (its other choices stay).</summary>
-    public void MuteFromToast(long id, string name, long groupId)
-    {
-        var choice = Settings.ClientChoiceFor(id)?.Copy() ?? new ClientChoice { Id = id, Name = name, GroupId = groupId };
-        choice.IsMuted = true;
-        choice.MutedUntil = null;
-        ChooseForClient(choice);
-    }
-
     /// <summary>Counts what happened to a ticket notification, per kind and (for the Insights suggestion) per client.</summary>
     private void Count(NotificationContent content, StatOutcome outcome)
     {
         Stats.Record(content.Kind, outcome);
         if (content.ClientId is { } id && content.ClientName is { } name)
             Stats.RecordClient(id, name, outcome);
+        if (IsAction(outcome))
+            MarkActed(content);
     }
 
-    /// <summary>Toast argument with the client of a ticket notification ("id|name"), so a click on it counts for the client too.</summary>
-    public const string StatClientArgument = "statClient";
+    /// <summary>Opened, took or copied: acted on. Snoozing, closing and only reading it aren't.</summary>
+    private static bool IsAction(StatOutcome outcome) =>
+        outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied;
 
-    /// <summary>A click on a Windows notification, counted like <see cref="Count"/> (the toast only knows the kind and client).</summary>
-    public void CountToastClick(NotificationKind kind, StatOutcome outcome, string? client)
+    /// <summary>Notifications already counted as acted on (by <see cref="NotificationContent.StatId"/>, so snoozed repeats too).</summary>
+    private readonly HashSet<Guid> _acted = [];
+
+    /// <summary>Counts a ticket notification as acted on, once.</summary>
+    private void MarkActed(NotificationContent content)
     {
-        Stats.Record(kind, outcome);
-        if (client?.Split('|', 2) is [var id, var name] && long.TryParse(id, out var clientId))
-            Stats.RecordClient(clientId, name, outcome);
+        if (!content.IsTicketNotification)
+            return;
+        if (_acted.Count > 5000)
+            _acted.Clear(); // a long-running app: old notifications are long gone
+        if (_acted.Add(content.StatId))
+            Count(content, StatOutcome.Acted);
     }
 
     /// <summary>A notification appeared on screen: ticket notifications count in the statistics (snoozed repeats don't).</summary>
@@ -78,10 +74,6 @@ public sealed class Notifier : INotificationSink
         if (content.IsTicketNotification && !content.IsSnoozedRepeat)
             Count(content, StatOutcome.Shown);
     }
-
-    /// <summary>Recent ticket notifications by id, so "Copy" on a Windows notification knows what it said.</summary>
-    private readonly Dictionary<string, NotificationContent> _copyable = [];
-    private readonly Queue<string> _copyableOrder = new();
 
     /// <summary>Copies a ticket notification for Teams and counts it. Runs on the UI thread.</summary>
     public void Copy(NotificationContent content)
@@ -99,25 +91,6 @@ public sealed class Notifier : INotificationSink
         }
     }
 
-    /// <summary>"Copy" on a Windows notification; false if it's no longer known (e.g. after a restart).</summary>
-    public bool CopyFromToast(string copyId)
-    {
-        if (!_copyable.TryGetValue(copyId, out var content))
-            return false;
-        Copy(content);
-        return true;
-    }
-
-    private string RememberForCopy(NotificationContent content)
-    {
-        var id = Guid.NewGuid().ToString("N")[..12];
-        _copyable[id] = content;
-        _copyableOrder.Enqueue(id);
-        while (_copyableOrder.Count > 200)
-            _copyable.Remove(_copyableOrder.Dequeue());
-        return id;
-    }
-
     /// <summary>Where ticket notifications and what was done with them are counted.</summary>
     public NotificationStats Stats { get; set; } = NotificationStats.Shared;
 
@@ -133,7 +106,7 @@ public sealed class Notifier : INotificationSink
     public static StatOutcome? StatForPopup(PopupForm.Result result, string action) => result switch
     {
         PopupForm.Result.Open when action == ActionOpenTicket => StatOutcome.OpenedTicket,
-        PopupForm.Result.Open when action == ActionOpenZendesk => StatOutcome.OpenedZendesk,
+        PopupForm.Result.Open when action == ActionOpenZendesk || action.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal) => StatOutcome.OpenedZendesk,
         PopupForm.Result.Take => StatOutcome.Took,
         PopupForm.Result.Snooze => StatOutcome.Snoozed,
         PopupForm.Result.Dismiss => StatOutcome.Closed,
@@ -199,7 +172,7 @@ public sealed class Notifier : INotificationSink
 
     private async Task ShowSnoozedAsync(NotificationContent content)
     {
-        if (Settings.SnoozeBehavior == SnoozeBehavior.IfStillNeeded && content.TicketId is not null && StillNeeded is { } check)
+        if (content.TicketId is not null && StillNeeded is { } check) // only if the ticket still needs attention
         {
             try
             {
@@ -252,8 +225,9 @@ public sealed class Notifier : INotificationSink
 
     /// <summary>The very first start, while Settings opens: what the app does and how to get going.</summary>
     private const string WelcomeBody =
-        "Zendesk Watcher tells you about new unassigned tickets and changes on your tickets. To get started, sign in on " +
-        "the **Account** page of Settings, which is open now, and then choose the groups to watch on the **Groups** page.";
+        "Get started in two steps:\n" +
+        "1. Sign in on the **Account** page (Settings is open)\n" +
+        "2. Choose groups to watch on the **Groups** page";
 
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
@@ -301,7 +275,8 @@ public sealed class Notifier : INotificationSink
 
         var lines = new List<string>();
         if (Count(NotificationKind.NewTicket) is > 0 and var fresh)
-            lines.Add(Plural(fresh, "new ticket", "new tickets"));
+            lines.Add(Plural(fresh, "new ticket", "new tickets") +
+                Tracking.TicketRules.ScheduledNote(fresh, waiting.Where(c => c.Kind == NotificationKind.NewTicket).Sum(c => c.ScheduledCount)));
         if (Count(NotificationKind.MyTicket) is > 0 and var mine)
             lines.Add(Plural(mine, "update on your tickets", "updates on your tickets"));
         if (Count(NotificationKind.CcTicket) is > 0 and var cc)
@@ -344,19 +319,35 @@ public sealed class Notifier : INotificationSink
         Style = ActOnIt
     });
 
+    /// <summary>After an update: what's new since the version that ran before; a click opens the release notes.</summary>
+    public void ShowWhatsNew(string title, string body, string releaseNotesUrl) => Show(new NotificationContent(
+        NotificationKind.MyTicket, "Updated", title, body)
+    {
+        Action = NotificationActions.Url(releaseNotesUrl),
+        Style = ActOnIt,
+        MaxBodyLines = 7
+    });
+
     /// <summary>Sample notifications with the given (possibly unsaved) settings. Shown even when paused.</summary>
     public void ShowTest(Settings settings, NotificationKind kind)
     {
         foreach (var sample in TestSamples(kind))
-            Show(sample, settings);
+            Show(WithGuess(sample, settings), settings);
     }
 
     /// <summary>Several samples at once, to see how popups stack.</summary>
     public void ShowTestBurst(Settings settings)
     {
         foreach (var sample in TestSamples(null))
-            Show(sample, settings);
+            Show(WithGuess(sample, settings), settings);
     }
+
+    /// <summary>With the priority guess on (Experimental page), the colleague sample gets it, from the same rules as real tickets.</summary>
+    private static NotificationContent WithGuess(NotificationContent sample, Settings settings) =>
+        settings.GuessPriority && sample.Kind == NotificationKind.HelpColleague
+            ? sample with { PriorityHint = Tracking.PriorityGuess.Guess(sample.Priority, sample.Title,
+                [Markdown.Strip(sample.Body.Split('\n')[0])], "slapremium", TimeSpan.Zero) }
+            : sample;
 
     /// <summary>
     /// What "Try it" shows: the samples of one kind, or several at once (<paramref name="kind"/> null). Never marked as
@@ -366,9 +357,15 @@ public sealed class Notifier : INotificationSink
         ? Samples(single)
         : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(Samples(NotificationKind.HelpColleague)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                $"Robin Client · Created {DateTime.Now.AddMinutes(-2):HH:mm}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
-            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" }))
-        .Select(sample => sample with { Priority = RandomPriority() }).ToList();
+                $"Robin Client · Created {Clock.Time(DateTime.Now.AddMinutes(-2))}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
+            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" }).Append(ListSample))
+        .Select(sample => sample with { Priority = sample.TicketCount > 1 ? null : RandomPriority() }).ToList();
+
+    /// <summary>A list of tickets ("Now watching"): the ticket numbers look like links (in samples they don't open anything).</summary>
+    private static NotificationContent ListSample => new(NotificationKind.NewTicket, "Now watching", "7 unassigned tickets already waiting",
+        "#123460 Images missing in the media library\n#123461 Login loop after SSO change\n#123462 Export to CSV times out\n" +
+        "#123463 Scheduled job did not run · **Scheduled**\n#123464 Slow search on large sites\n\u2026 and 2 more: click to see them all",
+        Context: "Support Tier 2") { Action = ActionNone, TicketCount = 7, MaxBodyLines = 6 };
 
     /// <summary>
     /// A random priority for each sample (sometimes none), so "Try it" shows the colors and how long each priority stays
@@ -393,7 +390,7 @@ public sealed class Notifier : INotificationSink
                     [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
                     ["urgent", "high"], DateTimeOffset.UtcNow)) { MaxBodyLines = 9, CanCatchUp = true }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
-                { Action = ActionSettings });
+                { Action = ActionSettings }).Append(ListSample);
 
     /// <summary>Shows "Mute" on samples; muting a sample does nothing (see <see cref="Mute"/>).</summary>
     private static ClientChoice SampleClient(string name) => new() { Id = -1, Name = name };
@@ -402,16 +399,18 @@ public sealed class Notifier : INotificationSink
     {
         NotificationKind.NewTicket =>
           [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              $"Alex Example · Created {DateTime.Now.AddMinutes(-7):HH:mm}", TicketId: 123456, Priority: "high", Context: "Support Tier 2")
-              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso", MuteTarget = SampleClient("Contoso") }],
+              $"Alex Example · Created {Clock.Time(DateTime.Now.AddMinutes(-7))}", TicketId: 123456, Priority: "high", Context: "Support Tier 2")
+              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso", MuteTarget = SampleClient("Contoso"),
+                SlaDue = DateTimeOffset.UtcNow.AddMinutes(53), SlaFirstReply = true }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
               "**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
-              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2") { Action = ActionNone, Client = "Northwind", MuteTarget = SampleClient("Northwind") }],
+              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2")
+              { Action = ActionNone, Client = "Northwind · Premium Support", MuteTarget = SampleClient("Northwind"), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25) }],
         _ =>
           [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
-              "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…\nStatus Pending → Open (Jane Doe)",
-              TicketId: 123457, Priority: "normal") { Action = ActionNone, Client = "Fabrikam" }]
+              "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…",
+              TicketId: 123457, Priority: "normal") { Action = ActionNone, Client = "Fabrikam", SlaDue = DateTimeOffset.UtcNow.AddMinutes(190) }]
     };
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
@@ -422,6 +421,8 @@ public sealed class Notifier : INotificationSink
     {
         if (content.ResolvedAction is ActionNone or ActionInfo)
             return false; // test samples: you may want to see the same one again right away (e.g. in another theme)
+        if (content.RequestedByUser)
+            return false; // asked for (Catch up): always answered; the same one still on screen is replaced
 
         var now = DateTime.UtcNow;
         foreach (var old in _recent.Where(kv => now - kv.Value > DuplicateWindow).Select(kv => kv.Key).ToList())
@@ -441,173 +442,19 @@ public sealed class Notifier : INotificationSink
             Log.Info($"Skipped a duplicate notification: {content.Title}");
             return;
         }
+        if (content.RequestedByUser)
+            _popups.CloseSame(content); // Catch up again: the new one takes the old one's place
 
         try
         {
             // Counted as shown once it's really on screen: a notification that waits in line and is dropped
-            // (no longer needed) never counts. The popup manager calls OnShown when it appears.
-            // Zendesk Watcher's own styles: shown, or held while you present or use a full-screen app (the popup
-            // manager shows them when that's over). The Windows style: Windows decides (Do Not Disturb).
-            if (settings.ActiveNotificationTheme != NotificationTheme.WindowsNative)
-                _popups.Show(content, settings);
-            else
-            {
-                ShowToast(content, settings);
-                OnShown(content);
-            }
+            // (no longer needed) never counts. The popup manager calls OnShown when it appears. While you present or
+            // use a full-screen app it's held, and shown when that's over.
+            _popups.Show(content, settings);
         }
         catch (Exception ex)
         {
             Log.Error("Could not show notification", ex);
         }
     }
-
-    // ------------------------------------------------------------------ Windows toasts
-
-    /// <summary>Toast argument with the kind of a ticket notification, so a click on it can be counted.</summary>
-    public const string StatArgument = "stat";
-
-    private void ShowToast(NotificationContent content, Settings settings)
-    {
-        var sound = settings.SoundFor(content);
-        var action = content.ResolvedAction;
-
-        var builder = new ToastContentBuilder()
-            .AddArgument("action", action)
-            .AddText(content.FullHeading)
-            .AddText(content.Title);
-
-        // Windows can't show bold: plain text, with the client first.
-        var body = Markdown.Strip(content.DisplayBody(DateTimeOffset.UtcNow));
-        if (!string.IsNullOrWhiteSpace(content.Client))
-            body = string.IsNullOrWhiteSpace(body) ? $"Client: {content.Client}" : $"Client: {content.Client}\n{body}";
-        if (!string.IsNullOrWhiteSpace(body))
-            builder.AddText(body);
-        builder.AddAttributionText("Zendesk Watcher");
-
-        if (content.TicketId is { } id)
-            builder.AddArgument("ticketId", id);
-        if (content.IsTicketNotification)
-            builder.AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content));
-
-        if (settings.ShowAppLogo)
-            builder.AddAppLogoOverride(Logo.Value, ToastGenericAppLogoCrop.Circle);
-
-        if (settings.GroupNotificationsByType)
-        {
-            var (headerId, headerTitle) = content.Kind switch
-            {
-                NotificationKind.NewTicket => ("new-tickets", "New tickets"),
-                NotificationKind.HelpColleague => ("colleagues", "Colleagues' tickets"),
-                _ => ("my-tickets", "My tickets")
-            };
-            builder.AddHeader(headerId, headerTitle, new ToastArguments().Add("action", ActionOpenZendesk));
-        }
-
-        if (content.CanCatchUp)
-            builder.AddButton(new ToastButton().SetContent("Catch up").AddArgument("action", ActionCatchUp));
-
-        if (content.CanTake && content.TicketId is { } takeTicket)
-        {
-            var take = new ToastButton()
-                .SetContent("Take it")
-                .AddArgument("action", ActionTake)
-                .AddArgument("ticketId", takeTicket);
-            if (content.IsTicketNotification)
-                take.AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content));
-            builder.AddButton(take);
-        }
-
-        if (content.IsTicketNotification)
-        {
-            builder.AddButton(new ToastButton()
-                .SetContent("Copy")
-                .AddArgument("action", ActionCopy)
-                .AddArgument("copyId", RememberForCopy(content))
-                .AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content)));
-        }
-
-        if (content.MuteTarget is { } mute && !mute.IsMutedAt(DateTimeOffset.UtcNow))
-        {
-            builder.AddButton(new ToastButton()
-                .SetContent("Mute client")
-                .AddArgument("action", ActionMuteClient)
-                .AddArgument("clientId", mute.Id)
-                .AddArgument("clientName", mute.Name)
-                .AddArgument("clientGroup", mute.GroupId));
-        }
-
-        var button = new ToastButton()
-            .SetContent(action switch
-            {
-                ActionSignIn => "Sign in",
-                ActionUpdate => "Update now",
-                ActionSettings => "Open Settings",
-                ActionInfo => "Close",
-                _ => content.TicketId is null ? "Open Zendesk" : "Open ticket"
-            })
-            .AddArgument("action", action);
-        if (content.TicketId is { } buttonTicket)
-            button.AddArgument("ticketId", buttonTicket);
-        if (content.IsTicketNotification)
-            button.AddArgument(StatArgument, content.Kind.ToString()).AddArgument(StatClientArgument, StatClient(content));
-        builder.AddButton(button);
-
-        // Windows only has short (~5 s), long (~25 s) and until dismissed.
-        switch (settings.DisplaySecondsFor(content))
-        {
-            case 0:
-                // The reminder scenario keeps the toast on screen; it needs a dismiss button.
-                builder.SetToastScenario(ToastScenario.Reminder);
-                builder.AddButton(new ToastButtonDismiss());
-                break;
-            case > 15:
-                builder.SetToastDuration(ToastDuration.Long);
-                break;
-        }
-
-        // While presenting or full screen: no sound at all (others may hear it, e.g. in a screen share with audio).
-        if (sound == ToastSound.Silent || !PopupManager.CanShowPopups())
-            builder.AddAudio(new ToastAudio { Silent = true });
-        else if (ChipSounds.IsChip(sound))
-        {
-            builder.AddAudio(new ToastAudio { Silent = true }); // Windows can't play our own sounds in a toast
-            ChipSounds.Play(sound);
-        }
-        else
-            builder.AddAudio(new Uri(SoundUri(sound)));
-
-        builder.Show(toast =>
-        {
-            if (!content.IsTicketNotification)
-                return;
-            // Closed or timed out (only noticed while the app runs). Clicks arrive via OnToastActivated.
-            toast.Dismissed += (_, e) =>
-            {
-                StatOutcome? outcome = e.Reason switch
-                {
-                    Windows.UI.Notifications.ToastDismissalReason.UserCanceled => StatOutcome.Closed,
-                    Windows.UI.Notifications.ToastDismissalReason.TimedOut => StatOutcome.TimedOut,
-                    _ => null
-                };
-                if (outcome is { } o)
-                    Count(content, o);
-            };
-        });
-    }
-
-    private static string StatClient(NotificationContent content) =>
-        content.ClientId is { } id && content.ClientName is { } name ? $"{id}|{name}" : "";
-
-    private static string SoundUri(ToastSound sound) => sound switch
-    {
-        ToastSound.Mail => "ms-winsoundevent:Notification.Mail",
-        ToastSound.InstantMessage => "ms-winsoundevent:Notification.IM",
-        ToastSound.Reminder => "ms-winsoundevent:Notification.Reminder",
-        ToastSound.Sms => "ms-winsoundevent:Notification.SMS",
-        _ => "ms-winsoundevent:Notification.Default"
-    };
-
-    /// <summary>The app icon as a PNG in the data folder (toasts need an image file for the logo).</summary>
-    private static Uri CreateLogo() => new(AppIcon.SavePng(Path.Combine(AppPaths.DataDir, "logo.png"), 96));
 }

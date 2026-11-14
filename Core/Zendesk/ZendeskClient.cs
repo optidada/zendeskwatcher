@@ -152,13 +152,16 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
-    /// <summary>Current state of specific tickets. Tickets the agent can no longer see are simply missing.</summary>
+    /// <summary>
+    /// Current state of specific tickets, with Zendesk's SLA timers (they teach the app the SLA targets). Tickets the
+    /// agent can no longer see are simply missing.
+    /// </summary>
     public async Task<List<Ticket>> GetTicketsAsync(IEnumerable<long> ids, CancellationToken ct)
     {
         var result = new List<Ticket>();
         foreach (var chunk in ids.Chunk(100))
         {
-            var response = await GetAsync<TicketsResponse>($"/api/v2/tickets/show_many.json?ids={string.Join(',', chunk)}", ct);
+            var response = await GetAsync<TicketsResponse>($"/api/v2/tickets/show_many.json?ids={string.Join(',', chunk)}&include=slas", ct);
             result.AddRange(response.Tickets);
         }
         return result;
@@ -203,9 +206,41 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
-    /// <summary>An organization's name (cached for this session). Null if it can't be read.</summary>
-    public async Task<string?> GetOrganizationNameAsync(long organizationId, CancellationToken ct) =>
-        (await GetOrganizationAsync(organizationId, ct))?.Name;
+    /// <summary>
+    /// When Zendesk's own SLA timer for this metric ("first_reply_time", "next_reply_time") breaches, if it's running.
+    /// Agents can read the timers but not the policies. Null without a running timer, or if it can't be read.
+    /// </summary>
+    public async Task<DateTimeOffset?> GetSlaBreachAsync(long ticketId, string metric, CancellationToken ct)
+    {
+        try
+        {
+            var response = await GetAsync<TicketsResponse>($"/api/v2/tickets/show_many.json?ids={ticketId}&include=slas", ct);
+            return response.Tickets.FirstOrDefault()?.Slas?.PolicyMetrics
+                .FirstOrDefault(m => m.Metric == metric && m.Stage == "active" && m.BreachAt is not null)?.BreachAt;
+        }
+        catch (HttpRequestException)
+        {
+            return null; // the team target is used instead
+        }
+    }
+
+    /// <summary>
+    /// The SLA types' names as Zendesk shows them (value → name, from the organization field "sla_type"); empty if they
+    /// can't be read. Never asks to sign in again: an agent may not be allowed to read organization fields.
+    /// </summary>
+    public async Task<Dictionary<string, string>> GetSlaTypeNamesAsync(CancellationToken ct)
+    {
+        try
+        {
+            var field = (await GetOrganizationFieldsAsync(ct)).FirstOrDefault(f => f.Key == "sla_type");
+            return field?.CustomFieldOptions?.Where(o => !string.IsNullOrEmpty(o.Value) && !string.IsNullOrEmpty(o.Name))
+                .ToDictionary(o => o.Value!.ToLowerInvariant(), o => o.Name!) ?? [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or AuthRequiredException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>An organization with its fields (cached for this session). Null if it can't be read.</summary>
     public async Task<Organization?> GetOrganizationAsync(long organizationId, CancellationToken ct)
@@ -217,9 +252,13 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         {
             org = (await GetAsync<OrganizationResponse>($"/api/v2/organizations/{organizationId}.json", ct)).Organization;
         }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        {
+            org = null; // gone or not allowed: that won't change, remember it
+        }
         catch (HttpRequestException)
         {
-            org = null;
+            return null; // e.g. the session expired mid-check: try again next time (its name and SLA type matter)
         }
         _organizations[organizationId] = org;
         return org;
@@ -277,6 +316,15 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             .ToList();
     }
 
+    /// <summary>A group's tickets created in the last <paramref name="days"/> days, any status (up to 500, newest first).</summary>
+    public Task<List<Ticket>> GetRecentGroupTicketsAsync(long groupId, int days, CancellationToken ct)
+    {
+        var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
+        var query = $"type:ticket group:{group} created>{DateTime.UtcNow.AddDays(-days):yyyy-MM-dd}";
+        return GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100&sort_by=created_at&sort_order=desc",
+            r => r.Results, ct, maxPages: 5);
+    }
+
     public async Task<string> GetUserNameAsync(long userId, CancellationToken ct) =>
         (await GetUserAsync(userId, ct))?.Name ?? $"User {userId}";
 
@@ -306,6 +354,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// </summary>
     public Task<List<Ticket>> GetAssignedOpenTicketsUpdatedSinceAsync(long groupId, DateTimeOffset since, CancellationToken ct) =>
         SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
+
+    /// <summary>All open tickets in a group that are assigned to someone (for Insights → Your team).</summary>
+    public Task<List<Ticket>> GetAssignedOpenTicketsAsync(long groupId, CancellationToken ct) =>
+        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved", ct);
 
     private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct) =>
         await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct);

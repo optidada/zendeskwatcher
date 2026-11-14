@@ -3,6 +3,48 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.7.1
+
+- **What's new after an update**: one notification with the highlights since the version you used before, also after a big jump. A click opens the release notes.
+- **Priorities as colored tags**: P1 red, P2 orange, P3 and P4 in the tick boxes, the SLA table, Insights and notification headings.
+- **Clients fold per group**: one tick box per group mutes or unmutes all its clients, with a count. Groups with changes start open, and search opens the right group.
+- **Ticket lists in notifications**: the ticket numbers look like links and open that ticket; "See all" opens the whole list in Zendesk.
+
+## 1.7.0
+
+- **New Native theme**: looks like Windows 11, a bit edgier, and follows your Windows light/dark mode and accent color. For the Settings window and for notifications. It replaces the Windows notification style, which is gone.
+- **Simpler and faster Settings**: fewer options, shorter texts, and references like "Notifications → Working hours" are links. Pages open up to four times faster; Insights opens again instantly.
+- **Colleagues by region**: tick or untick a whole region, and newcomers follow it. A customer's reply on a colleague's ticket now notifies right away, whatever the status.
+- **Insights → Your team**: open, P1/P2, escalated, scheduled and pending tickets per colleague in your region. Plus an "Acted on" column: how many notifications you opened, took or copied.
+- **Short / Normal / Long** sets how long all notifications stay. Working hours are one bar to drag, and times follow your Windows clock (12-hour with AM/PM too).
+- **List notifications**: click a ticket in "Now watching" or "New tickets" to open it, or anywhere else to see them all in Zendesk.
+- **Tray icon**: green while online, gray when not.
+- **Fewer settings**: checking every minute, notifications taking turns, the trust time for "In progress" and "Scheduled", and Snooze's "always" are now fixed, and How it works explains them.
+- **Experimental**: only Priority guess and Quiet thank-yous are left.
+- **SLA**: Zendesk's own timers now win over the team's defaults, and targets are marked ≈ (from Zendesk) or ✎ (yours).
+- **Catch up** always answers when you ask, also twice in a row. With Peek, app messages and the welcome summary slide out by themselves.
+- **Account** shows how long you've been signed in.
+
+## 1.6.0
+
+- **New: Experimental page** with smart extras, each off until you switch it on: a priority guess ("Looks like P1: site down · frustrated tone"), a "Same issue?" alert when several new tickets read alike, a similar solved ticket on new tickets, "Fits you", quiet thank-yous and this week's topics.
+- **All on your PC**: a small English language model (about 8 MB) comes with the app and only loads while one of these is on. Ticket text never leaves your PC, and Zendesk is never changed.
+- **Catch up no longer fails** on tickets with a chat or call in their history.
+- **Settings sidebar tidied**: General comes before Insights, Updates & feedback is its own page under General, and Experimental is last.
+
+## 1.5.0
+
+- **SLA deadlines on notifications**: in red bold, counting down, e.g. "First reply due in 25 min" or "Reply overdue by 1 h". Zendesk's own SLA timer when the ticket has one; otherwise the target for the client's SLA type (from Zendesk) and the priority. New page **Notifications → SLA** with the targets, color coded: default, estimated from Zendesk's timers (also for new SLA types), or your own.
+- **Settings pages fit the window again** at display scaling above 100%: since 1.4.4, pages opened later were too narrow and cramped, and some tiles were cut off.
+- **Groups tick boxes no longer disappear** now and then (Windows swapped in its own, faint ones after styling the list).
+- **Scheduled tickets with nobody on them stand out**: "New ticket · Scheduled", marked in ticket lists, and counted in the morning summary, Catch up and "While you were away".
+- **Easier to read summaries**: the morning summary and the welcome are short rows instead of long sentences.
+- **Fewer repeats**: a reply that reopens a ticket no longer also says "Status Pending → Open".
+- **Soft chime**: a new, very quiet sound, the default for new tickets on new installs (Look & sound).
+- **How it works**: topics fold open with a click, so you find what you're looking for.
+- **Insights** suggest getting fewer notifications rather than showing them longer, count copying for Teams as using a notification, and say so when there's nothing to change.
+- The Windows notification style is marked "Fewer features" on Look & sound; the installer is a little smaller.
+
 ## 1.4.4
 
 - **Settings opens much faster**: about 0.1 s instead of 0.75 s, by building each page the first time you open it; no white flash, less memory while it's open.

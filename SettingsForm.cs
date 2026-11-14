@@ -35,16 +35,21 @@ public sealed class SettingsForm : Form
     private readonly SettingsPage?[] _pages;
     private readonly Func<SettingsPage>[] _makePage;
 
+    /// <summary>The window has scaled itself to the display; pages built later must be scaled when they're built.</summary>
+    private bool _autoScaled;
+
     /// <summary>The sidebar, known before the pages exist.</summary>
     private static readonly (string Title, bool Sub)[] NavItems =
     [
         ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
-        ("Behavior", true), ("Look & sound", true), ("Insights", false), ("General", false), ("How it works", false)
+        ("Behavior", true), ("Look & sound", true), ("SLA", true), ("General", false), ("Updates & feedback", true), ("Insights", false), ("How it works", false), ("Experimental", false)
     ];
     private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 8;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
+    private const int UpdatesIndex = GeneralIndex + 1;
     private GeneralPage? BuiltGeneral => _pages[GeneralIndex] as GeneralPage;
+    private UpdatesPage? BuiltUpdates => _pages[UpdatesIndex] as UpdatesPage;
     private HelpColleaguesPage Help => (HelpColleaguesPage)Page(HelpIndex);
     private GeneralPage General => (GeneralPage)Page(GeneralIndex);
     private (string Text, bool Enabled)? _updateState;
@@ -71,7 +76,7 @@ public sealed class SettingsForm : Form
     /// <summary>The sign-in or sign-out has finished.</summary>
     public event Action? SessionChanged;
 
-    /// <summary>General page buttons; the tray app does the same as its menu items.</summary>
+    /// <summary>Updates & feedback page buttons; the tray app does the same as its menu items.</summary>
     public event Action? CheckForUpdatesClicked;
 
     /// <summary>Starts Catch up (the Account page's button); done when it has run.</summary>
@@ -88,7 +93,7 @@ public sealed class SettingsForm : Form
     public void ShowUpdateState(string text, bool enabled)
     {
         _updateState = (text, enabled);
-        BuiltGeneral?.ShowUpdateState(text, enabled);
+        BuiltUpdates?.ShowUpdateState(text, enabled);
     }
 
     public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false, User? signedInAs = null)
@@ -132,11 +137,13 @@ public sealed class SettingsForm : Form
         [
             () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context),
             () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
-            () => new StatisticsPage(_context), MakeGeneralPage, () => new HowItWorksPage(_context)
+            () => new SlaPage(_context), MakeGeneralPage, MakeUpdatesPage, () => new StatisticsPage(_context), () => new HowItWorksPage(_context), () => new ExperimentalPage(_context)
         ];
         _pages = new SettingsPage?[_makePage.Length];
         _pages[0] = _account;
         _pages[1] = _groups;
+        foreach (var early in new SettingsPage[] { _account, _groups })
+            early.Panel.ResumeLayout(false); // built right away (not in Page): their layout resumes here
 
         _account.SessionChanging += () => SessionChanging?.Invoke();
         _account.SessionChanged += () => SessionChanged?.Invoke();
@@ -146,9 +153,12 @@ public sealed class SettingsForm : Form
         _account.Load(settings);
         _groups.Load(settings);
         SelectPage(0);
+        SettingsLinks.Go = GoTo;
+        Disposed += (_, _) => { if (SettingsLinks.Go == GoTo) SettingsLinks.Go = null; };
 
         ResumeLayout(false);
         PerformLayout();
+        _autoScaled = true; // pages built from now on scale themselves (Page)
         Load += (_, _) =>
         {
             // Never taller than the screen (small or highly scaled displays): then the pages scroll instead.
@@ -264,6 +274,18 @@ public sealed class SettingsForm : Form
         return footer;
     }
 
+    /// <summary>A link in a text: shows the page, at the card with this title if given, else at the top.</summary>
+    private void GoTo(string page, string? section)
+    {
+        var index = Array.IndexOf(SettingsLinks.Pages, page);
+        if (index < 0 || index >= _pages.Length)
+            return;
+        SelectPage(index);
+        _content.AutoScrollPosition = Point.Empty;
+        if (section is not null && Page(index).Panel.Controls.OfType<Card>().FirstOrDefault(c => c.Title == section) is { } card)
+            _content.ScrollControlIntoView(card);
+    }
+
     private void SelectPage(int index)
     {
         // Swap pages with drawing turned off, then repaint once, so a page never appears piece by piece.
@@ -296,39 +318,61 @@ public sealed class SettingsForm : Form
     private IEnumerable<SettingsPage> BuiltPages => _pages.OfType<SettingsPage>();
 
     /// <summary>The page, built (with the saved settings) the first time it's needed.</summary>
+    /// <summary>For --measure-settings: where a page's first build spends its time.</summary>
+    private static List<string>? _buildTimings;
+
     private SettingsPage Page(int index)
     {
         if (_pages[index] is { } built)
             return built;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var page = _makePage[index]();
+        page.Panel.ResumeLayout(false); // suspended while the page was built (SettingsPage): laid out once when it's added
+        var made = clock.ElapsedMilliseconds;
         _pages[index] = page;
+        // Built after the window scaled itself to the display (e.g. 125%): sizes in the page are for 100%, so scale
+        // them the same way (fonts are in points and already right). Otherwise the cards end short of the right edge.
+        if (_autoScaled && DeviceDpi != 96)
+            page.Panel.Scale(new SizeF(DeviceDpi / 96f, DeviceDpi / 96f));
         var wasLoading = _loading;
         _loading = true; // loading the saved values isn't a change
         page.Panel.Visible = false;
         _content.Controls.Add(page.Panel);
+        var added = clock.ElapsedMilliseconds;
         page.Load(Result);
+        var loaded = clock.ElapsedMilliseconds;
         _loading = wasLoading;
+        long handles = 0;
         if (IsHandleCreated)
         {
             CreateHandles(page.Panel);
+            handles = clock.ElapsedMilliseconds;
             Theme.ApplyWindowChrome(page.Panel, Theme.Current.Dark); // dark scroll bars and drop-down lists in dark themes
         }
+        _buildTimings?.Add($"{index}: make {made} add {added - made} load {loaded - added} handles {handles - loaded} chrome {clock.ElapsedMilliseconds - handles} ({Count(page.Panel)} controls)");
         return page;
     }
 
     private GeneralPage MakeGeneralPage()
     {
-        var general = new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
-        general.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
-        general.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
-        general.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
-        general.ResetRequested += ResetToDefaults;
+        return new GeneralPage(_context, ReleaseDate is null ? AppVersion : $"{AppVersion}, released {ReleaseDate}");
+    }
+
+    private UpdatesPage MakeUpdatesPage()
+    {
+        var updates = new UpdatesPage(_context);
+        updates.CheckForUpdatesClicked += () => CheckForUpdatesClicked?.Invoke();
+        updates.SendFeedbackClicked += () => SendFeedbackClicked?.Invoke();
+        updates.OpenLogFolderClicked += () => OpenLogFolderClicked?.Invoke();
+        updates.ResetRequested += ResetToDefaults;
         if (_updateState is { } state)
-            general.ShowUpdateState(state.Text, state.Enabled);
-        return general;
+            updates.ShowUpdateState(state.Text, state.Enabled);
+        return updates;
     }
 
     /// <summary>Creates the window handles of the built pages up front, so showing them is instant.</summary>
+    private static int Count(Control control) => 1 + control.Controls.Cast<Control>().Sum(Count);
+
     private static void CreateHandles(Control control)
     {
         _ = control.Handle;
@@ -541,7 +585,8 @@ public sealed class SettingsForm : Form
             {
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
-                HelpExcludedAssignees = [new Colleague { Id = 9, Name = "Alex Example" }],
+                HelpRegionDefaultDone = true, HelpOffRegions = [TimeRegion.EuropeAfrica],
+                HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Sam Taylor" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
                 Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
                     new ClientChoice { Id = 21, Name = "Contoso", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
@@ -570,6 +615,11 @@ public sealed class SettingsForm : Form
                        new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
                 [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
             }, TimeRegion.EuropeAfrica);
+            StatisticsPage.SetTeamSample(settings.Subdomain, settings.WatchedGroups.Select(g => g.Id), TimeRegion.EuropeAfrica,
+            [
+                new(10, "Maria Svensson", 14, 2, 3, 1, 6, false), new(99, "You", 11, 1, 1, 0, 4, true),
+                new(9, "Alex Example", 7, 0, 4, 2, 9, false), new(17, "Kim Larsen", 3, 0, 0, 0, 1, false)
+            ]);
             form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)
             {
@@ -629,6 +679,7 @@ public sealed class SettingsForm : Form
         var shown = opening.ElapsedMilliseconds;
         static long MemoryMb() { GC.Collect(); GC.WaitForPendingFinalizers(); using var me = System.Diagnostics.Process.GetCurrentProcess(); return me.PrivateMemorySize64 / 1024 / 1024; }
         var memoryOpen = MemoryMb();
+        _buildTimings = [];
         // How long switching to each page takes (built, laid out and painted).
         var switches = new List<string>();
         for (var i = 0; i < form._pages.Length; i++)
@@ -638,6 +689,19 @@ public sealed class SettingsForm : Form
             Application.DoEvents();
             switches.Add($"{i}:{clock.ElapsedMilliseconds}");
         }
+        // Each page shown a second time (already built): what switching back and forth costs.
+        var revisits = new List<string>();
+        for (var i = 0; i < form._pages.Length; i++)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            form.SelectPage(i);
+            Application.DoEvents();
+            revisits.Add($"{i}:{clock.ElapsedMilliseconds}");
+        }
+        switches.Add("| again " + string.Join(" ", revisits) + " | build " + string.Join(", ", _buildTimings)
+           
+            );
+        _buildTimings = null;
         // Opening it again in the same run, as in the app after the first time (code already loaded).
         var again = System.Diagnostics.Stopwatch.StartNew();
         using (var second = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { })) { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000), ShowInTaskbar = false })

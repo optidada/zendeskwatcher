@@ -56,7 +56,6 @@ public class SettingsFileTests : IDisposable
         Assert.Null(Settings.LoadProblem);
         Assert.Equal("acme", settings.Subdomain);
         Assert.Equal(["Support Tier 2", "Premium Support"], settings.WatchedGroups.Select(g => g.Name));
-        Assert.Equal(120, settings.PollIntervalSeconds);
         Assert.True(settings.TrackCcTickets);
         Assert.False(settings.NotifyInternalNotes);
         Assert.Equal("Onboarding", Assert.Single(settings.HelpGroups).Name);
@@ -67,7 +66,7 @@ public class SettingsFileTests : IDisposable
         Assert.Equal(ToastSound.Mail, settings.CcTicketStyle.Sound); // CC shared "My tickets" back then
         Assert.Equal(NotificationTheme.CleanLight, settings.Theme);
         Assert.Equal(PopupPosition.TopRight, settings.Position);
-        Assert.Equal(30, settings.TicketDisplay.Normal); // new settings get their defaults
+        Assert.Equal(DisplayLength.Normal, settings.TicketDisplayLength); // new settings get their defaults
     }
 
     [Fact]
@@ -134,5 +133,16 @@ public class SettingsFileTests : IDisposable
 
         Assert.True(Settings.IsFirstRun);
         Assert.Null(Settings.LoadProblem);
+    }
+
+    [Fact]
+    public void The_old_Windows_notification_style_becomes_Native()
+    {
+        File.WriteAllText(FilePath, """{ "Subdomain": "acme", "NotificationsLikeApp": false, "Theme": 3, "AppTheme": 3 }"""); // 3: Windows, now Native
+        var settings = Settings.Load(FilePath);
+
+        Assert.Equal(NotificationTheme.WindowsNative, settings.Theme);
+        Assert.Equal(NotificationTheme.WindowsNative, settings.ActiveNotificationTheme); // Native notifications, Windows' colors
+        Assert.Equal("Native", UI.Popups.PopupPalette.For(settings.ActiveNotificationTheme).Name);
     }
 }

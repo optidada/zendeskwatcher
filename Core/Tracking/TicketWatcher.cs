@@ -52,6 +52,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state = new WatchState { Subdomain = settings.Subdomain, UserId = Me.Id };
         }
 
+        SlaLearning.Current = _state.Sla; // kept with what the app has seen (also across a sign-in as someone else: it's about the account)
+
         // A group that is unchecked and checked again later gets a fresh silent baseline.
         _state.BaselinedGroups.IntersectWith(settings.WatchedGroups.Select(g => g.Id));
         _state.HelpBaselinedGroups.IntersectWith(settings.EffectiveHelpGroups.Select(g => g.Id));
@@ -93,20 +95,15 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
     }
 
-    /// <summary>How long "In progress" and "Scheduled" are trusted (Notifications → Colleagues).</summary>
-    private TimeSpan InProgressGrace => TimeSpan.FromHours(Math.Clamp(settings.InProgressGraceHours, 1, 24));
-
     /// <summary>The status as agents see it: the custom one ("In progress") if any, else "Open", "Pending", "On-hold", …</summary>
     private string StatusName(Ticket ticket) =>
         ticket.CustomStatusId is { } id && _statusNames.TryGetValue(id, out var name) ? name : TicketRules.StatusLabel(ticket.Status) ?? "";
 
-    /// <summary>" · Escalated" after the off-work line, unless it's plain Open/New; "In progress" and "Scheduled" say how long the customer has waited.</summary>
-    private string StatusSuffix(Ticket ticket, DateTimeOffset repliedAt, DateTimeOffset now)
+    /// <summary>" · Escalated" after the off-work line, unless it's plain Open/New.</summary>
+    private string StatusSuffix(Ticket ticket)
     {
         var name = StatusName(ticket);
-        if (name.Length == 0 || name is "Open" or "New")
-            return "";
-        return TicketRules.IsTrustedStatus(name) ? $" · {name}, no answer for {(int)(now - repliedAt).TotalHours} h" : $" · {name}";
+        return name.Length == 0 || name is "Open" or "New" ? "" : $" · {name}";
     }
 
     private static readonly TimeSpan RequestReportInterval = TimeSpan.FromMinutes(10);
@@ -134,6 +131,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             lock (parts)
                 parts.Add($"{name} {own.Elapsed.TotalSeconds:0.0}s");
         }
+        KeepHistoryFresh(ct); // Experimental features: 90 days of tickets, read in the background
         var checks = new List<Task> { Timed("unassigned", () => CheckUnassignedAsync(ct)) };
 
         if (settings.TrackMyTickets)
@@ -190,6 +188,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         var allIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).Distinct().ToList();
         var live = allIds.Count > 0 ? (await zendesk.GetTicketsAsync(allIds, ct)).ToDictionary(t => t.Id) : [];
+        await LearnSlaAsync(live.Values, ct);
 
         foreach (var (group, candidates) in found)
         {
@@ -237,9 +236,15 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
             if (fresh.Count > MaxSeparateUnassignedToasts)
             {
+                var scheduled = fresh.Count(IsScheduled);
                 Show(new NotificationContent(NotificationKind.NewTicket, "New tickets",
-                    $"{fresh.Count} new unassigned tickets", TicketList(fresh),
-                    Context: GroupLabel(group)) { IsTicketNotification = true, TicketCount = fresh.Count, MaxBodyLines = ListLines }, fresh.Select(t => t.Id));
+                    $"{fresh.Count} new unassigned tickets{Markdown.Strip(TicketRules.ScheduledNote(fresh.Count, scheduled))}", TicketList(fresh, IsScheduled),
+                    Context: GroupLabel(group))
+                    {
+                        IsTicketNotification = true, TicketCount = fresh.Count, ScheduledCount = scheduled, MaxBodyLines = ListLines,
+                        Action = NotificationActions.Search(UnassignedQuery(group)) // a click shows them all, not just the first five
+                    },
+                    fresh.Select(t => t.Id));
                 continue;
             }
 
@@ -256,9 +261,37 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     }
 
     private async Task ShowNewTicketAsync(Ticket ticket, WatchedGroup group, CancellationToken ct, string heading = "New ticket") =>
-        Show(await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, heading, $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-            await CreatedLineAsync(ticket, ct), ticket.Id, ticket.Priority, GroupLabel(group))
-            { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true }, ticket, group, ct));
+        Show(await UnassignedTicketAsync(ticket, group, heading, ct));
+
+    /// <summary>One unassigned ticket; "· Scheduled" in the heading when a time is booked and nobody owns it.</summary>
+    private async Task<NotificationContent> UnassignedTicketAsync(Ticket ticket, WatchedGroup group, string heading, CancellationToken ct)
+    {
+        var scheduled = IsScheduled(ticket);
+        var body = await CreatedLineAsync(ticket, ct);
+        return await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, scheduled ? $"{heading} \u00b7 Scheduled" : heading,
+            $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, GroupLabel(group))
+            { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true, ScheduledCount = scheduled ? 1 : 0 }, ticket, group, ct,
+            sla: (ticket.CreatedAt, FirstReply: true), customerTexts: settings.GuessPriority ? await FirstMessageAsync(ticket, ct) : null);
+    }
+
+    /// <summary>The ticket's first message (for the priority guess); empty if it can't be read.</summary>
+    private async Task<IReadOnlyList<string>> FirstMessageAsync(Ticket ticket, CancellationToken ct)
+    {
+        try
+        {
+            var first = (await zendesk.GetAuditsSinceAsync(ticket.Id, ticket.CreatedAt.AddSeconds(-1), ct)).OrderBy(a => a.CreatedAt)
+                .SelectMany(a => a.Events).FirstOrDefault(e => e.Type == "Comment");
+            return first is null ? [] : [TextCleanup.Plain(first.PlainBody ?? first.Body)];
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Error($"Ticket #{ticket.Id}: could not read the first message for the priority guess", ex);
+            return [];
+        }
+    }
+
+    /// <summary>Its status is "Scheduled" (custom statuses, by name).</summary>
+    private bool IsScheduled(Ticket ticket) => TicketRules.IsScheduled(StatusName(ticket));
 
     /// <summary>What the last check found, for the "Right now" card on Insights and the start summary.</summary>
     public WatchSnapshot Snapshot()
@@ -270,7 +303,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             var tickets = _state.MyTickets.Values;
             mine = (tickets.Count(t => t.Status is "new" or "open"), tickets.Count(t => t.Status == "pending"), tickets.Count(t => t.Status == "hold"));
         }
-        return new WatchSnapshot(DateTime.Now, _unassigned.Select(g => new GroupCount(g.Group, g.Tickets.Count)).ToList(),
+        return new WatchSnapshot(DateTime.Now, _unassigned.Select(g => new GroupCount(g.Group, g.Tickets.Count, g.Tickets.Count(IsScheduled))).ToList(),
             waiting.Count > 0 ? waiting.Min(t => t.CreatedAt) : null, mine,
             settings.TrackCcTickets ? _state.CcTickets.Count : null, settings.TrackCcTickets && _state.CcBaselineFull);
     }
@@ -416,7 +449,6 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
 
         var me = Me!.Id;
-        var excluded = settings.HelpExcludedAssignees.Select(c => c.Id).ToHashSet();
         var now = DateTimeOffset.UtcNow;
         var since = (_state.HelpLastCheck == default ? now.AddHours(-1) : _state.HelpLastCheck) - HelpLookBack;
 
@@ -433,8 +465,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             {
                 if (ticket.AssigneeId is not { } assigneeId || assigneeId == me)
                     continue; // your own tickets are covered by "my tickets"
-                if (excluded.Contains(assigneeId))
-                    continue; // a colleague you chose not to cover
+                var assignee = await zendesk.GetUserAsync(assigneeId, ct); // remembered for the session
+                if (!settings.CoversColleague(assigneeId, TimeRegions.Of(TimeRegions.ZoneOf(assignee)), TimeRegions.Mine(Me)))
+                    continue; // a colleague you chose not to cover (their region's tick, or one by one)
                 if (!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket))
                     continue; // not a priority you chose (no priority counts as normal), unless the client is important
                 var seen = _state.HelpSeen.GetValueOrDefault(ticket.Id);
@@ -449,12 +482,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 var reply = await LatestCustomerReplyAsync(ticket, seen == default ? since : seen, ct);
                 if (reply is null)
                     continue;
-
-                var assignee = await zendesk.GetUserAsync(assigneeId, ct);
-                // Until the Colleagues list has unticked your own region once (it does when it first loads), skip
-                // that region here too, so the app never covers more than the list will show.
-                if (settings.HelpRegionDefaultDone != true && TimeRegions.Of(TimeRegions.ZoneOf(assignee)) == TimeRegions.Mine(Me))
+                if (IsQuietThankYou(reply.Value.Comment))
+                {
+                    Log.Info($"Ticket #{ticket.Id}: the customer's reply is just a thank-you; no need to step in");
                     continue;
+                }
+
                 var (away, local) = OutsideWorkingHours(assignee, now);
                 if (away is not true)
                 {
@@ -464,28 +497,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 }
 
                 var who = assignee?.Name ?? $"User {assigneeId}";
-                var repliedAt = reply.Value.At;
-                // "In progress" or "Scheduled": trusted for a while, then looked at again (below).
-                if (!TicketRules.CustomerWaitingNeedsNotice(StatusName(ticket), repliedAt, now, InProgressGrace))
-                {
-                    Log.Info($"Ticket #{ticket.Id}: customer replied, {who} is off work, but it's {StatusName(ticket)}: looking again in {InProgressGrace.TotalHours:0} h");
-                    _state.HelpInProgress[ticket.Id] = repliedAt;
-                    continue;
-                }
-                _state.HelpInProgress.Remove(ticket.Id);
                 Log.Info($"Ticket #{ticket.Id}: {reply.Value.Customer} replied while {who} is outside working hours ({English(local, "ddd HH:mm")} their time)");
                 await ShowCustomerWaitingAsync(ticket, group, who, local, reply.Value, now, ct);
             }
         }
 
-        if (iAmWorking)
-            await FollowUpInProgressAsync(groups, excluded, now, ct);
-
         _state.HelpLastCheck = now;
         foreach (var old in _state.HelpSeen.Where(kv => now - kv.Value > TimeSpan.FromDays(3)).Select(kv => kv.Key).ToList())
             _state.HelpSeen.Remove(old);
-        foreach (var old in _state.HelpInProgress.Where(kv => now - kv.Value > TimeSpan.FromDays(3)).Select(kv => kv.Key).ToList())
-            _state.HelpInProgress.Remove(old);
     }
 
     /// <summary>"Customer waiting": what the customer wrote, that the colleague is off work, and the status if it says something.</summary>
@@ -496,48 +515,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var said = settings.ShowCommentText ? $"**{name}** replied: {Markdown.Escape(Snippet(reply.Comment))}" : $"**{name}** replied";
         Show(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-            $"{said}\n{Markdown.Escape(who)} is off work · {English(local, "ddd HH:mm")} their time{StatusSuffix(ticket, reply.At, now)}",
+            $"{said}\n{Markdown.Escape(who)} is off work · {Clock.DayTime(local)} their time{StatusSuffix(ticket)}",
             ticket.Id, ticket.Priority, GroupLabel(group))
-        { IsTicketNotification = true, ChangedAt = reply.At }, ticket, group, ct));
-    }
-
-    /// <summary>
-    /// Tickets "In progress" whose customer has now waited long enough: if nobody has answered publicly since (whatever
-    /// the status is now), and the colleague is still off work, the customer-waiting notification comes after all.
-    /// </summary>
-    private async Task FollowUpInProgressAsync(IReadOnlyList<WatchedGroup> groups, HashSet<long> excluded, DateTimeOffset now, CancellationToken ct)
-    {
-        var due = _state.HelpInProgress.Where(kv => now - kv.Value >= InProgressGrace).ToList();
-        if (due.Count == 0)
-            return;
-        foreach (var (id, _) in due)
-            _state.HelpInProgress.Remove(id);
-
-        var me = Me!.Id;
-        var byId = groups.ToDictionary(g => g.Id);
-        foreach (var ticket in await zendesk.GetTicketsAsync(due.Select(kv => kv.Key).ToList(), ct))
-        {
-            if (!ticket.IsOpen || ticket.AssigneeId is not { } assigneeId || assigneeId == me || excluded.Contains(assigneeId))
-                continue;
-            if (ticket.GroupId is not { } groupId || !byId.TryGetValue(groupId, out var group))
-                continue;
-            if (!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket))
-                continue;
-            if (!TicketRules.IsWantedClient(ticket, ClientMode(ticket)))
-                continue;
-            var repliedAt = due.First(kv => kv.Key == ticket.Id).Value;
-            if (await LatestCustomerReplyAsync(ticket, repliedAt.AddSeconds(-1), ct) is not { } reply)
-                continue; // answered meanwhile
-            var assignee = await zendesk.GetUserAsync(assigneeId, ct);
-            if (settings.HelpRegionDefaultDone != true && TimeRegions.Of(TimeRegions.ZoneOf(assignee)) == TimeRegions.Mine(Me))
-                continue;
-            var (away, local) = OutsideWorkingHours(assignee, now);
-            if (away is not true)
-                continue; // the colleague is back
-            var who = assignee?.Name ?? $"User {assigneeId}";
-            Log.Info($"Ticket #{ticket.Id}: {reply.Customer} has waited {InProgressGrace.TotalHours:0} h without an answer ({StatusName(ticket)}), {who} is off work");
-            await ShowCustomerWaitingAsync(ticket, group, who, local, reply, now, ct);
-        }
+        { IsTicketNotification = true, ChangedAt = reply.At }, ticket, group, ct, sla: (reply.At, FirstReply: false),
+            customerTexts: [TextCleanup.Plain(reply.Comment.PlainBody ?? reply.Comment.Body)], waitingSince: reply.At));
     }
 
     /// <summary>
@@ -661,9 +642,24 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             return;
 
         var me = Me!.Id;
-        var audits = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
-            .Where(a => a.AuthorId != me)
-            .OrderBy(a => a.CreatedAt);
+        var all = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct)).OrderBy(a => a.CreatedAt).ToList();
+        var audits = all.Where(a => a.AuthorId != me);
+        // The customer wrote last (no public answer since, also not mine): the follow-up SLA clock runs from then.
+        DateTimeOffset? customerWroteAt = null;
+        List<string>? customerTexts = null; // what they wrote since the last check, for the priority guess
+        long? customerId = null;
+        var thankYou = false; // their latest reply is just a thank-you (quiet with the Experimental switch)
+        if (all.LastOrDefault(a => a.Events.Any(e => e.Type == "Comment" && e.Public == true)) is { } lastPublic && lastPublic.AuthorId != me
+            && TicketRules.IsCustomer(await zendesk.GetUserAsync(lastPublic.AuthorId, ct), ticket, Me?.Email))
+        {
+            customerWroteAt = lastPublic.CreatedAt;
+            customerId = lastPublic.AuthorId;
+            thankYou = IsQuietThankYou(lastPublic.Events.First(e => e.Type == "Comment" && e.Public == true));
+            if (settings.GuessPriority)
+                customerTexts = all.Where(a => a.AuthorId == lastPublic.AuthorId)
+                    .SelectMany(a => a.Events.Where(e => e.Type == "Comment" && e.Public == true))
+                    .Select(e => TextCleanup.Plain(e.PlainBody ?? e.Body)).TakeLast(3).ToList();
+        }
 
         var lines = new List<string>();
         DateTimeOffset? changedAt = null;
@@ -673,14 +669,19 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             var author = audit.AuthorId == SystemUserId ? "Zendesk" : await zendesk.GetUserNameAsync(audit.AuthorId, ct);
             // A custom status change ("In progress → Escalated") says more than the basic one recorded with it.
             var hasCustomStatus = audit.Events.Any(e => e.Type == "Change" && e.FieldName == "custom_status_id");
+            // A reply shown in the same update: a reopen with it goes without saying (TicketRules.IsImpliedReopen).
+            var withReply = settings.NotifyPublicReplies && audit.Events.Any(e => e.Type == "Comment" && e.Public == true);
             foreach (var ev in audit.Events)
             {
                 if (hasCustomStatus && ev is { Type: "Change", FieldName: "status" })
                     continue;
                 if (await DescribeAsync(ev, author, settings.ShowCommentText, ct) is not { } line)
                     continue;
+                if (withReply && TicketRules.IsImpliedReopen(StatusTo(ev), withPublicReply: true))
+                    continue;
                 lines.Add(line);
                 changedAt = audit.CreatedAt;
+                thankYou &= audit.AuthorId == customerId; // quiet only when the customer's thanks is all there is to say
                 logLines.Add(Markdown.Strip(ev.Type == "Comment" ? (await DescribeAsync(ev, author, withText: false, ct))! : line));
             }
         }
@@ -688,7 +689,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (lines.Count == 0)
             return;
 
-        Log.Info($"Ticket #{ticket.Id}: {string.Join(" | ", logLines)}");
+        Log.Info($"Ticket #{ticket.Id}: {string.Join(" | ", logLines)}{(thankYou ? " (a thank-you: quiet)" : "")}");
 
         var shown = lines.TakeLast(MaxLinesPerToast).ToList();
         if (lines.Count > shown.Count)
@@ -699,7 +700,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
         Show(await WithClientAsync(new NotificationContent(kind, "Ticket updated", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             string.Join("\n", shown), ticket.Id, ticket.Priority, context)
-        { IsTicketNotification = true, ChangedAt = changedAt }, ticket, null, ct));
+        { IsTicketNotification = true, ChangedAt = changedAt, Quiet = thankYou }, ticket, null, ct,
+            sla: customerWroteAt is { } wrote ? (wrote, FirstReply: false) : null, customerTexts: customerTexts, waitingSince: customerWroteAt));
     }
 
     /// <summary>"Now watching Tier 2 · 3 unassigned tickets" when a group is added; a ticket notification if there's just one.</summary>
@@ -714,11 +716,20 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             return;
         }
 
+        var scheduled = tickets.Count(IsScheduled);
         Show(new NotificationContent(NotificationKind.NewTicket, "Now watching",
-            $"{tickets.Count} unassigned tickets already waiting", TicketList(oldestFirst), Context: GroupLabel(group))
-            { IsTicketNotification = true, TicketCount = tickets.Count, MaxBodyLines = ListLines },
+            $"{tickets.Count} unassigned tickets already waiting{Markdown.Strip(TicketRules.ScheduledNote(tickets.Count, scheduled))}",
+            TicketList(oldestFirst, IsScheduled), Context: GroupLabel(group))
+            {
+                IsTicketNotification = true, TicketCount = tickets.Count, ScheduledCount = scheduled, MaxBodyLines = ListLines,
+                Action = NotificationActions.Search(UnassignedQuery(group)) // a click shows them all, not just the first five
+            },
             tickets.Select(t => t.Id));
     }
+
+    /// <summary>The Zendesk search for a group's unassigned tickets ("No group": tickets without one).</summary>
+    internal static string UnassignedQuery(WatchedGroup group) =>
+        $"type:ticket group:{(group.IsNoGroup ? "none" : group.Id.ToString())} assignee:none status<solved";
 
     /// <summary>Tickets listed in one notification; more become "… and 4 more".</summary>
     private const int ListedTickets = 5;
@@ -726,12 +737,13 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// <summary>Room for the listed tickets and the "… and N more" line: the notification grows to fit them.</summary>
     internal const int ListLines = ListedTickets + 1;
 
-    /// <summary>"#123 Subject" per line, up to <see cref="ListedTickets"/>, then "… and N more".</summary>
-    internal static string TicketList(IReadOnlyList<Ticket> tickets)
+    /// <summary>"#123 Subject" per line ("· **Scheduled**" after Scheduled ones), up to <see cref="ListedTickets"/>, then "… and N more: click to see them all".</summary>
+    internal static string TicketList(IReadOnlyList<Ticket> tickets, Func<Ticket, bool>? scheduled = null)
     {
-        var lines = tickets.Take(ListedTickets).Select(t => $"#{t.Id} {Markdown.Escape(TextCleanup.Plain(t.Subject))}").ToList();
+        var lines = tickets.Take(ListedTickets)
+            .Select(t => $"#{t.Id} {Markdown.Escape(TextCleanup.Plain(t.Subject))}{(scheduled?.Invoke(t) == true ? " \u00b7 **Scheduled**" : "")}").ToList();
         if (tickets.Count > ListedTickets)
-            lines.Add($"\u2026 and {tickets.Count - ListedTickets} more");
+            lines.Add($"\u2026 and {tickets.Count - ListedTickets} more: click to see them all");
         return string.Join("\n", lines);
     }
 
@@ -761,7 +773,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// Adds the client: "Client: Contoso", ★ and "until dismissed"
     /// for important clients, the client's own sound, and on new tickets and colleagues' tickets the "Mute ▾" menu.
     /// </summary>
-    private async Task<NotificationContent> WithClientAsync(NotificationContent content, Ticket ticket, WatchedGroup? group, CancellationToken ct)
+    /// <param name="sla">Where the SLA clock starts and which target applies (first reply or follow-up); null: no deadline.</param>
+    /// <param name="customerTexts">What the customer wrote, oldest first, for the priority guess (only with it on); null: no guess.</param>
+    /// <param name="waitingSince">Since when the customer has waited for an answer (the guess counts a long wait).</param>
+    private async Task<NotificationContent> WithClientAsync(NotificationContent content, Ticket ticket, WatchedGroup? group, CancellationToken ct,
+        (DateTimeOffset Start, bool FirstReply)? sla = null, IReadOnlyList<string>? customerTexts = null, DateTimeOffset? waitingSince = null)
     {
         var choice = settings.ClientChoiceFor(ticket.OrganizationId);
         var important = ClientMode(ticket) == ZendeskWatcher.ClientMode.Important;
@@ -771,17 +787,75 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             Heading = important ? $"★ {content.Heading}" : content.Heading,
             Sound = choice?.Sound
         };
-        if (ticket.OrganizationId is not { } orgId || await zendesk.GetOrganizationNameAsync(orgId, ct) is not { Length: > 0 } name)
+        var org = ticket.OrganizationId is { } id ? await zendesk.GetOrganizationAsync(id, ct) : null;
+        // The client's SLA type (its organization's "SLA Type"; none counts as Standard) sets the deadline.
+        var slaType = SlaTypeOf(org);
+        if (org is not null)
+            _state.Sla.Types.Add(slaType); // every type seen gets a row on the SLA page, also new ones
+        if (settings.ShowSlaDeadlines && sla is var (start, firstReply))
+        {
+            // Zendesk's own timer when the ticket has one (the real policy, business hours and pauses included), which
+            // also teaches the target; otherwise the target for the client's SLA type and the priority.
+            var breach = await zendesk.GetSlaBreachAsync(ticket.Id, firstReply ? "first_reply_time" : "next_reply_time", ct);
+            if (breach is { } at)
+                await NoteSlaTypeAsync(slaType, ct, () => _state.Sla.Record(ticket.Id, slaType, ticket.Priority, firstReply, start, at));
+            var due = breach ?? Sla.Due(start, slaType, ticket.Priority, firstReply, settings.SlaOverrides, _state.Sla);
+            content = content with { SlaDue = due, SlaFirstReply = firstReply };
+        }
+        if (settings.GuessPriority && customerTexts is not null &&
+            PriorityGuess.Guess(ticket.Priority, ticket.Subject, customerTexts, slaType,
+                waitingSince is { } since ? DateTimeOffset.UtcNow - since : TimeSpan.Zero, LikeEarlier(ticket)) is { } hint)
+        {
+            Log.Info($"Ticket #{ticket.Id}: priority guess {hint.Short} ({string.Join(", ", hint.Reasons)})");
+            content = content with { PriorityHint = hint };
+        }
+        if (ticket.OrganizationId is not { } orgId || org?.Name is not { Length: > 0 } name)
             return content;
         return content with
         {
-            Client = name,
+            // "Contoso · Premium Support": the SLA type when it isn't Standard (only with SLA deadlines on).
+            Client = settings.ShowSlaDeadlines && slaType != Sla.StandardKey ? $"{name} · {Sla.Name(slaType, _state.Sla)}" : name,
             ClientId = orgId,
             ClientName = name,
             MuteTarget = group is not null && content.Kind is NotificationKind.NewTicket or NotificationKind.HelpColleague
                 ? MenuTarget(choice, orgId, name, group.Id)
                 : null
         };
+    }
+
+    /// <summary>The client's SLA type: its organization's "SLA Type" value; none counts as Standard.</summary>
+    private static string SlaTypeOf(Organization? org) =>
+        Sla.Parse(org?.OrganizationFields?.GetValueOrDefault("sla_type") is { ValueKind: System.Text.Json.JsonValueKind.String } v ? v.GetString() : null);
+
+    private bool _slaNamesAsked;
+
+    /// <summary>Records an SLA observation; a type not seen before also fetches the types' names (once per run).</summary>
+    private async Task NoteSlaTypeAsync(string type, CancellationToken ct, Func<bool> record)
+    {
+        var isNew = !_state.Sla.Types.Contains(type);
+        record();
+        if (isNew && !_slaNamesAsked && Sla.Name(type, _state.Sla) == type)
+        {
+            _slaNamesAsked = true;
+            foreach (var (value, name) in await zendesk.GetSlaTypeNamesAsync(ct))
+                _state.Sla.Names[value] = name;
+        }
+    }
+
+    /// <summary>
+    /// Learns the SLA targets from tickets just read: a new ticket's running first-reply timer, from when it was
+    /// created to when it breaches (see <see cref="SlaLearning"/>).
+    /// </summary>
+    private async Task LearnSlaAsync(IEnumerable<Ticket> tickets, CancellationToken ct)
+    {
+        foreach (var ticket in tickets)
+        {
+            if (ticket.Slas?.PolicyMetrics.FirstOrDefault(m => m is { Metric: "first_reply_time", Stage: "active", BreachAt: not null }) is not { } timer)
+                continue;
+            var org = ticket.OrganizationId is { } id ? await zendesk.GetOrganizationAsync(id, ct) : null;
+            var type = SlaTypeOf(org);
+            await NoteSlaTypeAsync(type, ct, () => _state.Sla.Record(ticket.Id, type, ticket.Priority, true, ticket.CreatedAt, timer.BreachAt!.Value));
+        }
     }
 
     /// <summary>"Jane Doe · Created 14:02" (the time since is added when shown).</summary>
@@ -791,11 +865,19 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private static string CreatedLabel(Ticket t)
     {
         var local = t.CreatedAt.ToLocalTime();
-        return local.Date == DateTime.Today ? $"{local:HH:mm}" : English(local.DateTime, "d MMM HH:mm");
+        return local.Date == DateTime.Today ? Clock.Time(local.DateTime) : $"{English(local.DateTime, "d MMM")} {Clock.Time(local.DateTime)}";
     }
 
     /// <summary>When each ticket was last notified about in this run, so Catch up doesn't show it again right after.</summary>
     private readonly Dictionary<long, DateTimeOffset> _notifiedAt = [];
+
+    /// <summary>The status a status change goes to, by its name ("Open", "Escalated"); null for other events.</summary>
+    private string? StatusTo(AuditEvent ev) => ev switch
+    {
+        { Type: "Change", FieldName: "status" } => TicketRules.StatusLabel(Text(ev.Value)),
+        { Type: "Change", FieldName: "custom_status_id" } => Id(ev.Value) is { } id ? _statusNames.GetValueOrDefault(id) : null,
+        _ => null
+    };
 
     /// <summary>Shows a notification and remembers its ticket (and the tickets a summary covers) for Catch up.</summary>
     private void Show(NotificationContent content, IEnumerable<long>? covers = null)

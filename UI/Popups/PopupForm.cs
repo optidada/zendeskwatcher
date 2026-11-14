@@ -51,7 +51,7 @@ public sealed class PopupForm : Form
     private int _restX;
     private float _x = float.NaN; // glides to _restX while showing (peek tabs shift sideways at the top edge)
 
-    // Peek (Look & sound -> Several at once): tucked at a screen edge, only a tab showing until the mouse comes.
+    // Peek (Look & sound -> How they appear): tucked at a screen edge, only a tab showing until the mouse comes.
     /// <summary>Which screen edge it peeks out from; <see cref="PeekEdge.None"/> for the other arrangements.</summary>
     public enum PeekEdge { None, Right, Left, Top, Bottom }
 
@@ -60,7 +60,15 @@ public sealed class PopupForm : Form
 
     private float _tuck;               // 0 = out, 1 = tucked away
     private bool _seen;                // slid out by the mouse once: from then on it counts down like any other
-    private double _forcedOutUntil;    // urgent and important ones come out by themselves once
+    private double _forcedOutUntil;    // urgent, important and app messages come out by themselves once
+
+    /// <summary>
+    /// Peek: what slides out by itself instead of waiting as a tab: urgent tickets, important clients, and app messages
+    /// and summaries (sign-in required, update ready, welcome). "Try it" samples behave like the tickets they show.
+    /// </summary>
+    internal static bool ComesOutByItself(NotificationContent content) =>
+        string.Equals(content.Priority, "urgent", StringComparison.OrdinalIgnoreCase) || content.Important
+        || (!content.IsTicketNotification && content.ResolvedAction != NotificationActions.None);
     private double _leftAt = -1e9;     // a short wait after the mouse leaves, so it doesn't snap back at once
     private double _wiggleFrom = -1;   // the nudge when it arrives
     private int _paintedFill = -1;
@@ -69,6 +77,16 @@ public sealed class PopupForm : Form
     private int TabSize => Px(22);
 
     public Result Outcome { get; private set; }
+
+    /// <summary>A ticket line in a list was clicked ("#123456 Subject"): open that ticket rather than the whole list.</summary>
+    public long? ClickedTicketId { get; private set; }
+
+    /// <summary>Ticket numbers that can be clicked: the accent of normal tickets (the theme's link color).</summary>
+    private Color LinkColor => _palette.Accent("normal", NotificationKind.NewTicket);
+
+    /// <summary>The ticket lines of a list notification, and the one the mouse is on (underlined).</summary>
+    private List<(long TicketId, Rectangle Bounds)> _ticketLines = [];
+    private long? _hoverTicket;
 
     /// <summary>Whether it has a countdown at all (not "stay until dismissed").</summary>
     public bool TimesOut => _durationMs > 0;
@@ -140,6 +158,7 @@ public sealed class PopupForm : Form
     /// <summary>Copy was clicked (ticket notifications only). The popup stays open and shows a check mark for a moment.</summary>
     public event Action<PopupForm>? CopyClicked;
 
+
     /// <summary>A choice from "Mute ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
     public event Action<PopupForm, ClientChoice>? ClientChosen;
 
@@ -207,15 +226,16 @@ public sealed class PopupForm : Form
 
         // Windows 11: rounded corners and a themed 1px border (ignored on Windows 10).
         const int DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWA_BORDER_COLOR = 34;
-        const int DWMWCP_DONOTROUND = 1, DWMWCP_ROUND = 2;
+        const int DWMWCP_DONOTROUND = 1, DWMWCP_ROUND = 2, DWMWCP_ROUNDSMALL = 3;
         const uint DWMWA_COLOR_NONE = 0xFFFFFFFE;
 
-        var corner = _palette.Terminal ? DWMWCP_DONOTROUND : DWMWCP_ROUND;
+        var corner = _palette.Terminal ? DWMWCP_DONOTROUND : _palette.AccentFrame ? DWMWCP_ROUNDSMALL : DWMWCP_ROUND;
         DwmSetWindowAttribute(Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
 
         var border = _palette.Terminal
             ? unchecked((int)DWMWA_COLOR_NONE)                                           // we paint our own border
-            : ColorTranslator.ToWin32(_palette.Stripe && _palette.Dark && _palette.Glow ? Blend(_palette.Border, _accent, 0.35f) : _palette.Border);
+            : ColorTranslator.ToWin32(_palette.AccentFrame ? _accent
+                : _palette.Stripe && _palette.Dark && _palette.Glow ? Blend(_palette.Border, _accent, 0.35f) : _palette.Border);
         DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref border, sizeof(int));
     }
 
@@ -282,7 +302,7 @@ public sealed class PopupForm : Form
             _tuck = 1; // arrives already tucked: only the tab slides in
             var start = _clock.Elapsed.TotalMilliseconds;
             _wiggleFrom = start + EnterMs;
-            if (string.Equals(_content.Priority, "urgent", StringComparison.OrdinalIgnoreCase) || _content.Important)
+            if (ComesOutByItself(_content))
                 _forcedOutUntil = start + EnterMs + 6000;
         }
         if (entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
@@ -560,6 +580,10 @@ public sealed class PopupForm : Form
             Notifier.ActionSignIn => _palette.Terminal ? "[ sign in ]" : "Sign in",
             Notifier.ActionSettings => _palette.Terminal ? "[ settings ]" : "Open Settings",
             Notifier.ActionInfo => _palette.Terminal ? "[ close ]" : "Close",
+            var u when u.StartsWith(NotificationActions.UrlPrefix, StringComparison.Ordinal) =>
+                _palette.Terminal ? "[ notes ]" : "Release notes",
+            var a when a.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal) || _content.TicketCount > 1 =>
+                _palette.Terminal ? "[ see all ]" : "See all", // a list: opens all of them in Zendesk
             _ => _palette.Terminal ? "[ open ]" : _content.TicketId is null ? "Open Zendesk" : "Open"
         };
         // The second button: Snooze on ticket notifications, Close on everything else (summary, welcome, update), none
@@ -639,7 +663,22 @@ public sealed class PopupForm : Form
             ? $"> zendesk-watcher --{(_content.Kind == NotificationKind.NewTicket ? "new" : "update")}{(_content.PriorityShort is { } p ? $" {p.Replace(" ", "")}" : "")}{(_content.Context is null ? "" : $"  grp:{_content.Context}")}"
             : _content.FullHeading.ToUpperInvariant();
         var headingColor = _palette.Terminal ? _palette.Muted : _palette.Dark ? _accent : Blend(_accent, Color.Black, 0.1f);
-        DrawText(g, heading, _headingFont, _headingRect, headingColor, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+        if (!_palette.Terminal && PriorityTag.Short(_content.Priority) is { } tag)
+        {
+            // "NEW TICKET [P2] · SUPPORT TIER 2": the priority as a tag in its color, easier to read than "· P2 ·".
+            var before = _content.Heading.ToUpperInvariant() + " ";
+            var after = string.IsNullOrWhiteSpace(_content.Context) ? "" : " \u00b7 " + _content.Context!.ToUpperInvariant();
+            const TextFormatFlags Line = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+            var x = _headingRect.X;
+            var beforeWidth = TextRenderer.MeasureText(g, before, _headingFont, Size.Empty, Line).Width;
+            DrawText(g, before, _headingFont, new Rectangle(x, _headingRect.Y, beforeWidth, _headingRect.Height), headingColor, Line);
+            x += beforeWidth;
+            x += PriorityTag.Draw(g, tag, _accent, x, _headingRect.Y + _headingRect.Height / 2, _s);
+            DrawText(g, after, _headingFont, new Rectangle(x, _headingRect.Y, Math.Max(0, _headingRect.Right - x), _headingRect.Height), headingColor,
+                Line | TextFormatFlags.EndEllipsis);
+        }
+        else
+            DrawText(g, heading, _headingFont, _headingRect, headingColor, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
 
         var closeHover = _hoverButton == _closeRect;
         if (closeHover && !_palette.Terminal)
@@ -675,7 +714,19 @@ public sealed class PopupForm : Form
         var (title, body, typing) = Typed();
         DrawText(g, title, _titleFont, _titleRect, _palette.Text, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
         if (_bodyRect.Height > 0)
-            _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text);
+        {
+            // Alerts (an SLA deadline) in the theme's urgent color; in a list, the ticket numbers in the link color (clickable).
+            _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text,
+                _palette.Accent("urgent", _content.Kind), _content.TicketCount > 1 ? LinkColor : null);
+            // Clickable only in real notifications (a "Try it" sample opens nothing).
+            _ticketLines = _content.TicketCount > 1 && !typing && _content.ResolvedAction != NotificationActions.None
+                ? _rich.TicketLines(body, _bodyRect, _content.MaxBodyLines) : [];
+            if (_ticketLines.FirstOrDefault(l => l.TicketId == _hoverTicket) is { Bounds.Width: > 0 } hovered)
+            {
+                using var underline = new Pen(_palette.Text, Math.Max(1, Px(1)));
+                g.DrawLine(underline, hovered.Bounds.Left, hovered.Bounds.Bottom - 1, hovered.Bounds.Right, hovered.Bounds.Bottom - 1);
+            }
+        }
         if (_palette.Terminal && (typing || (_clock.ElapsedMilliseconds / 500) % 2 == 0))
         {
             if (body.Length > 0 || (!typing && _bodyRect.Height > 0))
@@ -877,6 +928,13 @@ public sealed class PopupForm : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        var ticket = _ticketLines.Where(l => l.Bounds.Contains(e.Location)).Select(l => (long?)l.TicketId).FirstOrDefault();
+        if (ticket != _hoverTicket)
+        {
+            _hoverTicket = ticket;
+            Cursor = ticket is null ? Cursors.Default : Cursors.Hand;
+            Invalidate();
+        }
         base.OnMouseMove(e);
     }
 
@@ -925,7 +983,11 @@ public sealed class PopupForm : Form
         else if (HasExtraButton && _takeRect.Contains(e.Location))
             Dismiss(_content.CanCatchUp ? Result.CatchUp : Result.Take);
         else
-            Dismiss(Result.Open); // the Open button or anywhere on the card
+        {
+            // A ticket line in a list opens that ticket; the Open button or anywhere else opens what the notification is about.
+            ClickedTicketId = _ticketLines.Where(l => l.Bounds.Contains(e.Location)).Select(l => (long?)l.TicketId).FirstOrDefault();
+            Dismiss(Result.Open);
+        }
     }
 
     // ------------------------------------------------------------------ helpers
@@ -934,7 +996,7 @@ public sealed class PopupForm : Form
     public static void RenderSamples(string dir)
     {
         Directory.CreateDirectory(dir);
-        foreach (var theme in new[] { NotificationTheme.Optimizely, NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple, NotificationTheme.Night, NotificationTheme.Retro })
+        foreach (var theme in new[] { NotificationTheme.Optimizely, NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple, NotificationTheme.Night, NotificationTheme.Retro, NotificationTheme.WindowsNative })
         {
             var i = 0;
             foreach (var content in Notifier.AllSamples())

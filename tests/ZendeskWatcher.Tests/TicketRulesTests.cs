@@ -26,25 +26,27 @@ public class TicketRulesTests
     }
 
     [Fact]
-    public void Summary_text_says_it_in_sentences_one_line_per_topic()
+    public void Summary_text_is_short_rows_quick_to_scan()
     {
         var text = TicketRules.SummaryText(Snapshot(3, 2, (3, 4, 1), 2), [Tier2, Premium], ["urgent", "high"], Now);
 
         Assert.Equal(
-            "**5 unassigned tickets** are waiting: 3 in Tier 2 and 2 in Premium. The oldest was created 2 h 10 min ago.\n" +
-            "You have 3 open, 4 pending and 1 on hold tickets, and you're CC'd on or following 2 more.\n" +
-            "You'll also hear about customer replies on Urgent (P1) and High (P2) tickets of colleagues who are off work.", text);
+            "**5 unassigned**, oldest 2 h 10 min ago\n" +
+            "3 in Tier 2 · 2 in Premium\n" +
+            "Your tickets: 3 open · 4 pending · 1 on hold\n" +
+            "CC / following: 2 open\n" +
+            "Colleagues off work: replies on Urgent and High", text);
     }
 
     [Fact]
     public void Summary_text_leaves_out_what_does_not_apply()
     {
-        Assert.Equal("No unassigned tickets are waiting in your groups.\nYou have 1 open ticket.",
+        Assert.Equal("No unassigned tickets in your groups\nYour tickets: 1 open",
             TicketRules.SummaryText(Snapshot(0, 0, (1, 0, 0), 0), [Tier2, Premium], null, Now));
-        Assert.Equal("**2 unassigned tickets** are waiting in Premium. The oldest was created 2 h 10 min ago.\n" +
-                     "You have no open tickets, and you're CC'd on or following at least 60.",
+        Assert.Equal("**2 unassigned**, oldest 2 h 10 min ago\nAll in Premium\n" +
+                     "Your tickets: none open\nCC / following: at least 60 open",
             TicketRules.SummaryText(Snapshot(0, 2, (0, 0, 0), 60, ccAtLeast: true), [Tier2, Premium], null, Now));
-        Assert.Equal("You're not watching any groups yet: choose them under Settings → Groups.\nYou're CC'd on or following 1 open ticket.",
+        Assert.Equal("No groups watched yet: Settings → Groups\nCC / following: 1 open",
             TicketRules.SummaryText(Snapshot(0, 0, null, 1) with { Groups = [] }, [], null, Now));
     }
 

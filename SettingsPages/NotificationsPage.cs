@@ -16,24 +16,18 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly ToggleSwitch _onlyMyHours = new("Only notify me while I'm working");
     private readonly ToggleSwitch _catchUpAtStart = new("Catch up when my working day starts");
     private readonly DayChecks _myDays = new("", new Padding(0));
-    private readonly ComboBox _myStart = Kit.HourCombo(0, 23);
-    private readonly ComboBox _myEnd = Kit.HourCombo(1, 24);
-    private static readonly Option<int>[] IntervalOptions =
-        [new(30, "30 s"), new(60, "1 min"), new(120, "2 min"), new(180, "3 min"), new(300, "5 min")];
-
-    private readonly ChoicePills _interval = new(IntervalOptions.Select(o => o.Label).ToArray());
+    private readonly HourRange _myHours = new() { Margin = new Padding(0, 4, 0, 6) };
     private readonly PriorityChecks _myPriorities = new(new Padding(50, 0, 0, 6));
     private readonly PriorityChecks _ccPriorities = new(new Padding(50, 0, 0, 6));
 
     public NotificationsPage(SettingsContext context)
-        : base(context, "Notifications", "Choose what you want to hear about and how often to check.")
+        : base(context, "Notifications", "Choose what you want to hear about.")
     {
         var unassigned = new Card("New tickets", "A notification for each new unassigned ticket in the groups you monitor.", Kit.CardWidth);
         unassigned.Body.Controls.Add(_notifyUnassigned);
         Panel.Controls.Add(unassigned);
 
-        var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose " +
-            "(the ticket's current priority; none counts as Normal).", Kit.CardWidth);
+        var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you tick.", Kit.CardWidth);
         mine.Body.Controls.Add(_trackMine);
         mine.Body.Controls.Add(_myPriorities.Row);
         mine.Body.Controls.Add(_trackCc);
@@ -41,8 +35,7 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(mine);
 
         // Its own card: the change types apply to both kinds of tickets above, not to one of the switches.
-        var which = new Card("Which changes", "For your tickets and ones you're CC'd on or follow. Your own changes never notify. " +
-            "Status changes include custom statuses (e.g. In progress → Escalated), but not New → Open or Solved → Closed.", Kit.CardWidth);
+        var which = new Card("Which changes", "For your own and CC'd tickets. Your own changes never notify.", Kit.CardWidth);
         var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
         options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (Kit.CardWidth - 44) / 2));
         options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -53,12 +46,11 @@ internal sealed class NotificationsPage : SettingsPage
         Panel.Controls.Add(which);
 
         // The hours are used by two switches: this one, and "only while I'm working myself" on the Colleagues page.
-        var working = new Card("Working hours", "When you work, in this PC's time. Outside your hours, new tickets and changes on your tickets can stay quiet " +
-            "(colleagues' tickets: Colleagues page). Catch up at the start of your day brings what came in meanwhile and " +
-            "still needs you.", Kit.CardWidth);
+        var working = new Card("Working hours", "When you work (this PC's time). Outside these hours notifications can stay quiet, and Catch up shows what you " +
+            "missed when your day starts.", Kit.CardWidth);
         var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface };
         grid.Controls.Add(Theme.Label("My hours"), 0, 0);
-        grid.Controls.Add(Kit.Row(_myStart, Theme.Label("to"), _myEnd), 1, 0);
+        grid.Controls.Add(_myHours, 1, 0);
         grid.Controls.Add(Theme.Label("My days"), 0, 1);
         grid.Controls.Add(_myDays.Row, 1, 1);
         foreach (Control control in grid.Controls)
@@ -69,11 +61,6 @@ internal sealed class NotificationsPage : SettingsPage
         working.Body.Controls.Add(_catchUpAtStart);
         Panel.Controls.Add(working);
 
-        var checking = new Card("How often to check", "Zendesk search can lag 1–3 minutes behind, so very short intervals don't help much.", Kit.CardWidth);
-        checking.Body.Controls.Add(Theme.Label("Check Zendesk every"));
-        _interval.Margin = new Padding(0, 4, 0, 2);
-        checking.Body.Controls.Add(_interval);
-        Panel.Controls.Add(checking);
 
         _trackMine.CheckedChanged += (_, _) => UpdateChangeTypes();
         _trackCc.CheckedChanged += (_, _) => UpdateChangeTypes();
@@ -81,16 +68,13 @@ internal sealed class NotificationsPage : SettingsPage
         _ccPriorities.Changed += Changed;
         _myDays.Changed += Changed;
         TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _onlyMyHours, _catchUpAtStart);
-        _interval.SelectedIndexChanged += (_, _) => Changed();
-        foreach (var combo in new[] { _myStart, _myEnd })
-            combo.SelectedIndexChanged += (_, _) => Changed();
+        _myHours.RangeChanged += (_, _) => Changed();
     }
 
     public override void Load(Settings settings)
     {
         _notifyUnassigned.Checked = settings.NotifyUnassigned;
         // A value from an older version or an edited file (e.g. 75 s) gets the nearest step.
-        _interval.SelectedIndex = Array.IndexOf(IntervalOptions, IntervalOptions.MinBy(o => Math.Abs(o.Value - settings.PollIntervalSeconds)));
         _trackMine.Checked = settings.TrackMyTickets;
         _trackCc.Checked = settings.TrackCcTickets;
         _replies.Checked = settings.NotifyPublicReplies;
@@ -102,8 +86,7 @@ internal sealed class NotificationsPage : SettingsPage
         _ccPriorities.Selected = settings.CcTicketPriorities;
         _onlyMyHours.Checked = settings.OnlyNotifyDuringMyHours;
         _catchUpAtStart.Checked = settings.CatchUpAtDayStart;
-        _myStart.SelectedIndex = Math.Clamp(settings.MyWorkdayStartHour, 0, 23);
-        _myEnd.SelectedIndex = Math.Clamp(settings.MyWorkdayEndHour, 1, 24) - 1;
+        _myHours.SetRange(settings.MyWorkdayStartHour, settings.MyWorkdayEndHour);
         _myDays.Selected = settings.MyWorkDays;
         UpdateChangeTypes();
     }
@@ -111,7 +94,6 @@ internal sealed class NotificationsPage : SettingsPage
     public override void Apply(Settings s)
     {
         s.NotifyUnassigned = _notifyUnassigned.Checked;
-        s.PollIntervalSeconds = IntervalOptions[_interval.SelectedIndex].Value;
         s.TrackMyTickets = _trackMine.Checked;
         s.TrackCcTickets = _trackCc.Checked;
         s.NotifyPublicReplies = _replies.Checked;
@@ -123,8 +105,8 @@ internal sealed class NotificationsPage : SettingsPage
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.OnlyNotifyDuringMyHours = _onlyMyHours.Checked;
         s.CatchUpAtDayStart = _catchUpAtStart.Checked;
-        s.MyWorkdayStartHour = _myStart.SelectedIndex;
-        s.MyWorkdayEndHour = Math.Max(_myEnd.SelectedIndex + 1, s.MyWorkdayStartHour + 1);
+        s.MyWorkdayStartHour = _myHours.Start;
+        s.MyWorkdayEndHour = _myHours.End;
         s.MyWorkDays = _myDays.Selected;
     }
 

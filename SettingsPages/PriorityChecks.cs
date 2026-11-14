@@ -2,25 +2,37 @@ using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.SettingsPages;
 
-/// <summary>A "Priority  ☑ Urgent (P1)  ☑ High (P2)  ☐ Normal (P3)  ☐ Low (P4)" row. Used by ticket changes and Help colleagues.</summary>
+/// <summary>A "Priority  ☑ Urgent [P1]  ☑ High [P2]  ☐ Normal [P3]  ☐ Low [P4]" row (the P-levels as colored tags). Used by ticket changes and Help colleagues.</summary>
 internal sealed class PriorityChecks
 {
     private readonly (string Priority, CheckBox Box)[] _boxes =
     [
-        ("urgent", Kit.Check("Urgent (P1)")), ("high", Kit.Check("High (P2)")), ("normal", Kit.Check("Normal (P3)")), ("low", Kit.Check("Low (P4)"))
+        ("urgent", Tagged("Urgent", "urgent")), ("high", Tagged("High", "high")), ("normal", Tagged("Normal", "normal")), ("low", Tagged("Low", "low"))
     ];
 
     public FlowLayoutPanel Row { get; }
 
+    private static CheckBox Tagged(string text, string priority)
+    {
+        var box = Kit.Check(text);
+        if (box is ThemedCheckBox themed)
+            themed.Priority = priority;
+        return box;
+    }
+
     /// <summary>A box was ticked or unticked.</summary>
     public event Action? Changed;
 
-    public PriorityChecks(Padding margin)
+    /// <param name="label">Show "Priority" in front (off under a heading that already says it).</param>
+    public PriorityChecks(Padding margin, bool label = true)
     {
         Row = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoSize = true, BackColor = Theme.Surface, Margin = margin };
-        var label = Theme.Label("Priority");
-        label.Margin = new Padding(4, 6, 12, 0);
-        Row.Controls.Add(label);
+        if (label)
+        {
+            var text = Theme.Label("Priority");
+            text.Margin = new Padding(4, 6, 12, 0);
+            Row.Controls.Add(text);
+        }
         foreach (var (_, box) in _boxes)
         {
             box.Margin = new Padding(0, 3, 14, 3);

@@ -73,13 +73,6 @@ public class NotificationStatsTests
         => Assert.Null(Notifier.StatForPopup(PopupForm.Result.None, Notifier.ActionOpenTicket));
 
     [Theory]
-    [InlineData(Notifier.ActionOpenTicket, StatOutcome.OpenedTicket)]
-    [InlineData(Notifier.ActionOpenZendesk, StatOutcome.OpenedZendesk)]
-    [InlineData(Notifier.ActionTake, StatOutcome.Took)]
-    public void Windows_notification_clicks(string action, StatOutcome expected)
-        => Assert.Equal(expected, NotificationStats.ForToastAction(action));
-
-    [Theory]
     [InlineData(NotificationKind.NewTicket)]
     [InlineData(NotificationKind.MyTicket)]
     [InlineData(NotificationKind.HelpColleague)]

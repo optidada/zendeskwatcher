@@ -1,6 +1,6 @@
 namespace ZendeskWatcher.UI.Popups;
 
-/// <summary>What a notification says. Each style (custom popup themes or Windows toasts) lays it out its own way.</summary>
+/// <summary>What a notification says. Each style (popup theme) lays it out its own way.</summary>
 /// <param name="Kind">Decides the sound and display settings that apply.</param>
 /// <param name="Heading">Short label, e.g. "New ticket" or "Ticket updated".</param>
 /// <param name="Title">Main line, e.g. "#123456 Customer cannot log in".</param>
@@ -23,14 +23,33 @@ public sealed record NotificationContent(
     /// <summary>When it happened (e.g. ticket creation). Shown as "· 5 min ago" after the body, kept current in popups.</summary>
     public DateTimeOffset? EventTime { get; init; }
 
-    /// <summary>The body with the time since <see cref="EventTime"/> appended to its first line.</summary>
+    /// <summary>When the SLA answer is due (Notifications → SLA); shown in red bold above the body, kept current.</summary>
+    public DateTimeOffset? SlaDue { get; init; }
+
+    /// <summary>The SLA deadline is for the first reply (a new ticket), not a follow-up.</summary>
+    public bool SlaFirstReply { get; init; }
+
+    /// <summary>The experimental priority guess ("Looks like P1: site down"), shown under the SLA deadline.</summary>
+    public Tracking.PriorityHint? PriorityHint { get; init; }
+
+    /// <summary>Just a thank-you from the customer (Experimental page): no sound, and only as long as Low (P4) ones stay.</summary>
+    public bool Quiet { get; init; }
+
+    /// <summary>The body with the time since <see cref="EventTime"/> appended to its first line, under the SLA deadline.</summary>
     public string DisplayBody(DateTimeOffset now)
     {
-        if (EventTime is not { } at)
-            return Body;
-        var ago = Ago(now - at);
-        var newline = Body.IndexOf('\n');
-        return newline < 0 ? $"{Body} · {ago}" : $"{Body[..newline]} · {ago}{Body[newline..]}";
+        var body = Body;
+        if (EventTime is { } at)
+        {
+            var ago = Ago(now - at);
+            var newline = body.IndexOf('\n');
+            body = newline < 0 ? $"{body} · {ago}" : $"{body[..newline]} · {ago}{body[newline..]}";
+        }
+        if (PriorityHint is { } hint)
+            body = $"**Looks like {hint.Short}:** {string.Join(" · ", hint.Reasons)}" + (body.Length > 0 ? "\n" + body : "");
+        if (SlaDue is { } due)
+            body = $"!!{Tracking.Sla.DueText(due, now, SlaFirstReply)}!!" + (body.Length > 0 ? "\n" + body : "");
+        return body;
     }
 
     public static string Ago(TimeSpan span) => span.TotalMinutes switch
@@ -47,6 +66,9 @@ public sealed record NotificationContent(
 
     /// <summary>How many tickets it's about (more than 1 for "5 new unassigned tickets"); for the "while you were away" summary.</summary>
     public int TicketCount { get; init; } = 1;
+
+    /// <summary>How many of those tickets are unassigned and Scheduled (a time is booked, nobody owns it); for the summaries.</summary>
+    public int ScheduledCount { get; init; }
 
     /// <summary>Fixed sound and display time for app messages (updates, welcome, …), instead of the user's ticket styles.</summary>
     public NotificationStyle? Style { get; init; }
@@ -68,6 +90,9 @@ public sealed record NotificationContent(
 
     /// <summary>A snoozed notification coming back (not counted as shown again).</summary>
     public bool IsSnoozedRepeat { get; init; }
+
+    /// <summary>The same for a notification and its snoozed repeats (copies keep it): "acted on" counts once per notification.</summary>
+    public Guid StatId { get; init; } = Guid.NewGuid();
 
     /// <summary>The customer's organization, shown prominently as "Client: Contoso". Null when the ticket has none.</summary>
     public string? Client { get; init; }

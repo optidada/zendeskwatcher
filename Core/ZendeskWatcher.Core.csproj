@@ -14,6 +14,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The Experimental features' small English language model (Tracking/Embeddings.cs, packed by Tools/pack-model.py). -->
+    <EmbeddedResource Include="Assets/embeddings.bin" LogicalName="embeddings.bin" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="ZendeskWatcher" />
     <InternalsVisibleTo Include="ZendeskWatcher.Tests" />
     <!-- The subdomain pre-filled on first start (read by Settings); the release workflow passes it from a GitHub secret. -->

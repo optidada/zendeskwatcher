@@ -28,24 +28,44 @@ public class StatsInsightsTests
         => Assert.Contains("haven't been any", Assert.Single(Analyze()).Text);
 
     [Fact]
-    public void Mostly_unread_new_tickets_suggest_showing_longer_and_fewer_groups()
+    public void Mostly_unread_new_tickets_suggest_fewer_not_longer()
     {
         Add(NotificationKind.NewTicket, StatOutcome.Shown, 40).Add(NotificationKind.NewTicket, StatOutcome.TimedOut, 30);
 
         var insight = Assert.Single(Analyze());
         Assert.Equal(StatsInsights.Tone.Warning, insight.Tone);
         Assert.Contains("75% of new ticket notifications disappeared unread", insight.Text);
-        Assert.Contains("Show them longer", insight.Text); // normal tickets show 30 s by default
+        Assert.DoesNotContain("longer", insight.Text); // the aim is fewer notifications, not longer ones
+        Assert.Contains("Muting clients", insight.Text);
         Assert.Contains("fewer groups", insight.Text);
     }
 
     [Fact]
-    public void Already_long_display_only_suggests_fewer()
+    public void Copied_then_closed_is_not_ignored()
     {
-        var settings = new Settings { TicketDisplay = new TicketDisplayTimes { Normal = 60 } };
-        Add(NotificationKind.NewTicket, StatOutcome.Shown, 40).Add(NotificationKind.NewTicket, StatOutcome.TimedOut, 30);
+        Add(NotificationKind.CcTicket, StatOutcome.Shown, 20).Add(NotificationKind.CcTicket, StatOutcome.Closed, 12)
+            .Add(NotificationKind.CcTicket, StatOutcome.Copied, 8);
 
-        Assert.DoesNotContain("Show them longer", Assert.Single(Analyze(settings: settings)).Text);
+        var insight = Assert.Single(Analyze());
+        Assert.Equal(StatsInsights.Tone.Good, insight.Tone); // 8 copied + 4 closed: in use, not ignored
+    }
+
+    [Fact]
+    public void Nothing_wrong_says_so()
+    {
+        Add(NotificationKind.MyTicket, StatOutcome.Shown, 20).Add(NotificationKind.MyTicket, StatOutcome.OpenedTicket, 6)
+            .Add(NotificationKind.MyTicket, StatOutcome.TimedOut, 6).Add(NotificationKind.MyTicket, StatOutcome.Closed, 6);
+
+        Assert.StartsWith("Nothing to change", Assert.Single(Analyze()).Text);
+    }
+
+    [Fact]
+    public void The_busiest_kind_gets_its_advice_once()
+    {
+        Add(NotificationKind.NewTicket, StatOutcome.Shown, 1000).Add(NotificationKind.NewTicket, StatOutcome.TimedOut, 800);
+
+        var insights = Analyze(activeDays: 20);
+        Assert.Equal(1, insights.Count(i => i.Text.Contains("Muting clients")));
     }
 
     [Fact]
@@ -78,11 +98,32 @@ public class StatsInsightsTests
     public void Useful_notifications_get_a_thumbs_up()
     {
         Add(NotificationKind.MyTicket, StatOutcome.Shown, 20).Add(NotificationKind.MyTicket, StatOutcome.OpenedTicket, 8)
-            .Add(NotificationKind.MyTicket, StatOutcome.OpenedZendesk, 1).Add(NotificationKind.MyTicket, StatOutcome.Took, 2);
+            .Add(NotificationKind.MyTicket, StatOutcome.OpenedZendesk, 1).Add(NotificationKind.MyTicket, StatOutcome.Took, 2)
+            .Add(NotificationKind.MyTicket, StatOutcome.Acted, 11);
 
         var insight = Assert.Single(Analyze());
         Assert.Equal(StatsInsights.Tone.Good, insight.Tone);
-        Assert.Contains("you opened or took 55%", insight.Text);
+        Assert.Contains("you acted on 55%", insight.Text);
+    }
+
+    [Fact]
+    public void Acted_on_is_counted_or_estimated_for_days_before_it_was_counted()
+    {
+        var stats = new NotificationStats();
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        void Add(DateOnly day, StatOutcome outcome, int count)
+        {
+            for (var i = 0; i < count; i++)
+                stats.Record(NotificationKind.MyTicket, outcome, day);
+        }
+        Add(today, StatOutcome.Shown, 5);         // counted: 2 acted on (e.g. opened 1, copied 1)
+        Add(today, StatOutcome.OpenedTicket, 1);
+        Add(today, StatOutcome.Acted, 2);
+        Add(today.AddDays(-5), StatOutcome.Shown, 4); // before: estimated from opened + copied (at most the shown ones)
+        Add(today.AddDays(-5), StatOutcome.OpenedTicket, 2);
+        Add(today.AddDays(-5), StatOutcome.Copied, 1);
+
+        Assert.Equal(5, stats.Totals(today)[(NotificationKind.MyTicket, StatOutcome.Acted)]);
     }
 
     [Fact]

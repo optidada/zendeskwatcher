@@ -10,7 +10,7 @@
     <RootNamespace>ZendeskWatcher</RootNamespace>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <AssemblyName>ZendeskWatcher</AssemblyName>
-    <Version>1.4.4</Version>
+    <Version>1.7.1</Version>
     <Authors>Claude &amp; Daniel Dahlin @ Optimizely</Authors>
     <Company>Optimizely</Company>
     <Product>Zendesk Watcher</Product>
@@ -19,6 +19,10 @@
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
     <!-- Only English framework resources: keeps the installer smaller. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- No API documentation (.xml) of the packages in the installer: only for developers (~0.75 MB). -->
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <!-- Not ReadyToRun: measured no faster start (2026-11-14), and 2.5 MB bigger. Not trimmed: WinForms doesn't support it;
+         most of the size is Windows' own API layer (Microsoft.Windows.SDK.NET.dll, 23 MB, used for toasts and sound). -->
     <!-- A tray app that mostly waits: no background garbage-collection thread, and the collector gives memory back
          sooner (ConserveMemory, below) instead of keeping it for speed. -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
@@ -36,6 +40,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- "What's new" after an update reads the release notes from here (WhatsNew.cs). -->
+    <EmbeddedResource Include="CHANGELOG.md" LogicalName="CHANGELOG.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" />
   </ItemGroup>
 
@@ -46,7 +55,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>

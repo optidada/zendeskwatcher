@@ -32,7 +32,6 @@ public sealed class PopupManager
     private readonly Action<NotificationContent, PopupForm.Result> _onClosed;
     private readonly Action<NotificationContent> _onCopy;
     private static int _watchingLock;
-    private bool _takeTurns = true;
 
     /// <param name="onSnooze">The user snoozed a popup; the caller decides when (and whether) it shows again.</param>
     /// <param name="onClosed">A popup closed, and how (for the statistics).</param>
@@ -50,6 +49,16 @@ public sealed class PopupManager
     }
 
     public void Show(NotificationContent content, Settings settings) => Show(content, settings, overLimit: false);
+
+    /// <summary>Closes (uncounted) notifications that say the same as <paramref name="content"/>, on screen or waiting.</summary>
+    public void CloseSame(NotificationContent content)
+    {
+        bool Same(NotificationContent other) =>
+            other.Kind == content.Kind && other.TicketId == content.TicketId && other.Title == content.Title && other.Body == content.Body;
+        _pending.RemoveAll(w => Same(w.Content));
+        foreach (var popup in _visible.Where(p => Same(p.Content)).ToList())
+            popup.Dismiss(PopupForm.Result.None);
+    }
 
     /// <param name="overLimit">Show it even when the stack is full (the "while you were away" summary).</param>
     private void Show(NotificationContent content, Settings settings, bool overLimit)
@@ -73,7 +82,6 @@ public sealed class PopupManager
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.ClientChosen += (p, choice) => ClientChosen?.Invoke(p.Content, choice);
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
-        _takeTurns = settings.PopupsTakeTurns;
         _visible.Add(popup);
         _shownAt[popup] = DateTime.UtcNow;
         _awayWatch.Start();
@@ -113,6 +121,9 @@ public sealed class PopupManager
 
         switch (popup.Outcome)
         {
+            case PopupForm.Result.Open when popup.ClickedTicketId is { } line:
+                _onAction(Notifier.ActionOpenTicket, line); // one ticket of a list
+                break;
             case PopupForm.Result.Open:
                 _onAction(popup.Content.ResolvedAction, popup.Content.TicketId);
                 break;
@@ -133,7 +144,7 @@ public sealed class PopupManager
 
     // ------------------------------------------------------------------ waiting notifications
 
-    /// <summary>Shows waiting notifications while there's room; ones that waited long are checked first (see <see cref="Settings.RecheckWaitingAfterMinutes"/>).</summary>
+    /// <summary>Shows waiting notifications while there's room; ones that waited long are checked first (see <see cref="Settings.RecheckWaitingAfter"/>).</summary>
     private async Task DrainAsync()
     {
         if (_draining)
@@ -157,8 +168,7 @@ public sealed class PopupManager
     }
 
     private static bool WaitedLong(NotificationContent content, Settings settings, DateTime since) =>
-        settings.RecheckWaitingAfterMinutes > 0 && content.IsTicketNotification && content.TicketId is not null &&
-        DateTime.UtcNow - since >= TimeSpan.FromMinutes(settings.RecheckWaitingAfterMinutes);
+        content.IsTicketNotification && content.TicketId is not null && DateTime.UtcNow - since >= Settings.RecheckWaitingAfter;
 
     /// <summary>The still needed ones; everything if there's no check or it fails.</summary>
     private async Task<List<NotificationContent>> CheckAsync(IReadOnlyList<NotificationContent> contents, bool deep)
@@ -212,13 +222,13 @@ public sealed class PopupManager
     private async Task CameBackAsync(Settings settings)
     {
         var tickets = _pending.Where(w => w.Content.IsTicketNotification).ToList();
-        if (settings.SummarizeWaitingAbove > 0 && tickets.Count > settings.SummarizeWaitingAbove)
+        if (tickets.Count > Settings.SummarizeWaitingAbove)
         {
             foreach (var w in tickets)
                 _pending.Remove(w);
             var contents = tickets.Select(w => w.Content).ToList();
-            var kept = settings.RecheckWaitingAfterMinutes > 0 ? await CheckAsync(contents, deep: false) : contents;
-            if (kept.Count > settings.SummarizeWaitingAbove)
+            var kept = await CheckAsync(contents, deep: false);
+            if (kept.Count > Settings.SummarizeWaitingAbove)
             {
                 Log.Info($"Back after being away: {contents.Count} waiting notifications, {kept.Count} still needed; showing a summary");
                 Show(Notifier.AwaySummary(kept, contents.Count - kept.Count) with { Style = settings.SummaryStyle }, settings, overLimit: true);
@@ -253,7 +263,7 @@ public sealed class PopupManager
         var current = _deck ? (_visible.LastOrDefault() is { TimesOut: true } front ? front : null) : _visible.FirstOrDefault(p => p.TimesOut);
         // Peek: each one counts down only after it was slid out (and read), so none waits for a tab nobody opened.
         foreach (var popup in _visible)
-            popup.MyTurn = !_takeTurns || _peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut;
+            popup.MyTurn = _peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut;
     }
 
     /// <summary>

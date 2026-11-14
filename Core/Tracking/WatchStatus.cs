@@ -1,7 +1,7 @@
 namespace ZendeskWatcher.Tracking;
 
 /// <summary>One monitored group's unassigned tickets as of the last check.</summary>
-public sealed record GroupCount(WatchedGroup Group, int Count);
+public sealed record GroupCount(WatchedGroup Group, int Count, int Scheduled = 0);
 
 /// <summary>
 /// What the last check found: the "Right now" card on Insights shows it. <see cref="Mine"/> is null when your own
@@ -16,6 +16,9 @@ public sealed record WatchSnapshot(
     bool CcAtLeast)
 {
     public int Unassigned => Groups.Sum(g => g.Count);
+
+    /// <summary>How many of the unassigned tickets are Scheduled (a time is booked, nobody owns it).</summary>
+    public int Scheduled => Groups.Sum(g => g.Scheduled);
 
     /// <summary>Sample numbers for the Settings screenshots (--render-settings).</summary>
     public static WatchSnapshot Sample() => new(DateTime.Now.AddSeconds(-20),

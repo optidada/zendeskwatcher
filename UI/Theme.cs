@@ -54,7 +54,7 @@ public static class Theme
         {
             switch (c)
             {
-                case TextBoxBase or NumericUpDown or ComboBox or ListView:
+                case TextBoxBase or NumericUpDown or ListView:
                     c.BackColor = to.Surface;
                     c.ForeColor = to.Text;
                     break;
@@ -62,6 +62,13 @@ public static class Theme
                     c.BackColor = Map(c.BackColor);
                     c.ForeColor = Map(c.ForeColor);
                     break;
+            }
+
+            if (c is LinkLabel link)
+            {
+                link.LinkColor = Map(link.LinkColor);
+                link.ActiveLinkColor = Map(link.ActiveLinkColor);
+                link.VisitedLinkColor = Map(link.VisitedLinkColor);
             }
 
             if (c is Button button)
@@ -106,10 +113,9 @@ public static class Theme
 
         void Walk(Control c)
         {
-            if (c.IsHandleCreated && (c is ScrollableControl { AutoScroll: true } or ListView or ComboBox))
+            if (c.IsHandleCreated && (c is ScrollableControl { AutoScroll: true } or ListView))
                 _ = SetWindowTheme(c.Handle, c switch
                 {
-                    ComboBox => dark ? "DarkMode_CFD" : "CFD",
                     ListView => dark ? "DarkMode_ItemsView" : "ItemsView", // light group headings on dark
                     _ => dark ? "DarkMode_Explorer" : "Explorer"
                 }, null);
@@ -161,7 +167,21 @@ public static class Theme
     public static readonly Font PageTitle = new("Segoe UI Semibold", 17f);
     public static readonly Font AppTitle = new("Segoe UI Semibold", 13f);
 
-    public static Label Label(string text, Font? font = null, Color? color = null, int maxWidth = 0) => new()
+    /// <summary>A label; a text that names another Settings page (see <see cref="SettingsLinks"/>) gets links to it.</summary>
+    public static Label Label(string text, Font? font = null, Color? color = null, int maxWidth = 0) =>
+        SettingsLinks.HasLinks(text) ? Linked(text, font, color, maxWidth) : PlainLabel(text, font, color, maxWidth);
+
+    /// <summary>A label that links page references, also in text set later (hints and messages that change).</summary>
+    public static Label Linked(string text, Font? font = null, Color? color = null, int maxWidth = 0) => new LinkedLabel
+    {
+        Text = text,
+        Font = font ?? Body,
+        ForeColor = color ?? Text,
+        MaximumSize = new Size(maxWidth, 0),
+        Margin = new Padding(0, 0, 0, 4)
+    };
+
+    private static Label PlainLabel(string text, Font? font, Color? color, int maxWidth) => new()
     {
         Text = text,
         AutoSize = true,
@@ -238,8 +258,12 @@ public sealed class Card : Panel
 {
     public FlowLayoutPanel Body { get; }
 
+    /// <summary>The card's title (links to a card scroll to it by this).</summary>
+    public string Title { get; }
+
     public Card(string title, string? description = null, int width = 540)
     {
+        Title = title;
         DoubleBuffered = true;
         BackColor = Theme.Window; // corners show the page color
         Padding = new Padding(20, 16, 20, 18);
@@ -508,113 +532,6 @@ public sealed class InputBox : Panel
     }
 }
 
-/// <summary>
-/// A drop-down list with breathing room: taller rows, text inset from the border, and colors from the current
-/// palette (also in the open list, so dark themes stay dark).
-/// </summary>
-public sealed class RoomyComboBox : ComboBox
-{
-    private const int PadX = 9;
-
-    public RoomyComboBox()
-    {
-        DropDownStyle = ComboBoxStyle.DropDownList;
-        FlatStyle = FlatStyle.Flat;
-        DrawMode = DrawMode.OwnerDrawFixed;
-        // The closed box is drawn by OnPaint (theme colors, own arrow); Windows still draws the open list.
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-        Font = Theme.Body;
-        BackColor = Theme.Surface;
-        ForeColor = Theme.Text;
-        UpdateItemHeight();
-        Theme.WheelScrollsPage(this, allowWhen: () => DroppedDown); // an open list still scrolls with the wheel
-    }
-
-    protected override void OnDpiChangedAfterParent(EventArgs e)
-    {
-        base.OnDpiChangedAfterParent(e);
-        UpdateItemHeight();
-    }
-
-    private void UpdateItemHeight() => ItemHeight = TextRenderer.MeasureText("Ag", Font).Height + (int)(12 * DeviceDpi / 96f);
-
-    /// <summary>Items shown greyed that can't be chosen (picking one goes back to the previous choice).</summary>
-    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public Func<int, bool>? IsItemDisabled { get; set; }
-
-    private int _lastAllowed = -1;
-
-    protected override void OnSelectedIndexChanged(EventArgs e)
-    {
-        if (SelectedIndex >= 0 && IsItemDisabled?.Invoke(SelectedIndex) == true && _lastAllowed >= 0 && _lastAllowed != SelectedIndex)
-        {
-            SelectedIndex = _lastAllowed; // raises the event again, for the allowed item
-            return;
-        }
-        _lastAllowed = SelectedIndex;
-        base.OnSelectedIndexChanged(e);
-        Invalidate(); // the closed box shows the new choice
-    }
-
-    protected override void OnDrawItem(DrawItemEventArgs e)
-    {
-        if (e.Index < 0)
-            return;
-
-        var inEdit = (e.State & DrawItemState.ComboBoxEdit) != 0;
-        var highlighted = !inEdit && (e.State & DrawItemState.Selected) != 0;
-        var disabled = !inEdit && IsItemDisabled?.Invoke(e.Index) == true;
-        if (disabled)
-            highlighted = false;
-        var back = highlighted ? Theme.Accent : Theme.Surface;
-        var fore = highlighted ? Theme.OnAccent : Enabled && !disabled ? Theme.Text : Theme.TextMuted;
-
-        using (var brush = new SolidBrush(back))
-            e.Graphics.FillRectangle(brush, e.Bounds);
-
-        var pad = (int)(PadX * DeviceDpi / 96f) - (inEdit ? 3 : 0); // the edit area already has a small inset
-        var text = new Rectangle(e.Bounds.X + pad, e.Bounds.Y, e.Bounds.Width - pad, e.Bounds.Height);
-        TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, text, fore,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-    }
-
-    /// <summary>
-    /// The closed box drawn in the theme's colors: Windows paints its arrow button in its own grey, lighter than dark
-    /// themes. The open list stays owner-drawn (<see cref="OnDrawItem"/>).
-    /// </summary>
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        var g = e.Graphics;
-        var s = DeviceDpi / 96f;
-        var bounds = ClientRectangle;
-        using (var back = new SolidBrush(Theme.Surface))
-            g.FillRectangle(back, bounds);
-        using (var border = new Pen(Focused || DroppedDown ? Theme.Accent : Theme.Border))
-            g.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
-
-        var arrowWidth = (int)(24 * s);
-        if (SelectedIndex >= 0)
-        {
-            var pad = (int)(PadX * s);
-            var text = new Rectangle(pad, 0, bounds.Width - pad - arrowWidth, bounds.Height);
-            TextRenderer.DrawText(g, GetItemText(Items[SelectedIndex]), Font, text, Enabled ? Theme.Text : Theme.TextMuted,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        }
-
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        var cx = bounds.Right - arrowWidth / 2f;
-        var cy = bounds.Height / 2f;
-        using var pen = new Pen(Enabled ? Theme.TextMuted : Theme.Border, 1.6f * s)
-            { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
-        g.DrawLines(pen, [new PointF(cx - 4 * s, cy - 2 * s), new PointF(cx, cy + 2 * s), new PointF(cx + 4 * s, cy - 2 * s)]);
-    }
-
-    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
-    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
-    protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); Invalidate(); }
-    protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
-}
-
 /// <summary>A ListView that paints without flicker and whose single column always fills the width.</summary>
 public sealed class SmoothListView : ListView
 {
@@ -652,13 +569,15 @@ public sealed class SmoothListView : ListView
         FitColumn();
     }
 
-    // ---- For a themed scrollbar (ThinScrollBar) instead of the Windows one, and themed check boxes.
+    // ---- For a themed scrollbar (ThinScrollBar) instead of the Windows one, and themed tick boxes (set by the owner).
 
     /// <summary>The list scrolled (or its content changed so the scroll range did).</summary>
     public event Action? ScrollChanged;
 
     private (int, int, int, int)? _lastScroll;
-    private UiPalette? _checksFor;
+
+    /// <summary>Windows applied a new visual style and reset the tick boxes: set the themed ones again.</summary>
+    public event Action? ThemeChanged;
 
     /// <summary>Vertical scroll range, page and position (pixels in group view); null without a handle.</summary>
     public (int Min, int Max, int Page, int Pos)? VerticalScrollState()
@@ -682,14 +601,12 @@ public sealed class SmoothListView : ListView
 
     protected override void WndProc(ref Message m)
     {
-        // Check boxes in the theme's colors (Windows draws blue ones); rebuilt when the theme changes.
-        if (m.Msg == 0x000F /* WM_PAINT */ && CheckBoxes && !ReferenceEquals(_checksFor, Theme.Current))
-        {
-            _checksFor = Theme.Current;
-            BeginInvoke(BuildCheckImages); // not while painting
-        }
-
         base.WndProc(ref m);
+
+        // A new visual style (SetWindowTheme for dark/light lists, or Windows' own theme): Windows replaces the tick
+        // boxes with its own then, faint on dark themes. The owner puts its themed ones back (after this message).
+        if (m.Msg == 0x031A /* WM_THEMECHANGED */ && CheckBoxes && IsHandleCreated)
+            BeginInvoke(() => ThemeChanged?.Invoke());
 
         // Every way of scrolling ends in a repaint, so that's where the scrollbar learns about it.
         if (m.Msg is 0x000F or 0x0115 /* WM_VSCROLL */ or 0x020A /* WM_MOUSEWHEEL */)
@@ -702,44 +619,6 @@ public sealed class SmoothListView : ListView
                 ScrollChanged?.Invoke();
             }
         }
-    }
-
-    private void BuildCheckImages()
-    {
-        var s = DeviceDpi / 96f;
-        var size = (int)Math.Round(16 * s);
-        var images = new ImageList { ImageSize = new Size(size, size), ColorDepth = ColorDepth.Depth32Bit };
-        images.Images.Add(CheckImage(size, s, false));
-        images.Images.Add(CheckImage(size, s, true));
-        var old = StateImageList;
-        StateImageList = images;
-        old?.Dispose();
-    }
-
-    /// <summary>The same look as <see cref="ThemedCheckBox"/>: an accent box with a tick, or a neutral outline.</summary>
-    private static Bitmap CheckImage(int size, float s, bool isChecked)
-    {
-        var bitmap = new Bitmap(size, size);
-        using var g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        var box = new RectangleF(1.5f * s, 1.5f * s, size - 3.5f * s, size - 3.5f * s);
-        using var path = RoundedRect(box, 2.5f * s);
-        if (isChecked)
-        {
-            using var fill = new SolidBrush(Theme.Accent);
-            g.FillPath(fill, path);
-            using var tick = new Pen(Theme.OnAccent, 1.8f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
-            var u = box.Width / 13f;
-            g.DrawLines(tick, [
-                new PointF(box.X + 3 * u, box.Y + 6.8f * u), new PointF(box.X + 5.6f * u, box.Y + 9.3f * u), new PointF(box.X + 10 * u, box.Y + 4 * u)
-            ]);
-        }
-        else
-        {
-            using var border = new Pen(Theme.Neutral, 1.2f * s);
-            g.DrawPath(border, path);
-        }
-        return bitmap;
     }
 
     private static GraphicsPath RoundedRect(RectangleF r, float radius) => Theme.RoundedRect(r, radius);
@@ -786,6 +665,10 @@ public sealed class ThemeTile : Control
         set { _selected = value; Invalidate(); }
     }
 
+    /// <summary>A small muted second line under the name (e.g. "Fewer features"); null: none.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public string? Note { get; set; }
+
     protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
@@ -805,13 +688,18 @@ public sealed class ThemeTile : Control
 
         // Miniature popup
         var mini = new RectangleF(8 * s, 8 * s, Width - 16 * s, 50 * s);
-        if (Value == NotificationTheme.WindowsNative)
-            PaintNative(g, mini, s);
-        else
-            PaintCustom(g, mini, s, ZendeskWatcher.UI.Popups.PopupPalette.For(Value));
+        PaintCustom(g, mini, s, ZendeskWatcher.UI.Popups.PopupPalette.For(Value));
 
-        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(62 * s), Width, (int)(26 * s)),
-            Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        if (Note is null)
+            TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(62 * s), Width, (int)(26 * s)),
+                Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        else
+        {
+            TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Theme.Body, new Rectangle(0, (int)(59 * s), Width, (int)(20 * s)),
+                Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, Note, Theme.Small, new Rectangle(0, (int)(75 * s), Width, (int)(14 * s)),
+                Theme.TextMuted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
 
         // Not in use (e.g. notifications follow the app theme): dimmed.
         if (!Enabled)
@@ -859,26 +747,6 @@ public sealed class ThemeTile : Control
             using var fill = new SolidBrush(accent);
             g.FillPath(fill, path);
         }
-    }
-
-    private static void PaintNative(Graphics g, RectangleF r, float s)
-    {
-        using (var path = Theme.RoundedRect(r, 4 * s))
-        using (var bg = new SolidBrush(Color.FromArgb(243, 243, 243)))
-        using (var border = new Pen(Color.FromArgb(210, 210, 210)))
-        {
-            g.FillPath(bg, path);
-            g.DrawPath(border, path);
-        }
-        using var logo = new SolidBrush(Theme.Accent);
-        g.FillEllipse(logo, r.X + 7 * s, r.Y + 8 * s, 12 * s, 12 * s);
-        using var dark = new SolidBrush(Color.FromArgb(60, 60, 60));
-        using var light = new SolidBrush(Color.FromArgb(150, 150, 150));
-        g.FillRectangle(dark, r.X + 25 * s, r.Y + 9 * s, r.Width - 40 * s, 4 * s);
-        g.FillRectangle(light, r.X + 25 * s, r.Y + 18 * s, r.Width - 34 * s, 3 * s);
-        g.FillRectangle(light, r.X + 25 * s, r.Y + 24 * s, r.Width - 48 * s, 3 * s);
-        using var buttonBrush = new SolidBrush(Color.FromArgb(225, 225, 225));
-        g.FillRectangle(buttonBrush, r.X + 7 * s, r.Bottom - 14 * s, r.Width - 14 * s, 9 * s);
     }
 
     private static GraphicsPath Rect(RectangleF r)

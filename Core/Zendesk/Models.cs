@@ -39,7 +39,23 @@ public sealed class Ticket
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    /// <summary>Zendesk's SLA timers (only with <c>include=slas</c>): the real deadlines of the client's SLA policy.</summary>
+    public TicketSlas? Slas { get; set; }
+
     public bool IsOpen => Status is "new" or "open" or "pending" or "hold";
+}
+
+/// <summary>A ticket's SLA timers, e.g. first_reply_time or next_reply_time, active or achieved, with when they breach.</summary>
+public sealed class TicketSlas
+{
+    public List<SlaMetric> PolicyMetrics { get; set; } = [];
+}
+
+public sealed class SlaMetric
+{
+    public string? Metric { get; set; }
+    public string? Stage { get; set; }
+    public DateTimeOffset? BreachAt { get; set; }
 }
 
 public sealed class Audit
@@ -57,8 +73,28 @@ public sealed class AuditEvent
     public JsonElement? Value { get; set; }
     public JsonElement? PreviousValue { get; set; }
     public bool? Public { get; set; }
+
+    // Text for comments; some events (chat, calls) send an object here instead, which is ignored rather than failing the read.
+    [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
     public string? PlainBody { get; set; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
     public string? Body { get; set; }
+}
+
+/// <summary>Reads a string; any other JSON value (object, array, number) becomes null instead of an error.</summary>
+public sealed class TextOnlyConverter : System.Text.Json.Serialization.JsonConverter<string?>
+{
+    public override bool HandleNull => true;
+
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+            return reader.GetString();
+        reader.Skip();
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options) => writer.WriteStringValue(value);
 }
 
 // ---- Response envelopes ----
