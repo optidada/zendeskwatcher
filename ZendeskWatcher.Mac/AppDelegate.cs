@@ -23,6 +23,8 @@ public sealed class AppDelegate : NSApplicationDelegate
     private List<Group> _allGroups = [];
     private readonly NSMenuItem _checkNow = new("Check now");
     private readonly NSMenuItem _openZendesk = new("Open Zendesk");
+    private readonly NSMenuItem _catchUp = new("Catch up");
+    private bool _catchUpRequested;
 
     /// <summary>Checking works right now: signed in and the loop running (like the Windows tray menu).</summary>
     private bool _checking;
@@ -44,7 +46,9 @@ public sealed class AppDelegate : NSApplicationDelegate
         menu.AddItem(_status);
         _checkNow.Activated += (_, _) => Wake();
         _openZendesk.Activated += (_, _) => { if (_settings.IsConnectionConfigured) MacNotifier.Open(_settings.BaseUrl); };
+        _catchUp.Activated += (_, _) => { _catchUpRequested = true; Wake(); };
         menu.AddItem(_checkNow);
+        menu.AddItem(_catchUp);
         menu.AddItem(_openZendesk);
         menu.AddItem(NSMenuItem.SeparatorItem);
 
@@ -85,7 +89,10 @@ public sealed class AppDelegate : NSApplicationDelegate
     /// <summary>Only offer what works right now: checking needs a session, Zendesk an account, groups a sign-in.</summary>
     private void UpdateItems()
     {
-        _checkNow.Enabled = _checking;
+        _checkNow.Enabled = _catchUp.Enabled = _checking;
+        // "Catch up since yesterday 5:00 PM": when you stopped working last time (your working hours).
+        var since = TicketRules.CatchUpStart(DateTime.Now, _settings.MyWorkdayStartHour, _settings.MyWorkdayEndHour, _settings.MyWorkDays);
+        _catchUp.Title = "Catch up " + TicketRules.CatchUpSince(since, DateTime.Now);
         _openZendesk.Enabled = _settings.IsConnectionConfigured;
         RebuildGroupsMenu();
     }
@@ -119,6 +126,7 @@ public sealed class AppDelegate : NSApplicationDelegate
         var zendesk = new ZendeskClient(_settings, _session);
         var watcher = new TicketWatcher(_settings, zendesk, _notifier);
         var initialized = false;
+        var greeted = false;
 
         while (!ct.IsCancellationRequested)
         {
@@ -142,7 +150,23 @@ public sealed class AppDelegate : NSApplicationDelegate
                     UpdateItems();
                 }
                 WatchStatus.Update(watcher.Snapshot());
-                SetStatus($"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {DateTime.Now:HH:mm}", watcher.UnassignedCount);
+
+                // Catch up: asked for in the menu, as the greeting once per start (with groups chosen: without, the
+                // "Choose your groups" message says what to do), or by itself when your working day starts.
+                var greet = !greeted && _settings.ShowStartSummary && _settings.WatchedGroups.Count > 0;
+                greeted = true;
+                if (_catchUpRequested || greet || watcher.DayStartCatchUpDue())
+                {
+                    var reason = _catchUpRequested ? CatchUpReason.Requested : greet ? CatchUpReason.AppStart : CatchUpReason.DayStart;
+                    _catchUpRequested = false;
+                    try { await watcher.CatchUpAsync(ct, reason: reason); }
+                    catch (Exception ex) when (ex is not (OperationCanceledException or AuthRequiredException))
+                    {
+                        Log.Error("Catch up failed", ex);
+                        _notifier.Info("Catch up didn't work", ex.Message);
+                    }
+                }
+                SetStatus($"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {Clock.Time(DateTime.Now)}", watcher.UnassignedCount);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
