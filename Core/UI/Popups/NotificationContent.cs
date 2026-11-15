@@ -83,6 +83,9 @@ public sealed record NotificationContent(
     /// </summary>
     public int BodyLines => IsTicketNotification ? MaxBodyLines : Math.Max(MaxBodyLines, 20);
 
+    /// <summary>A list of tickets: each line stays one row (a long subject ends in "…"), so they don't run into each other.</summary>
+    public bool OneRowPerLine { get; init; }
+
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 

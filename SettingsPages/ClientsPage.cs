@@ -151,6 +151,9 @@ internal sealed class ClientsPage : SettingsPage
     /// <summary>After Save or Discard: clients move to their sections (Customized, groups, Muted).</summary>
     public void Resort() => _clients.Resort();
 
+    /// <summary>After Save or Discard: the find box starts empty again (the rows it found may have moved).</summary>
+    public void ClearFind() => _filter.Text = "";
+
     /// <summary>A choice made from a notification while Settings is open.</summary>
     public void SetChoice(ClientChoice choice) => _clients.SetChoice(choice);
 }

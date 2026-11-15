@@ -343,19 +343,23 @@ public sealed class Notifier : INotificationSink
     /// What "Try it" shows: the samples of one kind, or several at once (<paramref name="kind"/> null). Never marked as
     /// ticket notifications, so they don't count in the statistics.
     /// </summary>
-    internal static IEnumerable<NotificationContent> TestSamples(NotificationKind? kind) => (kind is { } single
-        ? Samples(single)
-        : Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Concat(Samples(NotificationKind.HelpColleague)).Append(
-            new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue",
-                $"Robin Client · Created {Clock.Time(DateTime.Now.AddMinutes(-2))}", TicketId: 123458, Priority: "urgent", Context: "Support Tier 1")
-            { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-2), Client = "Northwind" }).Append(ListSample))
-        .Select(sample => sample with { Priority = sample.TicketCount > 1 ? null : RandomPriority() }).ToList();
+    internal static IEnumerable<NotificationContent> TestSamples(NotificationKind? kind)
+    {
+        // A different funny ticket each time (the screenshots always use the first ones, see AllSamples).
+        int Pick(int count) => Random.Shared.Next(count);
+        var news = Enumerable.Range(0, NewTickets.Length).OrderBy(_ => Random.Shared.Next()).Take(2).ToList(); // two different new tickets
+        var samples = kind is { } single
+            ? Samples(single, Pick(single switch { NotificationKind.NewTicket => NewTickets.Length, NotificationKind.HelpColleague => Waiting.Length, _ => Updates.Length }))
+            : Samples(NotificationKind.NewTicket, news[0]).Concat(Samples(NotificationKind.MyTicket, Pick(Updates.Length)))
+                .Concat(Samples(NotificationKind.HelpColleague, Pick(Waiting.Length))).Concat(Samples(NotificationKind.NewTicket, news[1])).Append(ListSample);
+        return samples.Select(sample => sample with { Priority = sample.TicketCount > 1 ? null : RandomPriority() }).ToList();
+    }
 
-    /// <summary>A list of tickets ("Now watching"): the ticket numbers look like links (in samples they don't open anything).</summary>
-    private static NotificationContent ListSample => new(NotificationKind.NewTicket, "Now watching", "7 unassigned tickets already waiting",
-        "#123460 Images missing in the media library\n#123461 Login loop after SSO change\n#123462 Export to CSV times out\n" +
-        "#123463 Scheduled job did not run · **Scheduled**\n#123464 Slow search on large sites\n\u2026 and 2 more: click to see them all",
-        Context: "Support Tier 2") { Action = ActionNone, TicketCount = 7, MaxBodyLines = 6 };
+    /// <summary>A list of tickets ("Group added"): the ticket numbers look like links (in samples they don't open anything).</summary>
+    private static NotificationContent ListSample => new(NotificationKind.NewTicket, "Group added", "7 unassigned tickets already waiting",
+        "#123460 Desk moved to storage room B after the reorganization, stapler missing\n#123461 The internet (black box) is missing\n#123462 Printer says PC LOAD LETTER\n" +
+        "#123463 **Scheduled** · The Bobs would like a word\n#123464 It's a UNIX system! I know this!\n\u2026 and 2 more: click to see them all",
+        Context: "Support Tier 2") { Action = ActionNone, TicketCount = 7, MaxBodyLines = 6, OneRowPerLine = true };
 
     /// <summary>
     /// A random priority for each sample (sometimes none), so "Try it" shows the colors and how long each priority stays
@@ -373,16 +377,16 @@ public sealed class Notifier : INotificationSink
     /// <summary>All samples (for the developer --render-popups helper).</summary>
     public static IEnumerable<NotificationContent> AllSamples() =>
         Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
-            new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
-                TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "Northwind" }).Append(
+            new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Ah ah ah, you didn't say the magic word: editors locked out", "",
+                TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "InGen" }).Append(
             // The priority guess (Experimental): higher than set, and "probably not" for an urgent one with no sign of urgency.
-            GuessSample(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting", "#123459 Checkout fails for all customers",
-                $"**Sam Customer** replied: Any update? Orders are not going through and our launch is tomorrow.\nAshwin is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+            GuessSample(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting", "#123459 Flair orders fail for all restaurants",
+                $"**Stan** replied: Any update? Orders are not going through and our launch is tomorrow.\nPeter is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
                 TicketId: 123459, Priority: "normal", Context: "Support Tier 2"))).Append(
-            GuessSample(new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123465 Footer link points to the old address",
-                $"Robin Client · Created {Clock.Time(DateTime.Now.AddMinutes(-3))}", TicketId: 123465, Priority: "urgent", Context: "Support Tier 1"),
-                "Hi, the footer link on the about page points to our old address. Thanks!")).Append(
-            new NotificationContent(NotificationKind.MyTicket, $"Catch up · since yesterday {Clock.Hour(17)}", "Good morning, Alex",
+            GuessSample(new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123465 Homepage plays Surfin' Bird on a loop",
+                $"Brian Griffin · Created {Clock.Time(DateTime.Now.AddMinutes(-3))}", TicketId: 123465, Priority: "urgent", Context: "Support Tier 1"),
+                "Hi, our homepage keeps playing Surfin' Bird. Everyone here now knows the bird is the word. Thanks!")).Append(
+            new NotificationContent(NotificationKind.MyTicket, $"Catch up · since yesterday {Clock.Hour(17)}", "Good morning, Roy",
                 Tracking.TicketRules.CatchUpBody(new Tracking.TicketRules.CatchUpCounts
                 {
                     Mine = 2, SlaPast = 1, SlaToday = 2, FirstDueToday = DateTime.Today.AddHours(10).AddMinutes(30),
@@ -403,23 +407,78 @@ public sealed class Notifier : INotificationSink
     /// <summary>Shows "Mute" on samples; muting a sample does nothing (see <see cref="Mute"/>).</summary>
     private static ClientChoice SampleClient(string name) => new() { Id = -1, Name = name };
 
-    private static IEnumerable<NotificationContent> Samples(NotificationKind kind) => kind switch
+    /// <summary>New tickets for the samples: title, customer, what they wrote, client.</summary>
+    private static readonly (string Title, string Customer, string Text, string Client)[] NewTickets =
+    [
+        ("TPS reports missing the new cover sheet", "Bill Lumbergh",
+            "Yeah, hi. So if you could go ahead and add the new cover sheet to the TPS reports, that'd be great. Mmm-kay?", "Initech"),
+        ("Ah ah ah, you didn't say the magic word: editors locked out", "Ray Arnold",
+            "Every login gets a waving cartoon man saying \u201cAh ah ah\u201d. Hold on to your butts, we're restarting the server.", "InGen"),
+        ("Printer says PC LOAD LETTER", "Tom Smykowski",
+            "What does that even mean? I deal with the customers so the engineers don't have to. I have people skills!", "Initrode"),
+        ("We spared no expense, but the site is still slow", "John Hammond",
+            "Pages take ages to load. We spared no expense on the servers. Please have a look before the opening.", "InGen"),
+        ("Emergency number 0118 999 881 999 119 725 3 doesn't fit in the form", "Douglas Reynholm",
+            "The phone field stops after 15 digits. Rather important, it's the emergency number. Easy to remember, too.", "Reynholm Industries"),
+        ("Contact form rejects my plan for world domination", "Stewie Griffin",
+            "Blast! The form says my message is too long. It's 40 pages, and every page matters.", "Happy-Go-Lucky Toy Factory"),
+        ("Flair counter on the staff page stuck at 14 pieces", "Joanna",
+            "The minimum is 15. I'd rather not be told about it again. Can you fix the counter?", "Chotchkie's"),
+        ("Homepage turned bright green overnight", "Stanley Ipkiss",
+            "Somebody stop me! The whole homepage is green and the menu spins around. It was fine yesterday.", "Edge City Bank"),
+        ("Our installer keeps calling to check the connection", "Steven Kovacs",
+            "He set up the site, now he calls every day and says we're friends. How do we turn off his access?", "Kovacs Architects"),
+        ("So you're telling me there's a chance the launch works?", "Lloyd Christmas",
+            "Tests pass one time in a million. We're going for it. What could possibly go wrong?", "Mutts Cutts")
+    ];
+
+    /// <summary>Replies on my (or CC'd) tickets for the samples: title, who, what they wrote, client.</summary>
+    private static readonly (string Title, string Who, string Text, string Client)[] Updates =
+    [
+        ("Search shows results from 1997", "Jen Barber", "I turned it off and on again. The reindex helped, but one site still shows old results…", "Reynholm Industries"),
+        ("Red stapler not found in search", "Milton Waddams", "I was told I could keep my stapler… Excuse me, I believe search has my stapler.", "Initech"),
+        ("Unpublished pages show up on the live site", "Ian Malcolm", "Life, uh, finds a way. So do unpublished pages, apparently…", "InGen"),
+        ("Our slogan was changed to \u201cFreakin' sweet\u201d", "Peter Griffin", "Not sure who changed it. Probably me. Can you put the old one back?", "Pawtucket Brewery"),
+        ("Fire alarm email went to every customer", "Maurice Moss", "I've sent a follow-up: \u201cDear Sir/Madam, the fire is under control.\u201d Is that enough?", "Reynholm Industries"),
+        ("New theme is live, but the logo is still green", "Stanley Ipkiss", "Smokin'! Everything looks great now, except the logo…", "Edge City Bank"),
+        ("Site works in the van, but not in the office", "Harry Dunne", "Just when I thought you couldn't fix it any better, you go and do something like this… and totally redeem yourself!", "Mutts Cutts")
+    ];
+
+    /// <summary>Customers waiting on colleagues' tickets for the samples: title, customer, reply, client, the colleague who's off.</summary>
+    private static readonly (string Title, string Customer, string Text, string Client, string Colleague)[] Waiting =
+    [
+        ("Flair orders fail for all restaurants", "Stan", "Any update? This is blocking our launch tomorrow.", "Chotchkie's", "Peter"),
+        ("Visitor center booking page is down", "Ellie Sattler", "Any update? Bookings are failing and the park opens tomorrow.", "InGen", "Moss"),
+        ("Checkout fails for all customers", "Denholm Reynholm", "Any update? Nobody can buy anything and the board meets tomorrow.", "Reynholm Industries", "Samir"),
+        ("Toy recall page shows the wrong toys", "Cleveland Brown", "Any update? Customers are returning the wrong toys, and that's no good.", "Happy-Go-Lucky Toy Factory", "Roy"),
+        ("Connection drops every evening", "Chip Douglas", "Any update? I'll be checking in. Every day. We're friends now, right?", "Cable Guy Services", "Jen"),
+        ("Ski lodge booking page is down", "Mary Swanson", "Any update? Bookings are failing and the season in Aspen starts tomorrow.", "Swanson Ski Lodge", "Michael")
+    ];
+
+    /// <summary>One sample of a kind: <paramref name="pick"/> chooses which (0: the one in the screenshots).</summary>
+    private static IEnumerable<NotificationContent> Samples(NotificationKind kind, int pick = 0)
     {
-        NotificationKind.NewTicket =>
-          [new NotificationContent(kind, "New ticket", "#123456 Customer cannot publish content after upgrade",
-              $"Alex Example · Created {Clock.Time(DateTime.Now.AddMinutes(-7))}", TicketId: 123456, Priority: "high", Context: "Support Tier 2")
-              { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-7), Client = "Contoso", MuteTarget = SampleClient("Contoso"),
-                SlaDue = DateTimeOffset.UtcNow.AddMinutes(53), SlaFirstReply = true }],
-        NotificationKind.HelpColleague =>
-          [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
-              $"**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
-              TicketId: 123459, Priority: "urgent", Context: "Support Tier 2")
-              { Action = ActionNone, Client = "Northwind · Premium Support", MuteTarget = SampleClient("Northwind"), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25) }],
-        _ =>
-          [new NotificationContent(kind, "Ticket updated", "#123457 Search results missing after deploy",
-              "**Jane Doe** replied: Thanks, the reindex fixed it on our side, but one site still shows old results…",
-              TicketId: 123457, Priority: "normal") { Action = ActionNone, Client = "Fabrikam", SlaDue = DateTimeOffset.UtcNow.AddMinutes(190) }]
-    };
+        if (kind == NotificationKind.NewTicket)
+        {
+            var (title, customer, text, client) = NewTickets[pick % NewTickets.Length];
+            var minutes = 2 + pick * 3 % 11;
+            return [new NotificationContent(kind, "New ticket", $"#{123456 + pick * 11} {title}",
+                $"{customer} · Created {Clock.Time(DateTime.Now.AddMinutes(-minutes))}\n{text}", TicketId: 123456 + pick * 11, Priority: "high", Context: "Support Tier 2")
+                { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-minutes), Client = client, MuteTarget = SampleClient(client),
+                  SlaDue = DateTimeOffset.UtcNow.AddMinutes(60 - minutes), SlaFirstReply = true }];
+        }
+        if (kind == NotificationKind.HelpColleague)
+        {
+            var (title, customer, text, client, colleague) = Waiting[pick % Waiting.Length];
+            return [new NotificationContent(kind, "Customer waiting", $"#{123459 + pick * 11} {title}",
+                $"**{customer}** replied: {text}\n{colleague} is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+                TicketId: 123459 + pick * 11, Priority: "urgent", Context: "Support Tier 2")
+                { Action = ActionNone, Client = $"{client} · Premium Support", MuteTarget = SampleClient(client), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25) }];
+        }
+        var (updateTitle, who, said, updateClient) = Updates[pick % Updates.Length];
+        return [new NotificationContent(kind, "Ticket updated", $"#{123457 + pick * 11} {updateTitle}", $"**{who}** replied: {said}",
+            TicketId: 123457 + pick * 11, Priority: "normal") { Action = ActionNone, Client = updateClient, SlaDue = DateTimeOffset.UtcNow.AddMinutes(190) }];
+    }
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);
     private readonly Dictionary<string, DateTime> _recent = [];

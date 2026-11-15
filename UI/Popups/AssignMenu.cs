@@ -87,7 +87,7 @@ internal static class AssignMenu
     private static List<AssignCandidate> SampleCandidates()
     {
         var now = DateTimeOffset.UtcNow;
-        return [new(1, "Kim Larsen", 2, 0, now.AddMinutes(-4)), new(2, "Maria Svensson", 4, 1, now.AddMinutes(-12)), new(3, "Alex Example", 5, 0, null)];
+        return [new(1, "Peter Gibbons", 2, 0, now.AddMinutes(-4)), new(2, "Maurice Moss", 4, 1, now.AddMinutes(-12)), new(3, "Samir Nagheenanajar", 5, 0, null)];
     }
 
     /// <summary>Developer helper (--render-menu): the menu with sample colleagues, as a PNG.</summary>

@@ -22,7 +22,7 @@ It's a notification layer on top of Zendesk; all work is still done in Zendesk i
 | How data is read | Zendesk REST API (`/api/v2`) plus internal APIs | Only the public, documented REST API (`/api/v2`), same session |
 | Setup in Zendesk | None | None – no API token, OAuth app, or admin change |
 | Servers / third parties | None | None – runs only on the agent's PC, talks only to Zendesk |
-| Changes to tickets | Anything the agent does | Only **Take it** (assigns an *unassigned* ticket to the agent) on an explicit click; everything else is read-only |
+| Changes to tickets | Anything the agent does | Only assigning an *unassigned* ticket, on an explicit click: **Take it** (to the agent) or, after a confirmation, to a colleague the agent picks; everything else is read-only |
 
 ## Load on Zendesk
 
@@ -40,6 +40,7 @@ Checks run every 60 seconds (fixed; not configurable). Per check:
 | Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned), plus 1 audit request to see whether it was answered since |
 | Only for notifications that waited long (15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change |
 | Catch up (when the app starts, when the working day starts, and on request) | 1 `show_many` for the agent's own and CC'd tickets, 1 search per covered group, 1 audit request per ticket updated since the agent last worked, 1 per own Escalated ticket, and the activity lookup above when a colleague's customer is waiting. Unassigned tickets come from the check that just ran; when there are more than 3, they're only counted, not looked up one by one |
+| Only when the agent opens "Who could take it" (▾ next to Take it) | 1 ticket lookup, the group's members, the custom statuses, 1 search for the group's assigned open tickets, and the activity lookup above for up to 8 colleagues (least busy first, remembered 15 minutes) |
 | Once at start | the custom ticket statuses (`/api/v2/custom_statuses.json`), to show them by name |
 | Experimental features (off by default) | when switched on: 90 days of tickets per monitored group (1 search, up to 5 pages each), every 6 hours |
 
@@ -48,8 +49,8 @@ minute** (11-minute averages; the higher one includes opening the Settings windo
 5. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
 Settings window shows (the group list, the agent's group memberships and open tickets for group suggestions, the
 members of the covered groups, and the clients of the monitored groups from 90 days of tickets) are loaded when needed
-and reused for 24 hours. Insights → Your team reads the members and open tickets of the monitored groups, at most
-every 10 minutes while that page is open. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
+and reused for 24 hours. Insights → Your team reads the members, open tickets and tickets solved in the last 7 days of the monitored
+groups, at most every 10 minutes while that page is open. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
 (on HTTP 429 the app waits as instructed by `Retry-After`), and the app logs its own request count every 10 minutes.
 
 For comparison, an open Agent Workspace tab also polls continuously (views, ticket counts, notifications, plus
@@ -60,7 +61,8 @@ internal APIs and live-update connections), so the Watcher adds about the load o
 - **Read from Zendesk:** the API returns complete objects; the app keeps only what it needs, in memory: ticket ID,
   subject, status (and custom status names), priority, group, assignee, CC/follower IDs, timestamps, change types,
   user names, roles, time zones and email addresses (only to tell the agent's own company from customers), and – for
-  notifications – the first 140 characters of a comment (the agent can turn that off). With the Experimental features
+  notifications – the first 140 characters of a comment and the first 300 of a new ticket's first message (the agent
+  can turn both off; then the first message isn't even read). With the Experimental features
   switched on (off by default), ticket and comment text is also read by rules and a small language model that runs on
   the PC; it is never sent anywhere.
 - **Stored on disk** (only in the agent's Windows profile, `%LOCALAPPDATA%`):

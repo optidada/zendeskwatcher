@@ -104,6 +104,9 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     /// <summary>Points the session at a Zendesk account, e.g. https://yourcompany.zendesk.com.</summary>
     public void Configure(string baseUrl) => _baseUrl = baseUrl.TrimEnd('/');
 
+    /// <summary>Whether tickets keep the start of the customer's first message (Look &amp; sound → Show the comment text).</summary>
+    public bool KeepDescriptions { get; set; } = true;
+
     private string MeUrl => $"{_baseUrl}/api/v2/users/me.json";
 
     /// <summary>
@@ -483,7 +486,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         ct.ThrowIfCancellationRequested();
 
         // The response as an object (one copy of the text, not JSON inside JSON), trimmed to the fields the app reads.
-        var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.Script + "(body); " +
+        var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.ScriptFor(KeepDescriptions) + "(body); " +
                        "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body }; })";
         var script = method is null
             ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + toResult

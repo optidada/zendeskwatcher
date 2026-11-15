@@ -221,7 +221,7 @@ public sealed class PopupForm : Form
         _smallFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
         _bodyBoldFont = new Font(family, palette.FontSize * size, FontStyle.Bold);
         _clientFont = new Font(family, (palette.FontSize + (palette.Terminal ? 1f : 2.5f)) * size, FontStyle.Bold);
-        _rich = new RichText(_bodyFont, _bodyBoldFont) { Tags = !palette.Terminal, TagScale = _s }; // Terminal: "P1" as text
+        _rich = new RichText(_bodyFont, _bodyBoldFont) { Tags = !palette.Terminal, TagScale = _s, OneRowPerLine = content.OneRowPerLine }; // Terminal: "P1" as text
         _titleRich = new RichText(_titleFont, _titleFont);
 
         FormBorderStyle = FormBorderStyle.None;

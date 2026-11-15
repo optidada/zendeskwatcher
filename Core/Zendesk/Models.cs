@@ -33,6 +33,9 @@ public sealed class Ticket
 
     /// <summary>The ticket's custom status (e.g. "In progress", "Escalated"), when the account uses them.</summary>
     public long? CustomStatusId { get; set; }
+
+    /// <summary>The customer's first message (Zendesk sends it with the ticket); shown under a new ticket's name.</summary>
+    public string? Description { get; set; }
     public List<long> FollowerIds { get; set; } = [];
     public List<long> EmailCcIds { get; set; } = [];
     public List<long> CollaboratorIds { get; set; } = [];

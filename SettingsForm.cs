@@ -574,6 +574,8 @@ public sealed class SettingsForm : Form
         Log.Info("Settings saved");
         Saved?.Invoke(result);
         // A batch of choices is done: ticked groups and changed clients move to their sections now.
+        _groups.ClearFind();
+        BuiltClients?.ClearFind();
         _groups.Resort();
         BuiltClients?.Resort();
         return true;
@@ -601,6 +603,8 @@ public sealed class SettingsForm : Form
         foreach (var page in BuiltPages)
             page.Load(Result);
         _loading = false;
+        _groups.ClearFind();
+        BuiltClients?.ClearFind();
         _groups.Resort();
         BuiltClients?.Resort();
         _saveState.Text = "Changes discarded";
@@ -685,17 +689,17 @@ public sealed class SettingsForm : Form
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 HelpRegionDefaultDone = true, HelpOffRegions = [TimeRegion.EuropeAfrica],
-                HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Sam Taylor" }],
+                HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Milton Waddams" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
-                Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
-                    new ClientChoice { Id = 21, Name = "Contoso", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
-                    new ClientChoice { Id = 25, Name = "Tailspin Toys", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
+                Clients = [new ClientChoice { Id = 23, Name = "Chotchkie's", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
+                    new ClientChoice { Id = 21, Name = "Initech", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
+                    new ClientChoice { Id = 25, Name = "Happy-Go-Lucky Toy Factory", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
             };
             ClientsView.SetSample(settings.Subdomain, new()
             {
-                [1] = [new(21, "Contoso", 41), new(22, "Northwind Traders", 17), new(23, "Fabrikam", 9), new(24, "Adventure Works", 6),
-                       new(25, "Tailspin Toys", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
-                [2] = [new(21, "Contoso", 12), new(26, "Wide World Importers", 8), new(27, "Litware", 2)]
+                [1] = [new(21, "Initech", 41), new(22, "Reynholm Industries", 17), new(23, "Chotchkie's", 9), new(24, "InGen", 6),
+                       new(25, "Happy-Go-Lucky Toy Factory", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
+                [2] = [new(21, "Initech", 12), new(26, "Pawtucket Brewery", 8), new(27, "Initrode", 2)]
             });
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
@@ -710,14 +714,14 @@ public sealed class SettingsForm : Form
             form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
             form.Help.Card.ShowSample(new()
             {
-                [1] = [new(9, "Alex Example", "Europe/Stockholm"), new(10, "Maria Svensson", "Europe/Stockholm"), new(11, "Jordan Lee", "America/New_York"),
-                       new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
-                [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
+                [1] = [new(9, "Peter Gibbons", "Europe/Stockholm"), new(10, "Samir Nagheenanajar", "Europe/Stockholm"), new(11, "Joanna", "America/New_York"),
+                       new(12, "Nina", "Asia/Kolkata"), new(13, "Milton Waddams", "America/Mexico_City")],
+                [2] = [new(14, "Maurice Moss", "Europe/London"), new(15, "Dennis Nedry", "America/Costa_Rica"), new(16, "Cleveland Brown", null)]
             }, TimeRegion.EuropeAfrica);
             StatisticsPage.SetTeamSample(settings.Subdomain, settings.WatchedGroups.Select(g => g.Id), TimeRegion.EuropeAfrica,
             [
-                new(10, "Maria Svensson", 14, 2, 3, 1, 6, false, Solved: 12), new(99, "You", 11, 1, 1, 0, 4, true, Solved: 9),
-                new(9, "Alexandra Lindqvist-Example", 7, 0, 4, 2, 9, false, Solved: 15), new(17, "Kim Larsen", 3, 0, 0, 0, 1, false, Solved: 4)
+                new(10, "Samir Nagheenanajar", 14, 2, 3, 1, 6, false, Solved: 12), new(99, "You", 11, 1, 1, 0, 4, true, Solved: 9),
+                new(18, "Maurice Moss", 7, 0, 4, 2, 9, false, Solved: 15), new(9, "Peter Gibbons", 3, 0, 0, 0, 1, false, Solved: 4)
             ]);
             form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)

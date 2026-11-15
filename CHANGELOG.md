@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.5
+
+- **New tickets show what the customer wrote**: the start of their first message, under their name. Turn off Look & sound → Show the comment text and it isn't even read.
+- **Try it picks a different sample each time**, with funnier made-up customers, clients and tickets.
+- **Ticket lists stay tidy**: in "Group added" and "several new tickets", each ticket keeps to one row and long subjects end in "…".
+- "Now watching" is now called "Group added" (How it works explains it), and the search box on Groups and Clients empties after Save or Discard.
+
 ## 1.8.4
 
 - **Who could take it**: the ▾ next to Take it on a new-ticket notification lists up to 3 colleagues in the ticket's group who are in their working hours and active in Zendesk, least busy first. Pick one to assign the ticket to them (you're asked first).

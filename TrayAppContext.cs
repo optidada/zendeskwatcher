@@ -273,6 +273,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _browser ??= new BrowserSession();
         _browser.Configure(settings.BaseUrl);
+        _browser.KeepDescriptions = settings.ShowCommentText; // off: the customer's message isn't even read
         return _browser;
     }
 

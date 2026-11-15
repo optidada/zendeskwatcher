@@ -19,6 +19,9 @@ internal sealed partial class RichText(Font regular, Font bold)
     /// <summary>The scale for the tags' padding (96 dpi = 1).</summary>
     public float TagScale { get; init; } = 1f;
 
+    /// <summary>Each line of the text stays one row: what doesn't fit ends in "…" instead of wrapping (lists of tickets).</summary>
+    public bool OneRowPerLine { get; init; }
+
     /// <summary>Style: 0 regular, 1 bold, 2 alert (bold in the alert color), 3 a priority tag; <see cref="Link"/> when it's part of a link.</summary>
     private readonly record struct Piece(string Text, int Style, int X, int Line, int Paragraph = 0, Link? Link = null);
 
@@ -160,6 +163,7 @@ internal sealed partial class RichText(Font regular, Font bold)
         var x = 0;
         var paragraph = 0;
         var truncated = false;
+        var cut = new HashSet<int>(); // rows cut short (OneRowPerLine): "…" at their end
         void NewLine()
         {
             line++;
@@ -172,6 +176,8 @@ internal sealed partial class RichText(Font regular, Font bold)
         for (var t = 0; t < tokens.Count; t++)
         {
             var (raw, tokenStyle, link) = tokens[t];
+            if (cut.Contains(line) && raw != "\n")
+                continue; // the rest of a row that didn't fit
             var glued = t > 0 && GluedToNext(tokens, t - 1); // the rest of a word that already wrapped where it had to
             if (raw == "\n")
             {
@@ -186,6 +192,17 @@ internal sealed partial class RichText(Font regular, Font bold)
             var w = Width(text.TrimEnd(), tokenStyle);
             for (var next = t; !glued && GluedToNext(tokens, next); next++)
                 w += Width(tokens[next + 1].Text.TrimEnd(), tokens[next + 1].Style);
+            if (OneRowPerLine && x + Width(text.TrimEnd(), tokenStyle) > width)
+            {
+                // Doesn't fit on this row: as much as fits, then "…" (added below).
+                var fit = tokenStyle == 3 ? 0 : text.Length; // a tag chip isn't cut in half: left out
+                while (fit > 0 && x + Width(text[..fit].TrimEnd() + "\u2026", tokenStyle) > width)
+                    fit--;
+                if (fit > 0)
+                    pieces.Add(new Piece(text[..fit].TrimEnd(), tokenStyle, x, line, paragraph, link));
+                cut.Add(line);
+                continue;
+            }
             if (x > 0 && x + w > width && (!glued || x + Width(text.TrimEnd(), tokenStyle) > width))
             {
                 NewLine();
@@ -217,6 +234,23 @@ internal sealed partial class RichText(Font regular, Font bold)
                 merged[^1] = merged[^1] with { Text = merged[^1].Text + piece.Text };
             else
                 merged.Add(piece);
+        }
+
+        foreach (var row in cut)
+        {
+            var i = merged.FindLastIndex(p => p.Line == row);
+            if (i < 0)
+                continue;
+            var last = merged[i];
+            if (last.Style == 3)
+                merged.Insert(i + 1, new Piece("\u2026", 0, last.X + Width(last.Text, 3), row, last.Paragraph));
+            else
+            {
+                var text = last.Text.TrimEnd();
+                while (text.Length > 0 && last.X + Width(text + "\u2026", last.Style) > width)
+                    text = text[..^1].TrimEnd();
+                merged[i] = last with { Text = text + "\u2026" };
+            }
         }
 
         if (truncated && merged.Count > 0)

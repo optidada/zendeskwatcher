@@ -242,7 +242,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                     $"{fresh.Count} new unassigned tickets{Markdown.Strip(TicketRules.ScheduledNote(fresh.Count, scheduled))}", TicketList(fresh, IsScheduled),
                     Context: GroupLabel(group))
                     {
-                        IsTicketNotification = true, TicketCount = fresh.Count, ScheduledCount = scheduled, MaxBodyLines = ListLines,
+                        IsTicketNotification = true, TicketCount = fresh.Count, ScheduledCount = scheduled, MaxBodyLines = ListLines, OneRowPerLine = true,
                         Action = NotificationActions.Search(UnassignedQuery(group)) // a click shows them all, not just the first five
                     },
                     fresh.Select(t => t.Id));
@@ -269,6 +269,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     {
         var scheduled = IsScheduled(ticket);
         var body = await CreatedLineAsync(ticket, ct);
+        // What the customer wrote (Look & sound → show what was written), the start of it: the notification is a preview.
+        if (settings.ShowCommentText && TextCleanup.Plain(ticket.Description) is { Length: > 0 } message)
+            body += "\n" + Markdown.Escape(message.Length <= 200 ? message : message[..200] + "\u2026");
         return await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, scheduled ? $"{heading} \u00b7 Scheduled" : heading,
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, GroupLabel(group))
             { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true, ScheduledCount = scheduled ? 1 : 0 }, ticket, group, ct,
@@ -753,7 +756,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             sla: customerWroteAt is { } wrote ? (wrote, FirstReply: false) : null, customerTexts: customerTexts, waitingSince: customerWroteAt));
     }
 
-    /// <summary>"Now watching Tier 2 · 3 unassigned tickets" when a group is added; a ticket notification if there's just one.</summary>
+    /// <summary>"Group added · Tier 2 · 3 unassigned tickets already waiting" when a group is added; a ticket notification if there's just one.</summary>
     private async Task ShowAlreadyWaitingAsync(WatchedGroup group, List<Ticket> tickets, CancellationToken ct)
     {
         var oldestFirst = tickets.OrderBy(t => t.CreatedAt).ToList();
@@ -766,11 +769,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         }
 
         var scheduled = tickets.Count(IsScheduled);
-        Show(new NotificationContent(NotificationKind.NewTicket, "Now watching",
+        Show(new NotificationContent(NotificationKind.NewTicket, "Group added",
             $"{tickets.Count} unassigned tickets already waiting{Markdown.Strip(TicketRules.ScheduledNote(tickets.Count, scheduled))}",
             TicketList(oldestFirst, IsScheduled), Context: GroupLabel(group))
             {
-                IsTicketNotification = true, TicketCount = tickets.Count, ScheduledCount = scheduled, MaxBodyLines = ListLines,
+                IsTicketNotification = true, TicketCount = tickets.Count, ScheduledCount = scheduled, MaxBodyLines = ListLines, OneRowPerLine = true,
                 Action = NotificationActions.Search(UnassignedQuery(group)) // a click shows them all, not just the first five
             },
             tickets.Select(t => t.Id));
@@ -786,11 +789,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// <summary>Room for the listed tickets and the "… and N more" line: the notification grows to fit them.</summary>
     internal const int ListLines = ListedTickets + 1;
 
-    /// <summary>"#123 Subject" per line ("· **Scheduled**" after Scheduled ones), up to <see cref="ListedTickets"/>, then "… and N more: click to see them all".</summary>
+    /// <summary>
+    /// "#123 Subject" per line ("#123 **Scheduled** · Subject" for Scheduled ones, so cutting a long subject keeps it), up
+    /// to <see cref="ListedTickets"/>, then "… and N more: click to see them all". Shown one row each (<see cref="NotificationContent.OneRowPerLine"/>).
+    /// </summary>
     internal static string TicketList(IReadOnlyList<Ticket> tickets, Func<Ticket, bool>? scheduled = null)
     {
         var lines = tickets.Take(ListedTickets)
-            .Select(t => $"#{t.Id} {Markdown.Escape(TextCleanup.Plain(t.Subject))}{(scheduled?.Invoke(t) == true ? " \u00b7 **Scheduled**" : "")}").ToList();
+            .Select(t => $"#{t.Id} {(scheduled?.Invoke(t) == true ? "**Scheduled** \u00b7 " : "")}{Markdown.Escape(TextCleanup.Plain(t.Subject))}").ToList();
         if (tickets.Count > ListedTickets)
             lines.Add($"\u2026 and {tickets.Count - ListedTickets} more: click to see them all");
         return string.Join("\n", lines);

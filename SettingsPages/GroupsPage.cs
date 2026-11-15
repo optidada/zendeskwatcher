@@ -261,6 +261,9 @@ internal sealed class GroupsPage : SettingsPage
             ShowList(); // groups ticked or unticked last time move to their sections now
     }
 
+    /// <summary>After Save or Discard: the find box starts empty again (the rows it found may have moved).</summary>
+    public void ClearFind() => _filter.Text = "";
+
     /// <summary>After Save or Discard: rows move to their sections, keeping the scroll position as far as possible.</summary>
     public void Resort()
     {

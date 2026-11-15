@@ -156,7 +156,7 @@ public class UnassignedTicketTests
         await watcher.PollAsync(CancellationToken.None);
 
         var shown = Assert.Single(TakeShown());
-        Assert.Equal("Now watching", shown.Heading);
+        Assert.Equal("Group added", shown.Heading);
         Assert.Equal("2 unassigned tickets already waiting", shown.Title);
         Assert.True(watcher.ShowedAlreadyWaiting);
         Assert.Equal(2, watcher.UnassignedCount);

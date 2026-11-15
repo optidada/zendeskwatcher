@@ -15,6 +15,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "A ticket in a group you monitor (Groups page) that nobody has picked up yet.",
             "No group monitored yet: none of these come, and Catch up reminds you each time the app starts.",
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
+            "It shows who it's from and the start of what they wrote (off with Look & sound → Show the comment text).",
             "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
             "The ▾ next to Take it: up to 3 colleagues in the ticket's group who could take it, least busy first. Only those in their working hours who did something in Zendesk in the last 3 hours. Pick one to assign it to them (you're asked first).",
@@ -118,7 +119,8 @@ internal sealed class HowItWorksPage : SettingsPage
         [
             "Catch up: the greeting when the app starts (see Catch up above).",
             "While you were away: instead of more than 5 notifications that waited.",
-            "More than 5 new tickets in a group at once: one notification with the list instead of one each."
+            "More than 5 new tickets in a group at once: one notification with the list instead of one each.",
+            "Group added: when you start monitoring a group, one notification lists the unassigned tickets already waiting there."
         ]),
         ("Your data",
         [
