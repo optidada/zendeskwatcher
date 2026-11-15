@@ -14,7 +14,7 @@ internal sealed class GeneralPage : SettingsPage
         new(NotificationTheme.WindowsNative, "Native")
     ];
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
-    private readonly ToggleSwitch _startSummary = new("Show a summary when Zendesk Watcher starts");
+    private readonly ToggleSwitch _startSummary = new("Catch up when Zendesk Watcher starts");
     public GeneralPage(SettingsContext context, string version)
         : base(context, "General", $"Zendesk Watcher {version}, by {Author}.")
     {
@@ -81,7 +81,7 @@ internal sealed class GeneralPage : SettingsPage
         Changed();
     }
 
-    /// <summary>Reset: the start summary goes back to its default; "Start with Windows" (a Windows setting) stays.</summary>
+    /// <summary>Reset: Catch up at start goes back to its default; "Start with Windows" (a Windows setting) stays.</summary>
     public void ResetStartSummary() => _startSummary.Checked = new Settings().ShowStartSummary;
 
 }

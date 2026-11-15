@@ -3,23 +3,46 @@ using ZendeskWatcher.Zendesk;
 namespace ZendeskWatcher.Tracking;
 
 /// <summary>A teammate's open tickets in the monitored groups (Insights → Right now → Your team).</summary>
-/// <param name="Open">Needs an agent: New or Open, also custom statuses like In progress (by their category).</param>
-/// <param name="UrgentOrHigh">Of the open ones, Urgent (P1) or High (P2).</param>
-/// <param name="Escalated">Escalated: custom statuses with "escalat" in the name (to Engineering, internally, …), whatever their category.</param>
+/// <param name="Open">Needs an agent: New or Open, also open-category custom statuses other than In progress.</param>
+/// <param name="UrgentOrHigh">Of the open and In progress ones, Urgent (P1) or High (P2).</param>
+/// <param name="Escalated">Escalated: custom statuses with "escalat" in the name (to Engineering, internally, …), whatever their category; all together.</param>
 /// <param name="Scheduled">Scheduled: a time is booked (a custom status matched by name), whatever its category.</param>
 /// <param name="Waiting">Pending or On-hold: waiting on the customer or someone else.</param>
-public sealed record WorkloadRow(long AssigneeId, string Name, int Open, int UrgentOrHigh, int Escalated, int Scheduled, int Waiting, bool IsMe);
+/// <param name="InProgress">In progress: a custom status matched by name, whatever its category.</param>
+/// <param name="EscalatedBy">Escalated per status name (e.g. "Escalated to Engineering" → 2); null when not split up.</param>
+public sealed record WorkloadRow(long AssigneeId, string Name, int Open, int UrgentOrHigh, int Escalated, int Scheduled, int Waiting, bool IsMe,
+    int InProgress = 0, IReadOnlyDictionary<string, int>? EscalatedBy = null);
 
 public static class TeamWorkload
 {
     /// <summary>A custom status that means escalated, e.g. "Escalated to Engineering" or "Escalated internally" (matched by name).</summary>
     public static bool IsEscalatedStatus(string? label) => label?.Contains("escalat", StringComparison.OrdinalIgnoreCase) == true;
 
+    /// <summary>A custom status that means someone works on it, e.g. "In progress" (matched by name).</summary>
+    public static bool IsInProgressStatus(string? label) => label?.Contains("in progress", StringComparison.OrdinalIgnoreCase) == true
+        || label?.Contains("in-progress", StringComparison.OrdinalIgnoreCase) == true;
+
     /// <summary>
-    /// Workload: every unsolved ticket counts, since a pending one can turn into work any minute. Open (also In progress)
+    /// A short column heading for an escalated status: "Escalated to Engineering" → "Esc. Eng.", "Escalated internally" →
+    /// "Esc. Int." (the Your team table is narrow). Just "Escalated" when the name says nothing more.
+    /// </summary>
+    public static string ShortEscalatedName(string label)
+    {
+        var words = label.Split([' ', '-', '_', '/'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => !IsEscalatedStatus(w) && !w.Equals("to", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (words.Count == 0)
+            return "Escalated";
+        var word = char.ToUpperInvariant(words[0][0]) + words[0][1..];
+        if (word.Length > 5)
+            word = word[..3] + ".";
+        return $"Esc. {word}";
+    }
+
+    /// <summary>
+    /// Workload: every unsolved ticket counts, since a pending one can turn into work any minute. Open or In progress
     /// Urgent or High weighs 3, other open ones 2, Escalated, Scheduled, Pending and On-hold 1 each.
     /// </summary>
-    public static int Score(WorkloadRow row) => 2 * row.Open + row.UrgentOrHigh + Other(row);
+    public static int Score(WorkloadRow row) => 2 * (row.Open + row.InProgress) + row.UrgentOrHigh + Other(row);
 
     /// <summary>Escalated, Scheduled, Pending and On-hold together.</summary>
     private static int Other(WorkloadRow row) => row.Escalated + row.Scheduled + row.Waiting;
@@ -31,20 +54,31 @@ public static class TeamWorkload
     public static List<WorkloadRow> Count(IEnumerable<Ticket> tickets, IReadOnlyDictionary<long, string> team, long meId,
         IReadOnlyDictionary<long, string>? statusNames = null)
     {
-        var counts = team.Keys.ToDictionary(id => id, _ => (Open: 0, Urgent: 0, Escalated: 0, Scheduled: 0, Waiting: 0));
+        var counts = team.Keys.ToDictionary(id => id, _ => (Open: 0, InProgress: 0, Urgent: 0, Escalated: 0, Scheduled: 0, Waiting: 0));
+        var escalatedBy = team.Keys.ToDictionary(id => id, _ => new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
         foreach (var ticket in tickets.DistinctBy(t => t.Id))
         {
             if (ticket.AssigneeId is not { } id || !counts.TryGetValue(id, out var c))
                 continue;
             var name = ticket.CustomStatusId is { } status ? statusNames?.GetValueOrDefault(status) : null;
+            var urgent = ticket.Priority is "urgent" or "high";
             if (IsEscalatedStatus(name))
+            {
                 c.Escalated++;
+                escalatedBy[id][name!] = escalatedBy[id].GetValueOrDefault(name!) + 1;
+            }
             else if (TicketRules.IsScheduled(name))
                 c.Scheduled++;
+            else if (IsInProgressStatus(name))
+            {
+                c.InProgress++;
+                if (urgent)
+                    c.Urgent++;
+            }
             else if (ticket.Status is "new" or "open")
             {
                 c.Open++;
-                if (ticket.Priority is "urgent" or "high")
+                if (urgent)
                     c.Urgent++;
             }
             else if (ticket.Status is "pending" or "hold")
@@ -52,8 +86,8 @@ public static class TeamWorkload
             counts[id] = c;
         }
         return counts.Select(kv => new WorkloadRow(kv.Key, team[kv.Key], kv.Value.Open, kv.Value.Urgent, kv.Value.Escalated,
-                kv.Value.Scheduled, kv.Value.Waiting, kv.Key == meId))
-            .OrderByDescending(Score).ThenByDescending(r => r.Open).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
+                kv.Value.Scheduled, kv.Value.Waiting, kv.Key == meId, kv.Value.InProgress, escalatedBy[kv.Key]))
+            .OrderByDescending(Score).ThenByDescending(r => r.Open + r.InProgress).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
 }

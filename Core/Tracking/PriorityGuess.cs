@@ -1,20 +1,40 @@
 using System.Text.RegularExpressions;
+using ZendeskWatcher.UI;
 
 namespace ZendeskWatcher.Tracking;
 
-/// <summary>A guessed priority higher than the ticket's, with what made it look so ("site down", "frustrated tone").</summary>
-public sealed record PriorityHint(string Priority, IReadOnlyList<string> Reasons)
+/// <summary>
+/// A guessed priority that differs from the ticket's, with what made it look so ("site down", "frustrated tone").
+/// Usually higher; <see cref="Lower"/> when a ticket set Urgent or High shows no sign of urgency at all. Only text on
+/// the notification: it never changes the order, sound or how long it stays.
+/// </summary>
+/// <param name="Priority">The guess: urgent or high (higher), normal (lower).</param>
+/// <param name="Set">The ticket's own priority (null: none).</param>
+public sealed record PriorityHint(string Priority, IReadOnlyList<string> Reasons, string? Set = null)
 {
     /// <summary>"P1" … "P3".</summary>
     public string Short => Priority switch { "urgent" => "P1", "high" => "P2", _ => "P3" };
 
-    /// <summary>The line on the notification: "Looks like P1: site down · frustrated tone".</summary>
-    public string Text => $"Looks like {Short}: {string.Join(" · ", Reasons)}";
+    /// <summary>The guess is lower than the priority set: "probably not" urgent.</summary>
+    public bool Lower => PriorityGuess.Rank(Priority) < PriorityGuess.Rank(Set);
+
+    /// <summary>The line on the notification, with priority tags: "Set as [P3] · looks like [P1]: site down · lost sales",
+    /// or "Set as [P1] · probably not: no signs of urgency".</summary>
+    public string Text
+    {
+        get
+        {
+            var set = Set is null ? "No priority" : $"Set as {Markdown.Tag(Set)}";
+            return Lower
+                ? $"**{set} · probably not:** {string.Join(" · ", Reasons)}"
+                : $"**{set} · looks like {Markdown.Tag(Priority)}:** {string.Join(" · ", Reasons)}";
+        }
+    }
 }
 
 /// <summary>
 /// Experimental "true priority" guess (Experimental page): reads what the customer wrote and suggests a
-/// higher priority when it sounds more urgent than the ticket says. English only. Runs on the PC: plain rules, no
+/// higher priority when it sounds more urgent than the ticket says ("probably not" when an Urgent or High one shows no sign at all). English only. Runs on the PC: plain rules, no
 /// service. Never changes anything in Zendesk; it only adds a line to the notification.
 /// </summary>
 public static partial class PriorityGuess
@@ -86,7 +106,7 @@ public static partial class PriorityGuess
     private static readonly HashSet<string> DemandingSla = ["sla15min", "slapremium", "slahighattention", "sla24x7"];
 
     /// <summary>
-    /// The guess, or null when the ticket's own priority looks right (only higher guesses are shown).
+    /// The guess, or null when the ticket's own priority looks right: higher, or "probably not" for Urgent or High with no signal at all.
     /// </summary>
     /// <param name="priority">The ticket's priority (none counts as normal).</param>
     /// <param name="subject">The ticket's subject.</param>
@@ -99,8 +119,7 @@ public static partial class PriorityGuess
         (string Priority, int Count)? likeEarlier = null)
     {
         var current = Rank(priority);
-        if (current >= Rank("urgent"))
-            return null;
+        var set = string.IsNullOrEmpty(priority) ? null : priority.ToLowerInvariant();
         var latest = customerTexts.Count > 0 ? NewText(customerTexts[^1]) : "";
         if (Resolved().IsMatch(latest))
             return null; // thanks, it works now
@@ -112,6 +131,9 @@ public static partial class PriorityGuess
         if (likeEarlier is var (earlier, count) && count >= 2)
             found.Add(new Signal($"like {count} earlier {(earlier == "urgent" ? "P1s" : "P2s")}", earlier == "urgent" ? 2 : 1.5, Never()));
         if (found.Count == 0)
+            // Urgent or High with not a single sign of urgency: "probably not". Any signal at all keeps it quiet.
+            return current >= Rank("high") && customerTexts.Count > 0 ? new PriorityHint("normal", ["no signs of urgency"], set) : null;
+        if (current >= Rank("urgent"))
             return null;
 
         var reasons = found.OrderByDescending(s => s.Weight).Select(s => s.Label).Take(3).ToList();
@@ -128,7 +150,7 @@ public static partial class PriorityGuess
             score += 0.5;
 
         var guess = score >= UrgentScore ? "urgent" : score >= HighScore ? "high" : null;
-        return guess is not null && Rank(guess) > current ? new PriorityHint(guess, reasons) : null;
+        return guess is not null && Rank(guess) > current ? new PriorityHint(guess, reasons, set) : null;
     }
 
     /// <summary>
@@ -171,7 +193,7 @@ public static partial class PriorityGuess
     private static partial Regex Never();
 
     /// <summary>low 0, normal (or none) 1, high 2, urgent 3.</summary>
-    private static int Rank(string? priority) => priority?.ToLowerInvariant() switch
+    internal static int Rank(string? priority) => priority?.ToLowerInvariant() switch
     {
         "urgent" => 3,
         "high" => 2,

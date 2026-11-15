@@ -32,7 +32,8 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ChoiceBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
         new(PopupPosition.RightCenter, "Right center"), new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.BottomCenter, "Bottom center"),
         new(PopupPosition.LeftCenter, "Left center"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
-    private readonly ChoiceBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge")], width: PlacementWidth);
+    private readonly ChoiceBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge"),
+        new(PopupStacking.Pill, "A pill at the top"), new(PopupStacking.Ticker, "A ticker at the screen edge"), new(PopupStacking.Achievement, "Achievement unlocked")], width: PlacementWidth);
     private readonly Label _peekNote = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 60);
 
     /// <summary>The same width for the position, stacking and size choices, so they line up.</summary>
@@ -45,6 +46,7 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ChoiceBox _summarySound = Kit.Combo(SoundOptions);
     private readonly ChoiceBox _appSound = Kit.Combo(SoundOptions);
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
+    private readonly ToggleSwitch _edgeGlow = new("Glow at the screen edge for Urgent, important clients and SLA breaches");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
     private readonly Button _testMine = Theme.SecondaryButton("My ticket");
     private readonly Button _testHelp = Theme.SecondaryButton("Colleague");
@@ -78,6 +80,9 @@ internal sealed class AppearancePage : SettingsPage
         _peekNote.Margin = new Padding(0, 6, 0, 0);
         _peekNote.Visible = false;
         style.Body.Controls.Add(_peekNote);
+        _edgeGlow.Margin = new Padding(0, 8, 0, 0);
+        style.Body.Controls.Add(_edgeGlow);
+        TrackChanges(_edgeGlow);
         // Peek waits at a screen edge: Center has none, so it's greyed out (and left) while Peek is chosen.
         _position.IsItemDisabled = i =>
             Kit.Selected<PopupStacking>(_stacking) == PopupStacking.Peek && _position.Items[i] is Option<PopupPosition> { Value: PopupPosition.Center };
@@ -91,7 +96,7 @@ internal sealed class AppearancePage : SettingsPage
         AddSoundRow(grid, 1, "My tickets", _mySound);
         AddSoundRow(grid, 2, "CC / following", _ccSound);
         AddSoundRow(grid, 3, "Colleagues' tickets", _helpSound);
-        AddSoundRow(grid, 4, "Start summary", _summarySound);
+        AddSoundRow(grid, 4, "Catch up", _summarySound);
         AddSoundRow(grid, 5, "App messages", _appSound);
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
@@ -132,6 +137,7 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_summarySound, settings.SummaryStyle.Sound);
         Kit.Select(_appSound, settings.AppMessageStyle.Sound);
         _commentText.Checked = settings.ShowCommentText;
+        _edgeGlow.Checked = settings.EdgeGlow;
         _likeApp.Checked = settings.NotificationsLikeApp;
         _ownStyle.Checked = !settings.NotificationsLikeApp;
         SelectNotificationTheme(settings.Theme);
@@ -142,7 +148,7 @@ internal sealed class AppearancePage : SettingsPage
     }
 
     /// <summary>
-    /// With Peek: a short line on how it works; choosing Peek while on Center moves to Top center and says so.
+    /// Peek, the pill, the ticker and achievements: a short line on how it works; choosing Peek while on Center moves to Top center and says so.
     /// </summary>
     private void UpdatePeekNote(bool userChoice)
     {
@@ -153,10 +159,16 @@ internal sealed class AppearancePage : SettingsPage
             Kit.Select(_position, PopupPosition.TopCenter);
             moved = userChoice;
         }
-        _peekNote.Text = !peek ? ""
-            : moved ? "Peek needs a screen edge: the position is now Top center."
-            : "Notifications wait as tabs at the screen edge; point at one to slide it out. Not with Center.";
-        _peekNote.Visible = peek;
+        _peekNote.Text = Kit.Selected<PopupStacking>(_stacking) switch
+        {
+            PopupStacking.Peek => moved ? "Peek needs a screen edge: the position is now Top center."
+                : "Notifications wait as tabs at the screen edge; point at one to slide it out. Not with Center.",
+            PopupStacking.Pill => "A small pill sums them up; point at it to see them. Always at the top center.",
+            PopupStacking.Ticker => "They scroll along the bottom of the screen (the top with a top position); click one to open it, right-click for more.",
+            PopupStacking.Achievement => "Game style, one at a time, with a short tune unless the sound is Silent. Always at the bottom center.",
+            _ => ""
+        };
+        _peekNote.Visible = _peekNote.Text.Length > 0;
         _position.Invalidate();
     }
 
@@ -170,6 +182,7 @@ internal sealed class AppearancePage : SettingsPage
         s.SummaryStyle.Sound = Kit.Selected<ToastSound>(_summarySound);
         s.AppMessageStyle.Sound = Kit.Selected<ToastSound>(_appSound);
         s.ShowCommentText = _commentText.Checked;
+        s.EdgeGlow = _edgeGlow.Checked;
         s.NotificationsLikeApp = _likeApp.Checked;
         if (_themeTiles.FirstOrDefault(t => t.Selected) is { } tile)
             s.Theme = tile.Value;

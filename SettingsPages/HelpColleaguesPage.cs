@@ -4,7 +4,7 @@ namespace ZendeskWatcher.SettingsPages;
 internal sealed class HelpColleaguesPage : SettingsPage
 {
     public HelpColleaguesPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Help colleagues", "Step in when a customer replies on a colleague's ticket while the colleague is off work.")
+        : base(context, "Help colleagues", "Step in when a customer replies on a colleague's ticket while the colleague is off work or away.")
     {
         Card = new HelpColleaguesCard(context, groups);
         Panel.Controls.Add(Card.Card);

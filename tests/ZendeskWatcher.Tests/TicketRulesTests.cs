@@ -26,29 +26,36 @@ public class TicketRulesTests
     }
 
     [Fact]
-    public void Summary_text_is_short_rows_quick_to_scan()
+    public void Your_tickets_by_status_open_ones_first_with_P1_and_P2()
     {
-        var text = TicketRules.SummaryText(Snapshot(3, 2, (3, 4, 1), 2), [Tier2, Premium], ["urgent", "high"], Now);
+        var text = TicketRules.YourTicketsText([
+            ("Pending", "pending", "normal"), ("Open", "open", "urgent"), ("In progress", "open", "high"),
+            ("Escalated", "hold", "normal"), ("Open", "new", "normal"), ("Scheduled", "hold", null),
+            ("Pending", "pending", "low"), ("Open", "open", "normal")]);
 
-        Assert.Equal(
-            "**5 unassigned**, oldest 2 h 10 min ago\n" +
-            "3 in Tier 2 · 2 in Premium\n" +
-            "Your tickets: 3 open · 4 pending · 1 on hold\n" +
-            "CC / following: 2 open\n" +
-            "Colleagues off work: replies on Urgent and High", text);
+        Assert.Equal("Your tickets: 3 Open (1 P1) · 1 In progress (1 P2) · 2 Pending · 1 Escalated · 1 Scheduled",
+            ZendeskWatcher.UI.Markdown.Strip(text).Replace('\u00a0', ' '));
+        // The priorities are tags, glued to their count by a non-breaking space.
+        Assert.Contains("(1\u00a0" + ZendeskWatcher.UI.Markdown.Tag("urgent") + ")", text);
+        Assert.Contains(ZendeskWatcher.UI.Markdown.Parse(text), r => r.IsTag && r.Text == "P2");
+        Assert.Equal("You have no open tickets.", TicketRules.YourTicketsText([]));
     }
 
-    [Fact]
-    public void Summary_text_leaves_out_what_does_not_apply()
+    [Theory]
+    [InlineData(true, 10, false)]     // off work, but active 10 min ago: working
+    [InlineData(true, 60, true)]      // off work, last active an hour ago: step in
+    [InlineData(true, null, true)]    // off work, nothing in 3 h
+    [InlineData(false, 60, false)]    // working hours, active an hour ago
+    [InlineData(false, null, true)]   // working hours, nothing in 3 h: away
+    [InlineData(null, null, null)]    // no time zone: always skipped
+    [InlineData(null, 10, false)]
+    public void A_colleague_is_away_by_hours_and_activity(bool? outsideHours, int? minutesAgo, bool? expected)
     {
-        Assert.Equal("No unassigned tickets in your groups\nYour tickets: 1 open",
-            TicketRules.SummaryText(Snapshot(0, 0, (1, 0, 0), 0), [Tier2, Premium], null, Now));
-        Assert.Equal("**2 unassigned**, oldest 2 h 10 min ago\nAll in Premium\n" +
-                     "Your tickets: none open\nCC / following: at least 60 open",
-            TicketRules.SummaryText(Snapshot(0, 2, (0, 0, 0), 60, ccAtLeast: true), [Tier2, Premium], null, Now));
-        Assert.Equal("No groups watched yet: Settings → Groups\nCC / following: 1 open",
-            TicketRules.SummaryText(Snapshot(0, 0, null, 1) with { Groups = [] }, [], null, Now));
+        var now = DateTimeOffset.UtcNow;
+        Assert.Equal(expected, TicketRules.ColleagueAway(outsideHours, true, minutesAgo is { } m ? now.AddMinutes(-m) : null, now));
+        Assert.Equal(outsideHours, TicketRules.ColleagueAway(outsideHours, false, null, now)); // activity unreadable: hours only
     }
+
 
     private static Ticket T(string status = "new", long? assignee = null, long? group = 10) =>
         new() { Id = 1, Status = status, AssigneeId = assignee, GroupId = group };

@@ -67,6 +67,35 @@ public class ExperimentalFeatureTests
     }
 
     [Fact]
+    public async Task A_restarted_watcher_keeps_the_ticket_history_instead_of_reading_it_again()
+    {
+        _settings.GuessPriority = true;
+        Solved(601, "Checkout fails for all customers", Jane, "urgent");
+        Solved(602, "Checkout not working, customers cannot pay", Jane, "urgent");
+        Solved(603, "Checkout broken in production", Jane, "urgent");
+        var first = await StartAsync();
+        foreach (var id in new long[] { 601, 602, 603 })
+            _zendesk.Tickets.Remove(id); // only the history handed over knows them now
+
+        var second = await StartAsync(first);
+        _zendesk.AddUnassigned(610, subject: "Checkout failing").Priority = "normal";
+        await second.PollAsync(CancellationToken.None);
+        var hint = Assert.Single(TakeShown()).PriorityHint;
+        Assert.Contains(hint!.Reasons, r => r.StartsWith("like ") && r.EndsWith("earlier P1s"));
+    }
+
+    private async Task<TicketWatcher> StartAsync(TicketWatcher previous)
+    {
+        var watcher = new TicketWatcher(_settings, new ZendeskClient(_settings, _zendesk), _notifier);
+        watcher.TakeHistoryFrom(previous);
+        await watcher.InitializeAsync(CancellationToken.None);
+        await watcher.PollAsync(CancellationToken.None);
+        await watcher.HistoryLoaded;
+        TakeShown();
+        return watcher;
+    }
+
+    [Fact]
     public async Task A_thank_you_on_my_ticket_is_quiet()
     {
         _settings.TrackMyTickets = true;

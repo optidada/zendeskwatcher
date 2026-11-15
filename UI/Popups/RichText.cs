@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace ZendeskWatcher.UI.Popups;
 
 /// <summary>
-/// Word-wrapped text with bold and alert parts (<see cref="Markdown"/>), for the notification body. TextRenderer can't mix fonts
+/// Word-wrapped text with bold and alert parts and priority tags (<see cref="Markdown"/>), for the notification body. TextRenderer can't mix fonts
 /// in one call, so this lays out the words itself; the result is cached, as popups repaint often.
 /// </summary>
 internal sealed partial class RichText(Font regular, Font bold)
@@ -13,7 +13,13 @@ internal sealed partial class RichText(Font regular, Font bold)
     /// <summary>A link in the text: a ticket number ("#123456") or a Settings page ("Settings → Groups").</summary>
     public sealed record Link(string Action, long? TicketId);
 
-    /// <summary>Style: 0 regular, 1 bold, 2 alert (bold in the alert color); <see cref="Link"/> when it's part of a link.</summary>
+    /// <summary>Priority tags (<see cref="Markdown.Tag"/>) as colored chips; false: as plain text (the Terminal style).</summary>
+    public bool Tags { get; init; } = true;
+
+    /// <summary>The scale for the tags' padding (96 dpi = 1).</summary>
+    public float TagScale { get; init; } = 1f;
+
+    /// <summary>Style: 0 regular, 1 bold, 2 alert (bold in the alert color), 3 a priority tag; <see cref="Link"/> when it's part of a link.</summary>
     private readonly record struct Piece(string Text, int Style, int X, int Line, int Paragraph = 0, Link? Link = null);
 
     private string? _cachedText;
@@ -31,12 +37,20 @@ internal sealed partial class RichText(Font regular, Font bold)
     }
 
     /// <param name="linkColor">Links (ticket numbers, Settings pages) where they can be clicked; null: like the text around them.</param>
-    public void Draw(Graphics g, string markdown, Rectangle rect, int maxLines, Color color, Color boldColor, Color? alertColor = null, Color? linkColor = null)
+    /// <param name="tagColor">A priority tag's color, by priority ("urgent" …); null: the Settings window's colors.</param>
+    public void Draw(Graphics g, string markdown, Rectangle rect, int maxLines, Color color, Color boldColor, Color? alertColor = null, Color? linkColor = null,
+        Func<string, Color>? tagColor = null)
     {
         Layout(markdown, rect.Width, maxLines);
         foreach (var piece in _pieces)
         {
             var at = new Point(rect.Left + piece.X, rect.Top + piece.Line * LineHeight);
+            if (piece.Style == 3)
+            {
+                var priority = Markdown.PriorityOfTag(piece.Text);
+                PriorityTag.Draw(g, piece.Text, tagColor?.Invoke(priority) ?? PriorityTag.ColorOf(priority), at.X + TagMargin, at.Y + LineHeight / 2, TagScale);
+                continue;
+            }
             var pieceColor = piece.Link is not null && linkColor is { } link ? link : piece.Style switch { 2 => alertColor ?? boldColor, 1 => boldColor, _ => color };
             TextRenderer.DrawText(g, piece.Text, piece.Style is 1 or 2 ? bold : regular, at, pieceColor, Flags);
         }
@@ -96,8 +110,11 @@ internal sealed partial class RichText(Font regular, Font bold)
             RegexOptions.Compiled);
     }
 
+    /// <summary>Space on each side of a tag, so it doesn't touch the words around it.</summary>
+    private int TagMargin => (int)Math.Round(2 * TagScale);
+
     private int Width(string text, int style) =>
-        text.Length == 0 ? 0 : TextRenderer.MeasureText(text, style is 1 or 2 ? bold : regular, Size.Empty, Flags).Width;
+        text.Length == 0 ? 0 : style == 3 ? PriorityTag.Measure(text, TagScale).Width + 2 * TagMargin : TextRenderer.MeasureText(text, style is 1 or 2 ? bold : regular, Size.Empty, Flags).Width;
 
     private void Layout(string markdown, int width, int maxLines)
     {
@@ -113,6 +130,11 @@ internal sealed partial class RichText(Font regular, Font bold)
         foreach (var (part, link) in SplitLinks(run.Text))
         {
             var style = run.Alert ? 2 : run.Bold ? 1 : 0;
+            if (run.IsTag && Tags)
+            {
+                tokens.Add((part, 3, null)); // one chip, wraps like a word
+                continue;
+            }
             var start = 0;
             for (var i = 0; i <= part.Length; i++)
             {
@@ -144,8 +166,13 @@ internal sealed partial class RichText(Font regular, Font bold)
             x = 0;
         }
 
-        foreach (var (raw, tokenStyle, link) in tokens)
+        // A word can be several tokens ("(1\u00a0" + a tag + ")"): it wraps as a whole, where it can.
+        static bool GluedToNext(List<(string Text, int Style, Link? Link)> all, int i) =>
+            all[i].Text != "\n" && !all[i].Text.EndsWith(' ') && i + 1 < all.Count && all[i + 1].Text != "\n";
+        for (var t = 0; t < tokens.Count; t++)
         {
+            var (raw, tokenStyle, link) = tokens[t];
+            var glued = t > 0 && GluedToNext(tokens, t - 1); // the rest of a word that already wrapped where it had to
             if (raw == "\n")
             {
                 paragraph++;
@@ -157,14 +184,16 @@ internal sealed partial class RichText(Font regular, Font bold)
             if (text.Length == 0)
                 continue;
             var w = Width(text.TrimEnd(), tokenStyle);
-            if (x > 0 && x + w > width)
+            for (var next = t; !glued && GluedToNext(tokens, next); next++)
+                w += Width(tokens[next + 1].Text.TrimEnd(), tokens[next + 1].Style);
+            if (x > 0 && x + w > width && (!glued || x + Width(text.TrimEnd(), tokenStyle) > width))
             {
                 NewLine();
                 if (line >= maxLines) { truncated = true; break; }
                 text = text.TrimStart();
             }
             // A single word wider than the line (a long link): cut it by characters.
-            while (Width(text.TrimEnd(), tokenStyle) > width - x && text.Length > 1)
+            while (tokenStyle != 3 && Width(text.TrimEnd(), tokenStyle) > width - x && text.Length > 1)
             {
                 var fit = text.Length - 1;
                 while (fit > 1 && Width(text[..fit], tokenStyle) > width - x)
@@ -184,7 +213,7 @@ internal sealed partial class RichText(Font regular, Font bold)
         var merged = new List<Piece>();
         foreach (var piece in pieces)
         {
-            if (merged.Count > 0 && merged[^1].Line == piece.Line && merged[^1].Style == piece.Style && merged[^1].Paragraph == piece.Paragraph && merged[^1].Link == piece.Link)
+            if (merged.Count > 0 && piece.Style != 3 && merged[^1].Style != 3 && merged[^1].Line == piece.Line && merged[^1].Style == piece.Style && merged[^1].Paragraph == piece.Paragraph && merged[^1].Link == piece.Link)
                 merged[^1] = merged[^1] with { Text = merged[^1].Text + piece.Text };
             else
                 merged.Add(piece);
@@ -194,6 +223,8 @@ internal sealed partial class RichText(Font regular, Font bold)
         {
             // "…" at the end of the last line, shortening it until it fits.
             var last = merged[^1];
+            if (last.Style == 3) // after a tag: "…" as text
+                merged.Add(last = new Piece("", 0, last.X + Width(last.Text, 3), last.Line, last.Paragraph));
             var text = last.Text.TrimEnd();
             while (text.Length > 0 && last.X + Width(text + "…", last.Style) > width)
                 text = text[..^1].TrimEnd();

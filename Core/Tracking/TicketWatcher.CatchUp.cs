@@ -4,6 +4,9 @@ using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher.Tracking;
 
+/// <summary>Why Catch up runs: clicked, your working day started, or the app started (the greeting).</summary>
+public enum CatchUpReason { Requested, DayStart, AppStart }
+
 /// <summary>
 /// "Catch up": on request, what still needs attention since you stopped working last time (the end of your previous
 /// working day): tickets still unassigned in your groups, and customers still waiting for an answer on your tickets,
@@ -26,7 +29,6 @@ public sealed partial class TicketWatcher
         public IEnumerable<NotificationContent> All => Unassigned.Concat(Mine).Concat(Cc).Concat(Colleagues);
     }
 
-    /// <summary>Finds what still needs attention since you stopped working last time, and shows it.</summary>
     /// <summary>
     /// Catch up is due by itself: it's on (<see cref="Settings.CatchUpAtDayStart"/>), you're working, and it hasn't run
     /// since your working day started. The very first time it only remembers the moment, so a new install isn't flooded.
@@ -45,10 +47,16 @@ public sealed partial class TicketWatcher
 
     public bool DayStartCatchUpDue() => DayStartCatchUpDue(DateTime.Now);
 
+    /// <summary>
+    /// Finds what still needs attention since you stopped working last time, and shows it: a greeting with the counts
+    /// and your tickets by status (always), plus the waiting customers and a few unassigned tickets one by one.
+    /// When the app starts, the one-by-one ones only come if it's also the first Catch up of your working day.
+    /// </summary>
     /// <param name="since">For tests; normally worked out from your working hours.</param>
-    /// <param name="requestedByUser">Clicked (shown even while paused, "All caught up" too), or by itself at the start of the day.</param>
-    public async Task<CatchUpResult> CatchUpAsync(CancellationToken ct, DateTime? since = null, bool requestedByUser = true)
+    public async Task<CatchUpResult> CatchUpAsync(CancellationToken ct, DateTime? since = null, CatchUpReason reason = CatchUpReason.Requested)
     {
+        var requestedByUser = reason == CatchUpReason.Requested;
+        var oneByOne = reason != CatchUpReason.AppStart || DayStartCatchUpDue(DateTime.Now);
         _state.LastCatchUp = DateTime.Now;
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var start = since ?? TicketRules.CatchUpStart(DateTime.Now, settings.MyWorkdayStartHour, settings.MyWorkdayEndHour, settings.MyWorkDays);
@@ -56,10 +64,15 @@ public sealed partial class TicketWatcher
         var me = Me!.Id;
         var result = new CatchUpResult(start, [], [], [], []);
 
-        // 1. Still unassigned: from the check that just ran (verified, not the search index).
+        // 1. Still unassigned: from the check that just ran (verified, not the search index). Only a few come one by one;
+        // more are just counted, so they aren't looked up in full (client, SLA, requester: requests for nothing).
+        var oneByOneUnassigned = _unassigned.Sum(g => g.Tickets.Count) <= MaxSeparateUnassigned;
         foreach (var (group, tickets) in _unassigned)
             foreach (var ticket in tickets.OrderBy(t => t.CreatedAt))
-                result.Unassigned.Add(await UnassignedTicketAsync(ticket, group, "Catch up · Unassigned", ct));
+                result.Unassigned.Add(oneByOneUnassigned
+                    ? await UnassignedTicketAsync(ticket, group, "Catch up · Unassigned", ct)
+                    : new NotificationContent(NotificationKind.NewTicket, "Catch up · Unassigned", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", "",
+                        ticket.Id, ticket.Priority, GroupLabel(group)) { ScheduledCount = IsScheduled(ticket) ? 1 : 0, IsTicketNotification = true });
 
         // 2 and 3. Your own and CC'd / followed tickets where a customer wrote last (copied first: the check may change them).
         var mineIds = settings.TrackMyTickets ? _state.MyTickets.Keys.ToList() : [];
@@ -97,52 +110,80 @@ public sealed partial class TicketWatcher
                 var assignee = await zendesk.GetUserAsync(assigneeId, ct);
                 if (!settings.CoversColleague(assigneeId, TimeRegions.Of(TimeRegions.ZoneOf(assignee)), TimeRegions.Mine(Me)))
                     continue;
-                var (away, local) = OutsideWorkingHours(assignee, DateTimeOffset.UtcNow);
-                if (away is not true)
-                    continue;
                 if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting || IsQuietThankYou(waiting.Comment))
                     continue;
+                var (away, _, why) = await ColleagueAwayAsync(assigneeId, assignee, DateTimeOffset.UtcNow, ct);
+                if (away is not true)
+                    continue;
                 var (customer, comment, at) = waiting;
-                var who = assignee?.Name ?? $"User {assigneeId}";
                 var said = settings.ShowCommentText ? $"**{Markdown.Escape(customer)}** wrote: {Markdown.Escape(Snippet(comment))}" : $"**{Markdown.Escape(customer)}** wrote";
                 result.Colleagues.Add(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Catch up · Customer waiting",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-                    $"{said}\n{Markdown.Escape(who)} is off work · {Clock.DayTime(local)} their time{StatusSuffix(ticket)}",
+                    $"{said}\n{why}{StatusSuffix(ticket)}",
                     ticket.Id, ticket.Priority, GroupLabel(group))
                 { EventTime = at, ChangedAt = at, IsTicketNotification = true }, ticket, group, ct, sla: (at, FirstReply: false)));
             }
         }
 
-        // By itself at the start of the day: tickets the normal checks notified about in the last half hour (e.g. when
-        // the app was just started) aren't repeated. Asked for: the full picture.
+        // Your own unsolved tickets by status, and Escalated ones where the customer hasn't heard from anyone lately.
+        var myOpen = tracked.Where(t => t.AssigneeId == me && t.IsOpen).ToList();
+        var quietEscalated = 0;
+        foreach (var ticket in myOpen.Where(t => TeamWorkload.IsEscalatedStatus(StatusName(t))))
+            if (!await RepliedToCustomerSinceAsync(ticket, now - TicketRules.EscalatedQuietFor, ct))
+                quietEscalated++;
+        // Pending ones nobody has touched for a week, and Zendesk's SLA timers: past, or breaching before midnight.
+        var quietPending = myOpen.Count(t => t.Status == "pending" && t.UpdatedAt < now - TicketRules.PendingQuietFor);
+        var breaches = myOpen.Select(t => t.Slas?.PolicyMetrics.Where(m => m.Stage == "active" && m.BreachAt is not null).Min(m => m.BreachAt))
+            .OfType<DateTimeOffset>().ToList();
+        var midnight = new DateTimeOffset(DateTime.Today.AddDays(1));
+        var overdue = breaches.Count(b => b <= now);
+        var dueToday = breaches.Where(b => b > now && b < midnight).Order().ToList();
+
+        Log.Info($"Catch up since {start:yyyy-MM-dd HH:mm} ({clock.Elapsed.TotalSeconds:0.0}s, {reason}): {result.Unassigned.Count} unassigned, {result.Mine.Count} waiting on mine, " +
+                 $"{result.Cc.Count} on CC'd, {result.Colleagues.Count} on colleagues' tickets, {myOpen.Count} of mine open ({quietEscalated} escalated and quiet, {quietPending} pending and quiet, SLA {overdue} past / {dueToday.Count} today)");
+
+        _state.Save();
+        // Waiting customers one by one (up to 5), unassigned tickets only when there are few; the greeting counts it all.
+        var customers = result.Mine.Concat(result.Cc).Concat(result.Colleagues).ToList();
+        var separate = !oneByOne ? [] : (customers.Count <= MaxSeparateWaiting ? customers : [])
+            .Concat(result.Unassigned.Count <= MaxSeparateUnassigned ? result.Unassigned : []).ToList();
+        // By itself: tickets the normal checks notified about in the last half hour (e.g. when the app was just
+        // started) aren't repeated one by one (the greeting still counts them). Asked for: the full picture.
         if (!requestedByUser)
         {
             var recent = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(30);
-            foreach (var list in new[] { result.Unassigned, result.Mine, result.Cc, result.Colleagues })
-                list.RemoveAll(c => c.TicketId is { } id && _notifiedAt.TryGetValue(id, out var at) && at >= recent);
+            separate.RemoveAll(c => c.TicketId is { } id && _notifiedAt.TryGetValue(id, out var at) && at >= recent);
         }
-
-        Log.Info($"Catch up since {start:yyyy-MM-dd HH:mm} ({clock.Elapsed.TotalSeconds:0.0}s): {result.Unassigned.Count} unassigned, {result.Mine.Count} waiting on mine, " +
-                 $"{result.Cc.Count} on CC'd, {result.Colleagues.Count} on colleagues' tickets");
-
-        _state.Save();
-        // Asked for: shown even while notifications are paused. By itself: quiet when there's nothing.
-        if (!requestedByUser && result.Count == 0)
-            return result;
-        // Waiting customers one by one (up to 5), unassigned tickets only when there are few; the summary (whenever
-        // not everything is shown one by one) counts it all.
-        var customers = result.Mine.Concat(result.Cc).Concat(result.Colleagues).ToList();
-        var separate = (customers.Count <= MaxSeparateWaiting ? customers : [])
-            .Concat(result.Unassigned.Count <= MaxSeparateUnassigned ? result.Unassigned : []).ToList();
-        if (separate.Count < result.Count || result.Count == 0)
-            notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Catch up",
-                result.Count == 0 ? "All caught up" : result.Count == 1 ? "1 thing needs attention" : $"{result.Count} things need attention",
-                TicketRules.CatchUpText(start, DateTime.Now, result.Unassigned.Count, result.Mine.Count, result.Cc.Count, result.Colleagues.Count,
-                    result.Unassigned.Sum(c => c.ScheduledCount)))
-            { Action = NotificationActions.OpenZendesk, MaxBodyLines = 7, Style = settings.AppMessageStyle, RequestedByUser = requestedByUser });
+        var counts = new TicketRules.CatchUpCounts
+        {
+            Mine = result.Mine.Count, Cc = result.Cc.Count, Colleagues = result.Colleagues.Count,
+            Unassigned = result.Unassigned.Count, Scheduled = result.Unassigned.Sum(c => c.ScheduledCount),
+            SlaPast = overdue, SlaToday = dueToday.Count, FirstDueToday = dueToday.Count > 0 ? dueToday[0].LocalDateTime : null,
+            QuietEscalated = quietEscalated, QuietPending = quietPending, NoGroups = settings.WatchedGroups.Count == 0
+        };
+        var yourTickets = settings.TrackMyTickets ? TicketRules.YourTicketsText(myOpen.Select(t => (StatusName(t), t.Status, t.Priority)).ToList()) : null;
+        notifier.Show(new NotificationContent(NotificationKind.MyTicket, $"Catch up · {TicketRules.CatchUpSince(start, DateTime.Now)}",
+            TicketRules.Greeting(DateTime.Now, Me?.Name), TicketRules.CatchUpBody(counts, yourTickets))
+        {
+            Action = settings.WatchedGroups.Count == 0 ? NotificationActions.Settings : NotificationActions.OpenZendesk,
+            Style = settings.SummaryStyle, RequestedByUser = requestedByUser
+        });
         foreach (var content in separate)
             notifier.Show(content with { RequestedByUser = requestedByUser });
         return result;
+    }
+
+    /// <summary>Someone other than the customer wrote publicly on the ticket since <paramref name="since"/>.</summary>
+    private async Task<bool> RepliedToCustomerSinceAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct)
+    {
+        foreach (var audit in await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
+        {
+            if (audit.AuthorId == SystemUserId || !audit.Events.Any(e => e.Type == "Comment" && e.Public == true))
+                continue;
+            if (!TicketRules.IsCustomer(await zendesk.GetUserAsync(audit.AuthorId, ct), ticket, Me?.Email))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>The newest public comment since <paramref name="since"/>, if a customer wrote it (so they're waiting).</summary>

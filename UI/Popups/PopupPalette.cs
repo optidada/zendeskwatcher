@@ -83,6 +83,7 @@ public sealed class PopupPalette
     public static readonly PopupPalette NeonDark = new()
     {
         Name = "Neon dark",
+        OnAccent = Color.FromArgb(8, 12, 24), // dark text: white is too faint on the bright neon colors
         Background = Color.FromArgb(24, 26, 36),
         BackgroundEnd = Color.FromArgb(14, 15, 22),
         Border = Color.FromArgb(48, 52, 66),
@@ -229,8 +230,8 @@ public sealed class PopupPalette
         Accent = (priority, kind) => priority switch
         {
             "urgent" => Color.FromArgb(220, 38, 38),
-            "high" => Color.FromArgb(234, 88, 12),
-            "low" => Color.FromArgb(22, 163, 74),
+            "high" => Color.FromArgb(194, 65, 12),   // orange and green dark enough for white button text
+            "low" => Color.FromArgb(21, 128, 61),
             _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(147, 51, 234) : Color.FromArgb(37, 99, 235)
         }
     };

@@ -18,7 +18,7 @@ public static class ChipSounds
     private static System.Windows.Forms.Timer? _fade;
     private const int FadeMs = 300, FadeStepMs = 30;
 
-    public static bool IsChip(ToastSound sound) => sound >= ToastSound.ChipBlip;
+    public static bool IsChip(ToastSound sound) => sound is >= ToastSound.ChipBlip and <= ToastSound.SoftChime;
 
     public static void Play(ToastSound sound)
     {
@@ -26,17 +26,23 @@ public static class ChipSounds
         {
             if (!Cache.TryGetValue(sound, out var wav))
                 Cache[sound] = wav = Wav(Render(sound));
-            if (TryPlayWithVolume(wav))
-                return;
-            _player?.Stop();
-            _player?.Dispose();
-            _player = new SoundPlayer(new MemoryStream(wav));
-            _player.Play();
+            PlayWav(wav);
         }
         catch (Exception ex)
         {
             Log.Error("Could not play chiptune sound", ex);
         }
+    }
+
+    /// <summary>Plays a WAV file from memory. Call on the UI thread.</summary>
+    private static void PlayWav(byte[] wav)
+    {
+        if (TryPlayWithVolume(wav))
+            return;
+        _player?.Stop();
+        _player?.Dispose();
+        _player = new SoundPlayer(new MemoryStream(wav));
+        _player.Play();
     }
 
     private static bool _mediaFailed;
@@ -249,6 +255,55 @@ public static class ChipSounds
         _ => null
     };
 
+    private static byte[]? _achievement;
+
+    /// <summary>
+    /// "Achievement unlocked" (Look &amp; sound → How they appear): a short original flourish, played instead of the
+    /// notification's own sound (never when that's Silent). Under a second.
+    /// </summary>
+    public static void PlayAchievement()
+    {
+        try
+        {
+            PlayWav(_achievement ??= Wav(Achievement()));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not play the achievement sound", ex);
+        }
+    }
+
+    /// <summary>Two quick pick-up notes, a run up the chord, and a bright shimmering landing, over a little bass hop.</summary>
+    private static float[] Achievement()
+    {
+        Note[] melody = [new(76, 55, 0.25), new(81, 55, 0.25), new(0, 30), new(85, 50, 0.125), new(88, 50, 0.125), new(93, 70, 0.125),
+            new(0, 25), new(92, 60, 0.25), new(97, 420, 0.5, [0, 4, 7, 12], 2.2)];
+        Note[] bass = [new(45, 110, 0.5, null, 1.5), new(0, 30), new(52, 170, 0.5, null, 1.5), new(0, 25), new(57, 480, 0.5, null, 2.5)];
+        var mix = new double[melody.Sum(n => SampleRate * n.Ms / 1000) + SampleRate / 10];
+        AddVoice(mix, melody, 1.0);
+        AddVoice(mix, bass, 0.45);
+        AddEcho(mix, SampleRate * 90 / 1000, 0.25);
+        return Normalize(mix);
+    }
+
+    /// <summary>The soft low-pass and level every jingle gets (see <see cref="Render"/>).</summary>
+    private static float[] Normalize(double[] mix)
+    {
+        var output = new float[mix.Length];
+        var last = 0.0;
+        var peak = 1e-6;
+        for (var i = 0; i < mix.Length; i++)
+        {
+            last += 0.35 * (mix[i] - last);
+            mix[i] = last;
+            peak = Math.Max(peak, Math.Abs(last));
+        }
+        var fade = Math.Min(mix.Length, SampleRate / 20); // no click at the end
+        for (var i = 0; i < mix.Length; i++)
+            output[i] = (float)(mix[i] / peak * 0.3 * Math.Min(1.0, (double)(mix.Length - i) / fade));
+        return output;
+    }
+
     // ------------------------------------------------------------------ synthesis
 
     private static float[] Render(ToastSound sound)
@@ -422,5 +477,8 @@ public static class ChipSounds
             File.WriteAllBytes(Path.Combine(dir, $"{sound}.wav"), Wav(samples));
             File.AppendAllText(Path.Combine(dir, "lengths.txt"), $"{sound}: {samples.Length / (double)SampleRate:0.0} s{Environment.NewLine}");
         }
+        var achievement = Achievement();
+        File.WriteAllBytes(Path.Combine(dir, "Achievement.wav"), Wav(achievement));
+        File.AppendAllText(Path.Combine(dir, "lengths.txt"), $"Achievement (How they appear): {achievement.Length / (double)SampleRate:0.0} s{Environment.NewLine}");
     }
 }

@@ -278,7 +278,8 @@ public class TicketChangeTests
         await watcher.PollAsync(CancellationToken.None);
 
         var shown = Assert.Single(TakeShown());
-        Assert.Equal("Priority Low (P4) → Urgent (P1) (Sam Colleague)", shown.Body);
+        Assert.Equal("Priority Low P4 → Urgent P1 (Sam Colleague)", Markdown.Strip(shown.Body).Replace('\u00a0', ' '));
+        Assert.Equal(2, Markdown.Parse(shown.Body).Count(r => r.IsTag)); // as priority tags
     }
 
     [Fact]

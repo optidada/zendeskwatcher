@@ -10,12 +10,21 @@ namespace ZendeskWatcher.UI.Popups;
 /// </summary>
 public sealed class PopupForm : Form
 {
-    public enum Result { None, Open, Take, CatchUp, Snooze, Dismiss, Timeout }
+    public enum Result { None, Open, Take, Snooze, Dismiss, Timeout }
 
-    /// <summary>The button between Open and Snooze/Close: "Take it" on new tickets, "Catch up" on the start summary.</summary>
-    private bool HasExtraButton => _content.CanTake || _content.CanCatchUp;
+    /// <summary>The button between Open and Snooze/Close: "Take it" on new tickets.</summary>
+    private bool HasExtraButton => _content.CanTake;
 
     private const int BaseWidth = 380;
+
+    /// <summary>Badge column and heading prefix ("Achievement unlocked"), or null.</summary>
+    private readonly PopupDecoration? _decoration;
+
+    /// <summary>The width at 96 dpi: wider by the badge column, if any.</summary>
+    private int FormWidth => BaseWidth + (_decoration is { } d ? d.BadgeWidth + d.Widen : 0);
+
+    /// <summary>How long the game-style rise (<see cref="Entry.Bounce"/>) takes, overshoot included.</summary>
+    private const double BounceMs = 520;
     private const double EnterMs = 260;
     private const double LeaveMs = 200;
     private const double TypingCharsPerSecond = 160;
@@ -85,7 +94,11 @@ public sealed class PopupForm : Form
     internal RichText.Link? ClickedLink { get; private set; }
 
     /// <summary>Links: the accent of normal tickets (the theme's link color); in Terminal cyan, as links are in a terminal (its accent is the text's green).</summary>
-    private Color LinkColor => _palette.Terminal ? Color.FromArgb(90, 220, 255) : _palette.Accent("normal", NotificationKind.NewTicket);
+    private Color LinkColor => _linkColor ??= _palette.Terminal ? Color.FromArgb(90, 220, 255) : Readable(_palette.Accent("normal", NotificationKind.NewTicket));
+    private Color? _linkColor; // worked out once: the palette never changes (it's used in every paint)
+
+    /// <summary>A priority color as text: lightened or darkened just enough to read on the background (a Windows accent, an orange on white).</summary>
+    private Color Readable(Color color) => Contrast.Ensure(color, Contrast.Text, _palette.Background, _palette.BackgroundEnd);
 
     /// <summary>Where the links are; they're in the link color (the whole notification shows the hand cursor anyway).</summary>
     private List<(RichText.Link Link, Rectangle Bounds)> _links = [];
@@ -154,6 +167,18 @@ public sealed class PopupForm : Form
     private const int IdleInterval = 250;
     private string? _paintedBody;
     private long _paintedBlink = -1;
+    private long _paintedBar = -1;
+
+    /// <summary>What the countdown shows: its width in pixels, or the Terminal's cells and seconds (repainted when it changes).</summary>
+    private long BarState()
+    {
+        if (_durationMs <= 0)
+            return 0;
+        var remaining = Math.Clamp(1 - _elapsed / _durationMs, 0, 1);
+        return _palette.Terminal
+            ? (long)Math.Round(24 * remaining) * 100_000 + (long)Math.Ceiling((_durationMs - _elapsed) / 1000)
+            : (long)(_barRect.Width * remaining);
+    }
 
     public event Action<PopupForm>? Finished;
 
@@ -172,9 +197,11 @@ public sealed class PopupForm : Form
 
     /// <param name="scale">Screen DPI scale.</param>
     /// <param name="size">The user's notification size (1 = 100%): text, buttons and spacing grow together.</param>
-    public PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f)
+    /// <param name="decoration">A badge column and heading prefix ("Achievement unlocked"); null for none.</param>
+    internal PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f, PopupDecoration? decoration = null)
     {
         _content = content;
+        _decoration = decoration;
         _palette = palette;
         _s = scale * size;
         _durationMs = Math.Max(0, seconds) * 1000; // 0: until dismissed
@@ -188,7 +215,7 @@ public sealed class PopupForm : Form
         _smallFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
         _bodyBoldFont = new Font(family, palette.FontSize * size, FontStyle.Bold);
         _clientFont = new Font(family, (palette.FontSize + (palette.Terminal ? 1f : 2.5f)) * size, FontStyle.Bold);
-        _rich = new RichText(_bodyFont, _bodyBoldFont);
+        _rich = new RichText(_bodyFont, _bodyBoldFont) { Tags = !palette.Terminal, TagScale = _s }; // Terminal: "P1" as text
         _titleRich = new RichText(_titleFont, _titleFont);
 
         FormBorderStyle = FormBorderStyle.None;
@@ -201,7 +228,7 @@ public sealed class PopupForm : Form
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
 
         NaturalHeight = MeasureLayout();
-        ClientSize = new Size(Px(BaseWidth), NaturalHeight);
+        ClientSize = new Size(Px(FormWidth), NaturalHeight);
 
         _timer.Tick += (_, _) => Tick();
     }
@@ -285,7 +312,14 @@ public sealed class PopupForm : Form
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     /// <summary>How a popup comes in and goes: from the right or left edge, dropping from the top, or fading.</summary>
-    public enum Entry { FromRight, FromLeft, FromTop, FromBottom, Fade }
+    public enum Entry { FromRight, FromLeft, FromTop, FromBottom, Fade, Bounce }
+
+    /// <summary>How far a <see cref="Entry.Bounce"/> card travels: from just below the screen.</summary>
+    private int BounceDrop => Height + Px(40);
+
+    /// <summary>Pill (Look &amp; sound): made and counting as usual, but shown only when the pill opens (it shows and hides it).</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool StartHidden { get; set; }
 
     private Entry _entry = Entry.FromRight;
 
@@ -297,6 +331,7 @@ public sealed class PopupForm : Form
         _y = entry switch
         {
             Entry.FromTop => TargetY - Height - Px(24),    // drops down to its place
+            Entry.Bounce => TargetY + BounceDrop,          // rises from below the screen
             Entry.FromBottom => TargetY + Height + Px(24), // rises to its place
             _ => TargetY
         };
@@ -308,10 +343,11 @@ public sealed class PopupForm : Form
             if (ComesOutByItself(_content))
                 _forcedOutUntil = start + EnterMs + 6000;
         }
-        if (entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
+        if (entry is Entry.FromTop or Entry.FromBottom or Entry.Fade or Entry.Bounce)
             Opacity = 0;
         Location = new Point(HiddenX(1), (int)_y);
-        Show();
+        if (!StartHidden)
+            Show();
         _phaseStart = _lastTick = _clock.Elapsed.TotalMilliseconds;
         _timer.Start();
     }
@@ -349,10 +385,12 @@ public sealed class PopupForm : Form
         switch (_phase)
         {
             case Phase.Entering:
-                var pIn = Math.Min(1, t / EnterMs);
+                var pIn = Math.Min(1, t / (_entry == Entry.Bounce ? BounceMs : EnterMs));
                 x = HiddenX(1 - EaseOutBack(pIn));
-                if (_entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
-                    Opacity = Math.Min(1, pIn * 1.5);
+                if (_entry is Entry.FromTop or Entry.FromBottom or Entry.Fade or Entry.Bounce)
+                    Opacity = Math.Min(1, pIn * (_entry == Entry.Bounce ? 3 : 1.5));
+                if (_entry == Entry.Bounce)
+                    _y = TargetY + (float)((1 - EaseOutBounce(pIn)) * BounceDrop);
                 if (pIn >= 1)
                 {
                     _phase = Phase.Showing;
@@ -363,8 +401,10 @@ public sealed class PopupForm : Form
             case Phase.Leaving:
                 var pOut = Math.Min(1, t / LeaveMs);
                 x = HiddenX(pOut * pOut);
-                if (_entry is Entry.FromTop or Entry.FromBottom or Entry.Fade)
+                if (_entry is Entry.FromTop or Entry.FromBottom or Entry.Fade or Entry.Bounce)
                     Opacity = 1 - pOut;
+                if (_entry == Entry.Bounce)
+                    _y = TargetY + (float)(pOut * pOut * BounceDrop); // slides back down
                 if (pOut >= 1)
                 {
                     _timer.Stop();
@@ -415,23 +455,36 @@ public sealed class PopupForm : Form
         if (Peek != PeekEdge.None)
             ClipToScreen(location);
 
-        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn && !Away;
+        // As above: a tucked Peek notification nobody has slid out yet isn't counting down (nothing to repaint).
+        var countingDown = _phase == Phase.Showing && _durationMs > 0 && !_hover && MyTurn && !Away && (Peek == PeekEdge.None || _seen);
         var typing = Typed().Typing;
         var gliding = Math.Abs(TargetY - _y) > 0.5f;
-        var busy = _phase != Phase.Showing || gliding || countingDown || typing || peekBusy;
+        var animating = _phase != Phase.Showing || gliding || typing || peekBusy;
         var fill = Peek != PeekEdge.None ? (int)(TabFill() * 100) : -1;
 
         var body = Body;
         var blink = _palette.Terminal ? _clock.ElapsedMilliseconds / 500 : 0;
-        if (busy || moved || body != _paintedBody || blink != _paintedBlink || fill != _paintedFill)
+        var bar = BarState();
+        if (animating || moved || body != _paintedBody || blink != _paintedBlink || fill != _paintedFill)
         {
             _paintedFill = fill;
             _paintedBody = body;
             _paintedBlink = blink;
+            _paintedBar = bar;
             Invalidate();
         }
+        else if (bar != _paintedBar)
+        {
+            // Only the countdown moved: just its strip, and only when it changed by a pixel (a full repaint each frame
+            // took ~15% of a core per notification on screen).
+            _paintedBar = bar;
+            Invalidate(_barRect);
+        }
 
-        var interval = busy ? BusyInterval : IdleInterval;
+        // Counting down alone: about one tick per pixel (or cell) the bar loses, not 60 a second.
+        var interval = animating ? BusyInterval
+            : countingDown ? Math.Clamp((int)(_durationMs / Math.Max(1, _palette.Terminal ? 24 : _barRect.Width)), BusyInterval, 100)
+            : IdleInterval;
         if (_timer.Interval != interval)
             _timer.Interval = interval;
     }
@@ -508,6 +561,16 @@ public sealed class PopupForm : Form
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
     }
 
+    /// <summary>Rises past its place a little, drops back, and one small hop: a game-style landing.</summary>
+    private static double EaseOutBounce(double p)
+    {
+        if (p < 0.6)
+            return (1 - Math.Pow(1 - p / 0.6, 3)) * 1.06;            // up, overshooting a bit
+        if (p < 0.8)
+            return 1.06 - 0.06 * Math.Sin((p - 0.6) / 0.2 * Math.PI / 2);  // settles
+        return 1 + 0.025 * Math.Sin((p - 0.8) / 0.2 * Math.PI);     // a small hop
+    }
+
     private static double EaseOutBack(double p)
     {
         const double c1 = 1.2, c3 = c1 + 1;
@@ -519,13 +582,13 @@ public sealed class PopupForm : Form
     private int MeasureLayout()
     {
         var pad = Px(16);
-        var left = pad + (_palette.Stripe ? Px(6) : 0);
-        var width = Px(BaseWidth) - left - pad;
+        var left = pad + (_palette.Stripe ? Px(6) : 0) + Px(_decoration?.BadgeWidth ?? 0);
+        var width = Px(FormWidth) - left - pad;
         var y = pad - Px(2);
 
         _closeLabel = _palette.Terminal ? "[x]" : "✕";
         var closeSize = Px(22);
-        _closeRect = new Rectangle(Px(BaseWidth) - pad - closeSize + Px(4), y - Px(2), closeSize, closeSize);
+        _closeRect = new Rectangle(Px(FormWidth) - pad - closeSize + Px(4), y - Px(2), closeSize, closeSize);
 
         // Copy, left of ✕: only on notifications about tickets (and their "Try it" samples, which aren't counted).
         var copyWidth = _palette.Terminal ? TextRenderer.MeasureText("[copied]", _smallFont).Width : closeSize; // a word in Terminal
@@ -564,7 +627,7 @@ public sealed class PopupForm : Form
         _titleRect = new Rectangle(left, y, width, titleHeight);
         y += titleHeight + Px(4);
 
-        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : _rich.Measure(Body, width, _content.MaxBodyLines);
+        var bodyHeight = string.IsNullOrWhiteSpace(Body) ? 0 : _rich.Measure(Body, width, _content.BodyLines);
         _bodyRect = new Rectangle(left, y, width, bodyHeight);
         y += bodyHeight + (bodyHeight > 0 ? Px(12) : Px(8));
 
@@ -599,7 +662,7 @@ public sealed class PopupForm : Form
         };
         var buttonHeight = Px(30);
         _footerRect = new Rectangle(left, y, width, buttonHeight);
-        _takeLabel = _content.CanCatchUp ? (_palette.Terminal ? "[ catch up ]" : "Catch up") : (_palette.Terminal ? "[ take ]" : "Take it");
+        _takeLabel = _palette.Terminal ? "[ take ]" : "Take it";
         _dismissLabel = _palette.Terminal ? "[ close ]" : "Close";
 
         // Right to left: Open, Take it, Snooze; Close (the same as ✕ and right-click) always at the bottom left, so it's
@@ -632,7 +695,7 @@ public sealed class PopupForm : Form
         y += buttonHeight + pad;
 
         if (!_palette.Terminal)
-            _barRect = new Rectangle(0, y - Px(3), Px(BaseWidth), Px(3));
+            _barRect = new Rectangle(0, y - Px(3), Px(FormWidth), Px(3));
 
         return y;
     }
@@ -645,6 +708,18 @@ public sealed class PopupForm : Form
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var bounds = ClientRectangle;
 
+        // Only the countdown strip (see Tick): what can be under it, without laying out and drawing all the text.
+        if (!_palette.Terminal && !_barRect.IsEmpty && _barRect.Contains(e.ClipRectangle))
+        {
+            using (var strip = new LinearGradientBrush(bounds, _palette.Background, _palette.BackgroundEnd, LinearGradientMode.Vertical))
+                g.FillRectangle(strip, _barRect);
+            if (_palette.Stripe)
+                PaintStripe(g, bounds);
+            PaintCountdown(g);
+            PaintPeekTab(g);
+            return;
+        }
+
         // Background
         using (var bg = new LinearGradientBrush(bounds, _palette.Background, _palette.BackgroundEnd, LinearGradientMode.Vertical))
             g.FillRectangle(bg, bounds);
@@ -653,16 +728,18 @@ public sealed class PopupForm : Form
             PaintTerminalChrome(g, bounds);
         else if (_palette.Stripe)
             PaintStripe(g, bounds);
+        if (_decoration is { } decoration)
+            decoration.PaintBadge(g, new Rectangle(Px(16) + (_palette.Stripe ? Px(6) : 0) - Px(6), 0, Px(decoration.BadgeWidth), _footerRect.Top), _palette, _accent, _s);
 
         // Heading + close
         var heading = _palette.Terminal
-            ? $"> zendesk-watcher --{(_content.Kind == NotificationKind.NewTicket ? "new" : "update")}{(_content.PriorityShort is { } p ? $" {p.Replace(" ", "")}" : "")}{(_content.Context is null ? "" : $"  grp:{_content.Context}")}"
-            : _content.FullHeading.ToUpperInvariant();
-        var headingColor = _palette.Terminal ? _palette.Muted : _palette.Dark ? _accent : Blend(_accent, Color.Black, 0.1f);
+            ? $"> {_decoration?.TerminalCommand ?? "zendesk-watcher"} --{(_content.Kind == NotificationKind.NewTicket ? "new" : "update")}{(_content.PriorityShort is { } p ? $" {p.Replace(" ", "")}" : "")}{(_content.Context is null ? "" : $"  grp:{_content.Context}")}"
+            : ((_decoration?.HeadingPrefix ?? "") + _content.FullHeading).ToUpperInvariant();
+        var headingColor = _palette.Terminal ? _palette.Muted : Readable(_palette.Dark ? _accent : Blend(_accent, Color.Black, 0.1f));
         if (!_palette.Terminal && PriorityTag.Short(_content.Priority) is { } tag)
         {
             // "NEW TICKET [P2] · SUPPORT TIER 2": the priority as a tag in its color, easier to read than "· P2 ·".
-            var before = _content.Heading.ToUpperInvariant() + " ";
+            var before = ((_decoration?.HeadingPrefix ?? "") + _content.Heading).ToUpperInvariant() + " ";
             var after = string.IsNullOrWhiteSpace(_content.Context) ? "" : " \u00b7 " + _content.Context!.ToUpperInvariant();
             const TextFormatFlags Line = TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
             var x = _headingRect.X;
@@ -693,7 +770,7 @@ public sealed class PopupForm : Form
                 using var hoverBrush = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 18, _palette.Text));
                 g.FillEllipse(hoverBrush, _copyRect);
             }
-            var color = copied ? _accent : copyHover ? _palette.Text : _palette.Muted;
+            var color = copied ? (_palette.Terminal ? _accent : Readable(_accent)) : copyHover ? _palette.Text : _palette.Muted;
             if (_palette.Terminal)
                 DrawText(g, copied ? "[copied]" : "[copy]", _smallFont, _copyRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             else
@@ -716,16 +793,17 @@ public sealed class PopupForm : Form
         _links = !clickable || typing ? [] : _titleRich.Links(titleText, _titleRect, 2);
         if (_bodyRect.Height > 0)
         {
-            // Alerts (an SLA deadline) in the theme's urgent color.
-            _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text,
-                _palette.Accent("urgent", _content.Kind), LinkColor);
+            // Alerts (an SLA deadline) in the theme's urgent color; priority tags in the colors of the heading's tag.
+            _rich.Draw(g, body, _bodyRect, _content.BodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text,
+                _palette.Terminal ? _palette.Accent("urgent", _content.Kind) : Readable(_palette.Accent("urgent", _content.Kind)), LinkColor,
+                priority => _palette.Accent(priority, _content.Kind));
             if (clickable && !typing)
-                _links.AddRange(_rich.Links(body, _bodyRect, _content.MaxBodyLines));
+                _links.AddRange(_rich.Links(body, _bodyRect, _content.BodyLines));
         }
         if (_palette.Terminal && (typing || (_clock.ElapsedMilliseconds / 500) % 2 == 0))
         {
             if (body.Length > 0 || (!typing && _bodyRect.Height > 0))
-                PaintCursorAt(g, _rich.End(body, _bodyRect, _content.MaxBodyLines), _rich.LineHeight);
+                PaintCursorAt(g, _rich.End(body, _bodyRect, _content.BodyLines), _rich.LineHeight);
             else
                 PaintCursorAt(g, _titleRich.End(titleText, _titleRect, 2), _titleRich.LineHeight);
         }
@@ -827,9 +905,10 @@ public sealed class PopupForm : Form
         using var path = Theme.RoundedRect(new RectangleF(rect.X + 0.5f, rect.Y + 0.5f, rect.Width - 1, rect.Height - 1), radius);
         if (primary)
         {
-            using var fill = new SolidBrush(hover ? Blend(_accent, _palette.Dark ? Color.White : Color.Black, 0.15f) : _accent);
+            var color = hover ? Blend(_accent, _palette.Dark ? Color.White : Color.Black, 0.15f) : _accent;
+            using var fill = new SolidBrush(color);
             g.FillPath(fill, path);
-            DrawText(g, label, _smallFont, rect, _palette.OnAccent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            DrawText(g, label, _smallFont, rect, Contrast.On(color, _palette.OnAccent), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
         else
         {
@@ -954,7 +1033,7 @@ public sealed class PopupForm : Form
         else if (_snoozeRect.Contains(e.Location))
             Dismiss(SecondButton);
         else if (HasExtraButton && _takeRect.Contains(e.Location))
-            Dismiss(_content.CanCatchUp ? Result.CatchUp : Result.Take);
+            Dismiss(Result.Take);
         else
         {
             // A link is followed; the Open button or anywhere else opens what the notification is about.

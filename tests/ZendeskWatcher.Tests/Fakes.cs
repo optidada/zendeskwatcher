@@ -179,6 +179,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.Status is "solved" or "closed").ToList();
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
+        if (AssigneeQuery().Match(query) is { Success: true } assignee) // Colleagues: an agent's recently updated tickets
+            return Tickets.Values.Where(t => t.AssigneeId == long.Parse(assignee.Groups[1].Value)).OrderByDescending(t => t.UpdatedAt).ToList();
         var match = GroupQuery().Match(query);
         if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets
             return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))).ToList();
@@ -202,6 +204,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     [GeneratedRegex(@"group:(\d+|none)")]
     private static partial Regex GroupQuery();
+
+    [GeneratedRegex(@"(?<!-)assignee:(\d+)")]
+    private static partial Regex AssigneeQuery();
 
     [GeneratedRegex(@"^/api/v2/tickets/(\d+)/audits\.json$")]
     private static partial Regex AuditsPath();

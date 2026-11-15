@@ -98,14 +98,12 @@ internal static class Kit
         Margin = new Padding(0, 3, 0, 3), Cursor = Cursors.Hand
     };
 
-    /// <summary>A small clickable text in the accent color.</summary>
-    public static Label LinkLabel(string text, Font? font = null)
+    /// <summary>A small clickable text in the link color (<see cref="UiPalette.Link"/>).</summary>
+    public static Label LinkLabel(string text, Font? font = null) => new LinkText
     {
-        var label = Theme.Label(text, font ?? Theme.Body, Theme.Accent);
-        label.Cursor = Cursors.Hand;
-        label.Margin = new Padding(0, 6, 12, 4);
-        return label;
-    }
+        Text = text, AutoSize = true, Font = font ?? Theme.Body, ForeColor = Theme.Current.Link,
+        BackColor = Color.Transparent, UseMnemonic = false, Cursor = Cursors.Hand, Margin = new Padding(0, 6, 12, 4)
+    };
 
     public static ChoiceBox Combo<T>(Option<T>[] options, int width = 180)
     {

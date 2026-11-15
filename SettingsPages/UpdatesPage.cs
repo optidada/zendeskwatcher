@@ -28,8 +28,8 @@ internal sealed class UpdatesPage : SettingsPage
         updates.Body.Controls.Add(Kit.Row(_checkUpdates));
         Panel.Controls.Add(updates);
 
-        var feedback = new Card("Feedback", $"Ideas, questions or a problem? Send feedback opens an email to {FeedbackName} with your log attached. Nothing " +
-            $"is sent without you.", Kit.CardWidth);
+        var feedback = new Card("Feedback", $"Ideas, questions or a problem? Write it here and it's emailed to {FeedbackName} from your " +
+            $"Outlook, with your log if you like. Nothing is sent without you.", Kit.CardWidth);
         feedback.Body.Controls.Add(Kit.Row(_sendFeedback, _openLogs));
         Panel.Controls.Add(feedback);
 

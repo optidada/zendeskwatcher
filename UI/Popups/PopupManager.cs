@@ -17,6 +17,11 @@ public sealed class PopupManager
     private bool _draining;
     private Settings _lastSettings = new();
 
+    // The pill, the ticker and achievements (Look & sound -> How they appear): see PillHost, TickerBar, AchievementStyle.
+    private PillHost? _pill;
+    private TickerBar? _ticker;
+    private PopupStacking _mode;
+
     private sealed record Waiting(NotificationContent Content, Settings Settings, DateTime Since);
 
     /// <summary>A notification really appeared (not when it only joins the line; dropped ones never do).</summary>
@@ -58,17 +63,28 @@ public sealed class PopupManager
         _pending.RemoveAll(w => Same(w.Content));
         foreach (var popup in _visible.Where(p => Same(p.Content)).ToList())
             popup.Dismiss(PopupForm.Result.None);
+        _ticker?.RemoveWhere(Same);
+        SyncPill();
     }
 
     /// <param name="overLimit">Show it even when the stack is full (the "while you were away" summary).</param>
     private void Show(NotificationContent content, Settings settings, bool overLimit)
     {
         _lastSettings = settings;
+        SwitchMode(settings.Stacking);
         // Presenting or full screen: wait in line, quietly, until it's over (WatchAway notices and shows them).
-        if ((_visible.Count >= MaxVisible && !overLimit) || !CanShowPopups())
+        // Achievements come one at a time, even the "while you were away" summary (it's next in line then).
+        var full = !HasRoom(settings) && !(overLimit && settings.Stacking != PopupStacking.Achievement);
+        if (full || !CanShowPopups())
         {
-            _pending.Add(new Waiting(content, settings, DateTime.UtcNow));
+            _pending.Insert(overLimit ? 0 : _pending.Count, new Waiting(content, settings, DateTime.UtcNow));
             _awayWatch.Start();
+            SyncPill();
+            return;
+        }
+        if (settings.Stacking == PopupStacking.Ticker)
+        {
+            ShowInTicker(content, settings);
             return;
         }
 
@@ -77,7 +93,9 @@ public sealed class PopupManager
         var size = Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
         var scale = DpiScale() * size; // margins and gaps grow with the notifications
 
-        var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size);
+        var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size,
+            settings.Stacking == PopupStacking.Achievement ? AchievementStyle.Decoration : null);
+        popup.StartHidden = settings.Stacking == PopupStacking.Pill && _pill is not { Expanded: true }; // the pill shows it
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.ClientChosen += (p, choice) => ClientChosen?.Invoke(p.Content, choice);
@@ -102,14 +120,31 @@ public sealed class PopupManager
             PopupPosition.Center => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.Fade),
             _ => (area.Right - popup.Width - margin, PopupForm.Entry.FromRight)
         };
+        if (settings.Stacking == PopupStacking.Achievement)
+            entry = PopupForm.Entry.Bounce; // rises from the bottom edge, game style
+        else if (settings.Stacking == PopupStacking.Pill)
+            entry = PopupForm.Entry.Fade;
         _deck = settings.Stacking == PopupStacking.Deck;
         Layout(position, scale);
         popup.Present(_peek is PopupForm.PeekEdge.Top or PopupForm.PeekEdge.Bottom ? popup.RestX : restX, entry); // top/bottom tabs sit side by side
         if (_deck)
             Layout(position, scale); // now that it has a place: the fan, newest card on top
+        if (_mode == PopupStacking.Pill)
+            OnPillCard(popup);
+        Announce(content, settings);
+    }
+
+    /// <summary>It's there (a card, or an item in the ticker): counted as shown, its sound, and the edge glow.</summary>
+    private void Announce(NotificationContent content, Settings settings)
+    {
         Shown?.Invoke(content);
 
-        PlaySound(settings.SoundFor(content));
+        var sound = settings.SoundFor(content);
+        if (settings.Stacking == PopupStacking.Achievement && sound != ToastSound.Silent)
+            ChipSounds.PlayAchievement(); // the game-style tune instead of its own sound, not both
+        else
+            PlaySound(sound);
+        EdgeGlow.Consider(content, settings); // Urgent, SLA breach or important client, when on (Look & sound)
     }
 
     private void OnFinished(PopupForm popup, Settings settings)
@@ -118,28 +153,94 @@ public sealed class PopupManager
         _shownAt.Remove(popup);
         UpdateTurns();
         _onClosed(popup.Content, popup.Outcome);
+        Act(popup.Content, popup.Outcome, popup.ClickedLink);
 
-        switch (popup.Outcome)
+        Layout(EffectivePosition(settings), DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f);
+        SyncPill();
+        _ = DrainAsync();
+    }
+
+    /// <summary>What a closed notification asks for: open (or a link in it), take it, or snooze.</summary>
+    private void Act(NotificationContent content, PopupForm.Result outcome, RichText.Link? clickedLink)
+    {
+        switch (outcome)
         {
-            case PopupForm.Result.Open when popup.ClickedLink is { } link:
+            case PopupForm.Result.Open when clickedLink is { } link:
                 _onAction(link.Action, link.TicketId); // a ticket number or a Settings page in the text
                 break;
             case PopupForm.Result.Open:
-                _onAction(popup.Content.ResolvedAction, popup.Content.TicketId);
+                _onAction(content.ResolvedAction, content.TicketId);
                 break;
             case PopupForm.Result.Take:
-                _onAction(Notifier.ActionTake, popup.Content.TicketId);
-                break;
-            case PopupForm.Result.CatchUp:
-                _onAction(Notifier.ActionCatchUp, null);
+                _onAction(Notifier.ActionTake, content.TicketId);
                 break;
             case PopupForm.Result.Snooze:
-                _onSnooze(popup.Content);
+                _onSnooze(content);
                 break;
         }
+    }
 
-        Layout(EffectivePosition(settings), DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f);
-        _ = DrainAsync();
+    // ------------------------------------------------------------------ pill, ticker, achievement
+
+    /// <summary>Whether another one fits on screen now in this way of appearing (achievements: one at a time).</summary>
+    private bool HasRoom(Settings settings) => settings.Stacking switch
+    {
+        PopupStacking.Ticker => (_ticker?.Count ?? 0) < TickerBar.MaxItems,
+        PopupStacking.Achievement => _visible.Count == 0,
+        _ => _visible.Count < MaxVisible
+    };
+
+    /// <summary>Another way of appearing was chosen: cards in the pill show as they are (the next layout places them).</summary>
+    private void SwitchMode(PopupStacking mode)
+    {
+        if (mode == _mode)
+            return;
+        if (_mode == PopupStacking.Pill)
+            _pill?.Release();
+        _mode = mode;
+    }
+
+    /// <summary>A new card in the pill: the pill's text updates; urgent ones and app messages open it for a while.</summary>
+    private void OnPillCard(PopupForm popup)
+    {
+        if (_pill is null)
+        {
+            _pill = new PillHost(() => _visible);
+            _pill.ExpandedChanged += UpdateTurns; // seen ones count down
+        }
+        SyncPill();
+        if (PopupForm.ComesOutByItself(popup.Content))
+            _pill.OpenFor(TimeSpan.FromSeconds(6));
+    }
+
+    /// <summary>The pill's summary of what's on screen and waiting; it hides when nothing is left.</summary>
+    private void SyncPill()
+    {
+        if (_pill is null || _mode != PopupStacking.Pill)
+            return;
+        var all = _visible.Select(p => p.Content).Concat(_pending.Select(w => w.Content)).ToList();
+        _pill.Sync(all, PopupPalette.For(_lastSettings.ActiveNotificationTheme), DpiScale() * Math.Clamp(_lastSettings.NotificationSize, 100, 200) / 100f);
+    }
+
+    /// <summary>The ticker: one more item scrolling along the screen edge.</summary>
+    private void ShowInTicker(NotificationContent content, Settings settings)
+    {
+        if (_ticker is null)
+        {
+            _ticker = new TickerBar();
+            _ticker.Finished += (item, outcome) =>
+            {
+                _onClosed(item, outcome);
+                Act(item, outcome, null);
+                _ = DrainAsync();
+            };
+            _ticker.CopyClicked += item => _onCopy(item);
+        }
+        _ticker.PauseWhenAway = settings.PausePopupsWhenAway;
+        _ticker.Add(content, settings.DisplaySecondsFor(content), PopupPalette.For(settings.ActiveNotificationTheme), settings.ActiveNotificationTheme,
+            DpiScale(), Math.Clamp(settings.NotificationSize, 100, 200) / 100f, TickerBar.AtTop(settings));
+        _awayWatch.Start();
+        Announce(content, settings);
     }
 
     // ------------------------------------------------------------------ waiting notifications
@@ -152,7 +253,7 @@ public sealed class PopupManager
         _draining = true;
         try
         {
-            while (_visible.Count < MaxVisible && _pending.Count > 0 && CanShowPopups())
+            while (_pending.Count > 0 && HasRoom(_pending[0].Settings) && CanShowPopups())
             {
                 var next = _pending[0];
                 _pending.RemoveAt(0);
@@ -164,6 +265,7 @@ public sealed class PopupManager
         finally
         {
             _draining = false;
+            SyncPill(); // some were dropped as no longer needed
         }
     }
 
@@ -195,14 +297,22 @@ public sealed class PopupManager
         if (busy != _wasBusy)
         {
             _wasBusy = busy;
-            foreach (var popup in _visible)
+            foreach (var popup in _visible.Where(_ => _mode != PopupStacking.Pill)) // the pill hides its own cards
                 popup.Held = busy;
+            if (_pill is not null)
+                _pill.Held = busy;
+            if (_ticker is not null)
+                _ticker.Held = busy;
+            UpdateTurns();
         }
         var away = PopupForm.UserAway() || busy;
         if (_wasAway && !away)
+        {
+            EdgeGlow.UserBack(c => _visible.Any(p => ReferenceEquals(p.Content, c))); // the glow that waited
             _ = CameBackThenDrainAsync(_lastSettings);
+        }
         _wasAway = away;
-        if (_visible.Count == 0 && _pending.Count == 0)
+        if (_visible.Count == 0 && _pending.Count == 0 && (_ticker?.Count ?? 0) == 0)
         {
             _awayWatch.Stop();
             _wasAway = false;
@@ -241,6 +351,17 @@ public sealed class PopupManager
             }
         }
 
+        if (_ticker is { Count: > 0 } ticker)
+        {
+            var oldItems = ticker.Items.Where(i => WaitedLong(i.Content, settings, i.ShownAt)).Select(i => i.Content).ToList();
+            var keepItems = (await CheckAsync(oldItems, deep: true)).ToHashSet(ReferenceEqualityComparer.Instance);
+            foreach (var item in oldItems.Where(c => !keepItems.Contains(c)))
+            {
+                Log.Info($"No longer needed, closed: {item.Title}");
+                ticker.Remove(item, PopupForm.Result.None);
+            }
+        }
+
         var old = _visible.Where(p => _shownAt.TryGetValue(p, out var at) && WaitedLong(p.Content, settings, at)).ToList();
         if (old.Count == 0)
             return;
@@ -260,10 +381,12 @@ public sealed class PopupManager
     {
         // In a deck only the front card (the newest) can be read: only it counts down. One behind it never does, so
         // nothing disappears unseen; a front card that stays until closed holds the others until then.
-        var current = _deck ? (_visible.LastOrDefault() is { TimesOut: true } front ? front : null) : _visible.FirstOrDefault(p => p.TimesOut);
+        var current = _deck ? (_visible.LastOrDefault() is { TimesOut: true } front ? front : null)
+            : _visible.FirstOrDefault(p => p.TimesOut && (_mode != PopupStacking.Pill || _pill?.Seen(p) == true)); // pill: once opened
         // Peek: each one counts down only after it was slid out (and read), so none waits for a tab nobody opened.
+        var pillHidden = _mode == PopupStacking.Pill && _wasBusy; // presenting: the pill and its cards wait
         foreach (var popup in _visible)
-            popup.MyTurn = _peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut;
+            popup.MyTurn = (_peek != PopupForm.PeekEdge.None || popup == current || !popup.TimesOut) && !pillHidden;
     }
 
     /// <summary>
@@ -320,7 +443,7 @@ public sealed class PopupManager
         }
         else if (position is PopupPosition.TopRight or PopupPosition.TopCenter)
         {
-            var y = area.Top + margin;
+            var y = _mode == PopupStacking.Pill ? PillHost.CardsTop(area, scale) : area.Top + margin; // the pill opens below itself
             for (var i = 0; i < _visible.Count; i++)
             {
                 _visible[i].TargetY = y;
@@ -345,9 +468,17 @@ public sealed class PopupManager
     /// <summary>Peek (Look & sound): the screen edge the notifications wait at, or None.</summary>
     private PopupForm.PeekEdge _peek;
 
-    /// <summary>Peek needs a screen edge: with Center it uses Top center (Settings says so too).</summary>
-    public static PopupPosition EffectivePosition(Settings settings) =>
-        settings.Stacking == PopupStacking.Peek && settings.Position == PopupPosition.Center ? PopupPosition.TopCenter : settings.Position;
+    /// <summary>
+    /// Peek needs a screen edge: with Center it uses Top center. The pill is always at the top center and achievements
+    /// at the bottom center (Settings says so too).
+    /// </summary>
+    public static PopupPosition EffectivePosition(Settings settings) => settings.Stacking switch
+    {
+        PopupStacking.Pill => PopupPosition.TopCenter,
+        PopupStacking.Achievement => PopupPosition.BottomCenter,
+        PopupStacking.Peek when settings.Position == PopupPosition.Center => PopupPosition.TopCenter,
+        _ => settings.Position
+    };
 
     /// <summary>The edge the notifications peek out from: right for the right corners, left, or top for Top center.</summary>
     public static PopupForm.PeekEdge PeekEdgeFor(Settings settings) =>

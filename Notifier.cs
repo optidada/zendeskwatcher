@@ -225,9 +225,8 @@ public sealed class Notifier : INotificationSink
 
     /// <summary>The very first start, while Settings opens: what the app does and how to get going.</summary>
     private const string WelcomeBody =
-        "Get started in two steps:\n" +
-        "1. Sign in on the **Account** page (Settings is open)\n" +
-        "2. Choose groups to watch on the **Groups** page";
+        "Settings is open and leads you through the few things that matter: **signing in**, your **groups**, " +
+        "your **working hours** and whose tickets you cover. The rest can wait.";
 
     /// <summary>The very first start: what to do next. Click opens Settings.</summary>
     public void ShowWelcome() => Show(new NotificationContent(
@@ -254,15 +253,6 @@ public sealed class Notifier : INotificationSink
         Action = ActionSettings,
         Style = ActOnIt
     }, Settings);
-
-    /// <summary>The start summary, with the sound and duration chosen in Settings (silent, 10 seconds by default). Click opens Zendesk.</summary>
-    public void ShowSummary(NotificationContent content) => Show(content with
-    {
-        Action = ActionOpenZendesk,
-        MaxBodyLines = 9, // running text: a few more lines than a list
-        CanCatchUp = true,
-        Style = Settings.SummaryStyle
-    });
 
     /// <summary>
     /// "While you were away": one notification instead of many waiting ones, e.g. "12 new tickets" / "3 updates on your
@@ -332,14 +322,14 @@ public sealed class Notifier : INotificationSink
     public void ShowTest(Settings settings, NotificationKind kind)
     {
         foreach (var sample in TestSamples(kind))
-            Show(WithGuess(sample, settings), settings);
+            Show(WithGuess(sample, settings) with { IsSample = true }, settings);
     }
 
     /// <summary>Several samples at once, to see how popups stack.</summary>
     public void ShowTestBurst(Settings settings)
     {
         foreach (var sample in TestSamples(null))
-            Show(WithGuess(sample, settings), settings);
+            Show(WithGuess(sample, settings) with { IsSample = true }, settings);
     }
 
     /// <summary>With the priority guess on (Experimental page), the colleague sample gets it, from the same rules as real tickets.</summary>
@@ -385,12 +375,30 @@ public sealed class Notifier : INotificationSink
         Samples(NotificationKind.NewTicket).Concat(Samples(NotificationKind.MyTicket)).Append(
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Scheduled publishing stuck in queue", "",
                 TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "Northwind" }).Append(
-            new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Good morning, Alex",
-                Tracking.TicketRules.SummaryText(Tracking.WatchSnapshot.Sample(),
-                    [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
-                    ["urgent", "high"], DateTimeOffset.UtcNow)) { MaxBodyLines = 9, CanCatchUp = true }).Append(
+            // The priority guess (Experimental): higher than set, and "probably not" for an urgent one with no sign of urgency.
+            GuessSample(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting", "#123459 Checkout fails for all customers",
+                $"**Sam Customer** replied: Any update? Orders are not going through and our launch is tomorrow.\nAshwin is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+                TicketId: 123459, Priority: "normal", Context: "Support Tier 2"))).Append(
+            GuessSample(new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123465 Footer link points to the old address",
+                $"Robin Client · Created {Clock.Time(DateTime.Now.AddMinutes(-3))}", TicketId: 123465, Priority: "urgent", Context: "Support Tier 1"),
+                "Hi, the footer link on the about page points to our old address. Thanks!")).Append(
+            new NotificationContent(NotificationKind.MyTicket, $"Catch up · since yesterday {Clock.Hour(17)}", "Good morning, Alex",
+                Tracking.TicketRules.CatchUpBody(new Tracking.TicketRules.CatchUpCounts
+                {
+                    Mine = 2, SlaPast = 1, SlaToday = 2, FirstDueToday = DateTime.Today.AddHours(10).AddMinutes(30),
+                    Unassigned = 5, Scheduled = 1, QuietEscalated = 1, QuietPending = 2
+                }, Tracking.TicketRules.YourTicketsText([("Open", "open", "urgent"), ("Open", "open", null), ("Open", "new", null), ("Open", "open", null),
+                    ("In progress", "open", null), ("In progress", "open", null), ("Escalated", "hold", null), ("Scheduled", "hold", null),
+                    ("Pending", "pending", null), ("Pending", "pending", null), ("Pending", "pending", null)]))) { MaxBodyLines = 16 }).Append(
             new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Welcome to Zendesk Watcher", WelcomeBody)
                 { Action = ActionSettings }).Append(ListSample);
+
+    /// <summary>A sample with the priority guess worked out from its title and the customer's words (by default the body's first line).</summary>
+    private static NotificationContent GuessSample(NotificationContent sample, string? customerText = null) => sample with
+    {
+        PriorityHint = Tracking.PriorityGuess.Guess(sample.Priority, sample.Title, [customerText ?? Markdown.Strip(sample.Body.Split('\n')[0])],
+            Tracking.Sla.StandardKey, TimeSpan.Zero)
+    };
 
     /// <summary>Shows "Mute" on samples; muting a sample does nothing (see <see cref="Mute"/>).</summary>
     private static ClientChoice SampleClient(string name) => new() { Id = -1, Name = name };
@@ -404,7 +412,7 @@ public sealed class Notifier : INotificationSink
                 SlaDue = DateTimeOffset.UtcNow.AddMinutes(53), SlaFirstReply = true }],
         NotificationKind.HelpColleague =>
           [new NotificationContent(kind, "Customer waiting", "#123459 Checkout fails for all customers",
-              "**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · Thu 21:40 their time",
+              $"**Sam Customer** replied: Any update? This is blocking our launch tomorrow.\nAshwin is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
               TicketId: 123459, Priority: "urgent", Context: "Support Tier 2")
               { Action = ActionNone, Client = "Northwind · Premium Support", MuteTarget = SampleClient("Northwind"), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25) }],
         _ =>

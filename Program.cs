@@ -20,22 +20,6 @@ internal static class Program
             return;
         }
 
-        // Developer helper: count the requests of the Zendesk Agent Workspace in a browser window, then exit.
-        if (args.Length >= 3 && args[0] == "--measure-zendesk-web")
-        {
-            ApplicationConfiguration.Initialize();
-            Tools.WebMeasure.Run(Settings.Load().Subdomain, int.Parse(args[1]), args[2]);
-            return;
-        }
-
-        // Developer helper: what SLA data Zendesk has (policies, timers on tickets, plan-like fields), then exit.
-        if (args.Length >= 2 && args[0] == "--probe-sla")
-        {
-            ApplicationConfiguration.Initialize();
-            Tools.SlaProbe.Run(Settings.Load().Subdomain, args[1]);
-            return;
-        }
-
         // Developer helper: write the chiptune jingles and songs as .wav files, then exit.
         if (args.Length >= 2 && args[0] == "--export-sounds")
         {
@@ -50,11 +34,35 @@ internal static class Program
             return;
         }
 
+        // Developer helper: the screen-edge glow once (Look & sound), then exit when it's gone.
+        if (args.Length >= 1 && args[0] == "--test-glow")
+        {
+            ApplicationConfiguration.Initialize();
+            UI.Popups.EdgeGlow.RunTest();
+            return;
+        }
+
         // Developer helper: draw the sample popups in every theme to PNG files, then exit.
         if (args.Length >= 2 && args[0] == "--render-popups")
         {
             ApplicationConfiguration.Initialize();
             UI.Popups.PopupForm.RenderSamples(args[1]);
+            return;
+        }
+
+        // Developer helper: stills of the pill, ticker and achievement ways of appearing (--render-modes <dir>), then exit.
+        if (args.Length >= 2 && args[0] == "--render-modes")
+        {
+            ApplicationConfiguration.Initialize();
+            UI.Popups.ModeRenders.Render(args[1]);
+            return;
+        }
+
+        // Developer helper: three samples in one way of appearing, live, with CPU use (--try-mode <mode> <seconds> <file>), then exit.
+        if (args.Length >= 4 && args[0] == "--try-mode")
+        {
+            ApplicationConfiguration.Initialize();
+            UI.Popups.ModeRenders.Try(Enum.Parse<PopupStacking>(args[1], ignoreCase: true), int.Parse(args[2]), args[3]);
             return;
         }
 
@@ -118,6 +126,8 @@ internal static class Program
             app.ShowTestPopups(); // for trying the notification styles without waiting for real tickets
         if (args.Contains("--open-settings"))
             app.OpenSettingsOnStart(); // for trying Settings with the real session
+        if (args.Contains("--guided-start"))
+            app.OpenSettingsOnStart(guided: true); // Settings with the first-start guide, for trying it
         Application.Run(app);
         Log.Info("Stopped");
     }

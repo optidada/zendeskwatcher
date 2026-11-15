@@ -3,6 +3,18 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.0
+
+- **Catch up greets you**: when the app starts and when your working day begins. One line per thing that needs you, number first: customers waiting, SLAs past or due today, unassigned tickets, Escalated tickets the customer hasn't heard about, quiet Pending ones. Then your tickets by status. It replaces the start summary and is much faster with many unassigned tickets.
+- **New ways to show notifications** (Look & sound → How they appear): a pill at the top, a ticker at the screen edge, or "Achievement unlocked". Optional screen-edge glow for Urgent tickets, important clients and SLA breaches.
+- **Colleagues: activity counts**: no notification when an off-work colleague is clearly working in Zendesk; one when a colleague in their working hours has done nothing for 3 hours, with the reason.
+- **Priority tags in the text**, and a clearer priority guess (Experimental): "Set as P3 · looks like P1", or "Set as P1 · probably not".
+- **Guided first start**: Settings leads new users through sign-in, groups, working hours and colleagues.
+- **Send feedback in the app**: write it in a small window; your Outlook sends it, with the logs if you like.
+- **Insights → Your team**: In progress and each escalated status get their own column.
+- **Easier to read**: better contrast in every theme, links stand out from text, and messages that aren't about one ticket show all their text.
+- **Lighter**: notifications counting down use much less CPU, Settings → Save no longer reloads the ticket history, and fewer Zendesk requests.
+
 ## 1.7.3
 
 - **Lists kept after signing in again**: your groups, clients and colleagues stay in Settings when Zendesk asks you to sign in again. They're only loaded again for a different account, or when you click Reload.

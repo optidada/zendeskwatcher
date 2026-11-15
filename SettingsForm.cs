@@ -96,9 +96,103 @@ public sealed class SettingsForm : Form
         BuiltUpdates?.ShowUpdateState(text, enabled);
     }
 
-    public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false, User? signedInAs = null)
+    public SettingsForm(Settings settings, Func<Settings, IZendeskSession> sessionFactory, Notifier notifier, bool knownSignedOut = false,
+        User? signedInAs = null, bool guided = false)
         : this(UseThemeOf(settings), sessionFactory, notifier, knownSignedOut, 0, signedInAs)
     {
+        if (guided)
+            StartGuide();
+    }
+
+    // ------------------------------------------------------------------ getting started (the first start)
+
+    /// <summary>The first start: a bar above the pages leads through the few vital things, page by page.</summary>
+    public bool Guiding { get; private set; }
+
+    /// <summary>The guide was finished (Done) or skipped: the app greets with Catch up.</summary>
+    public event Action? GuideFinished;
+
+    /// <summary>The steps: the page, the card to show (or the top), and what to do there.</summary>
+    private static readonly (int Page, string? Card, string Text)[] GuideSteps =
+    [
+        (0, null, "Sign in to Zendesk with your usual company login."),
+        (1, null, "Tick the groups whose new tickets you want to hear about."),
+        (3, "Working hours", "Set your working hours: Catch up and quiet times go by them."),
+        (HelpIndex, null, "Choose whose tickets you cover when colleagues are away."),
+    ];
+
+    private int _guideStep;
+    private Panel? _guideBar;
+    // Made when the guide starts, so they take the theme in use then.
+    private Label _guideText = null!;
+    private Button _guideNext = null!, _guideBack = null!;
+    private Label _guideSkip = null!;
+
+    private void StartGuide()
+    {
+        Guiding = true;
+        _guideText = Theme.Label("", Theme.Body, Theme.Text);
+        _guideNext = Theme.PrimaryButton("Next");
+        _guideBack = Theme.SecondaryButton("Back");
+        _guideSkip = Kit.LinkLabel("Skip");
+        var bar = new Panel { Dock = DockStyle.Top, Height = 66, BackColor = Theme.AccentSoft, Padding = new Padding(32, 8, 24, 8) };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Right, FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, BackColor = Theme.AccentSoft };
+        _guideNext.Margin = new Padding(0, 6, 0, 0);    // centered in the taller (two-line) bar
+        _guideBack.Margin = new Padding(0, 6, 8, 0);
+        _guideSkip.Margin = new Padding(0, 14, 16, 0);
+        buttons.Controls.Add(_guideNext);
+        buttons.Controls.Add(_guideBack);
+        buttons.Controls.Add(_guideSkip);
+        _guideText.Dock = DockStyle.Fill;
+        _guideText.AutoSize = false;
+        _guideText.TextAlign = ContentAlignment.MiddleLeft;
+        _guideText.BackColor = Theme.AccentSoft;
+        bar.Controls.Add(_guideText);
+        bar.Controls.Add(buttons);
+        _guideNext.Click += (_, _) => GuideGo(_guideStep + 1);
+        _guideBack.Click += (_, _) => GuideGo(_guideStep - 1);
+        _guideSkip.Click += (_, _) => EndGuide(close: false);
+        _account.SignedIn += () => { if (Guiding && _guideStep == 0) GuideGo(1); }; // signed in: on to the groups
+
+        // Docked after the sidebar and footer, before the pages (the last controls dock first): it spans the page area only.
+        SuspendLayout();
+        Controls.Add(bar);
+        Controls.SetChildIndex(bar, Controls.GetChildIndex(_content) + 1);
+        ResumeLayout();
+        _guideBar = bar;
+        GuideGo(0);
+    }
+
+    private void GuideGo(int step)
+    {
+        if (step >= GuideSteps.Length)
+        {
+            EndGuide(close: true);
+            return;
+        }
+        _guideStep = Math.Max(0, step);
+        var (page, card, text) = GuideSteps[_guideStep];
+        _guideText.Text = $"Getting started · {_guideStep + 1} of {GuideSteps.Length}\n{text}"; // two lines: it wraps if needed
+        _guideBack.Visible = _guideStep > 0;
+        _guideNext.Text = _guideStep == GuideSteps.Length - 1 ? "Done" : "Next";
+        GoTo(SettingsLinks.Pages[page], card);
+    }
+
+    /// <summary>Done: saves what was set and closes; Skip: just the bar goes. Either way Catch up greets next.</summary>
+    private void EndGuide(bool close)
+    {
+        if (close && HasUnsavedChanges && !Save())
+            return; // something can't be saved yet: the page says what
+        Guiding = false;
+        if (_guideBar is not null)
+        {
+            Controls.Remove(_guideBar);
+            _guideBar.Dispose();
+            _guideBar = null;
+        }
+        GuideFinished?.Invoke();
+        if (close)
+            Close();
     }
 
     /// <summary>
@@ -662,6 +756,17 @@ public sealed class SettingsForm : Form
                 bitmap.Save(Path.Combine(dir, $"{theme}-{index}-signedout.png"));
             }
             form._context.SetSignedOut(false);
+
+            // The first-start guide: its first and third steps.
+            form.StartGuide();
+            foreach (var step in new[] { 0, 2 })
+            {
+                form.GuideGo(step);
+                Application.DoEvents();
+                using var bitmap = new Bitmap(form.Width, form.Height);
+                form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                bitmap.Save(Path.Combine(dir, $"{theme}-guide-{step + 1}.png"));
+            }
             form.Hide();
         }
     }

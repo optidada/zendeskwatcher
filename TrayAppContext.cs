@@ -44,12 +44,16 @@ public sealed class TrayAppContext : ApplicationContext
     private Settings _settings = Settings.Load();
     private BrowserSession? _browser;
     private CancellationTokenSource? _loopCts;
+    private TicketWatcher? _lastWatcher; // the one checking (or last checking): hands its ticket history to the next
     private SettingsForm? _settingsForm;
     private (ZendeskClient Client, long MeId)? _taker; // set once the watcher knows who is signed in
     private User? _me; // who the watcher is signed in as (Settings shows it without checking again)
     private bool _signInPromptShown;
     /// <summary>The start summary is shown once per app run (not again when Settings restarts checking).</summary>
     private bool _summaryShown;
+
+    /// <summary>The first-start guide was finished or skipped in this run (Settings opens normally from then on).</summary>
+    private bool _guideDone;
 
     public TrayAppContext()
     {
@@ -130,8 +134,8 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>Zendesk Watcher was started again: say it's already running (from any thread).</summary>
     public void ShowAlreadyRunning() => _ui.Post(_ => _notifier.ShowAlreadyRunning(), null);
 
-    /// <summary>Opens Settings once the app is running (developer helper, --open-settings).</summary>
-    public void OpenSettingsOnStart() => _ui.Post(_ => ShowSettings(), null);
+    /// <summary>Opens Settings once the app is running (developer helpers --open-settings, --guided-start: as on the first start).</summary>
+    public void OpenSettingsOnStart(bool guided = false) => _ui.Post(_ => ShowSettings(guided: guided), null);
 
     /// <summary>Shows sample notifications with the saved settings once the app is running.</summary>
     public void ShowTestPopups() => _ui.Post(_ => _notifier.ShowTestBurst(_settings), null);
@@ -271,6 +275,8 @@ public sealed class TrayAppContext : ApplicationContext
     private async Task RunLoopAsync(IZendeskSession session, CancellationToken ct)
     {
         var watcher = new TicketWatcher(_settings, new ZendeskClient(_settings, session), _notifier);
+        watcher.TakeHistoryFrom(_lastWatcher); // a save restarts checking: the 90 days of tickets aren't read again
+        _lastWatcher = watcher;
         var initialized = false;
 
         while (!ct.IsCancellationRequested)
@@ -295,21 +301,24 @@ public sealed class TrayAppContext : ApplicationContext
                 finally { _tray.EndBusy(); }
                 _signInPromptShown = false; // signed in again: a later failure may prompt again
 
-                if (!_summaryShown)
+                // Once per app run: Catch up as the greeting (also right after signing in for the first time). Without a
+                // monitored group it's shown anyway: its first line says to choose one (Settings → Groups).
+                // Not while the first-start guide is still open: it greets when the guide is done (or skipped).
+                var greet = false;
+                if (!_summaryShown && _settingsForm?.Guiding != true)
                 {
                     _summaryShown = true;
-                    // Without a monitored group it's shown anyway: its first line says to choose one (Settings → Groups).
-                    if ((_settings.ShowStartSummary || _settings.WatchedGroups.Count == 0) && !watcher.ShowedAlreadyWaiting)
-                        _notifier.ShowSummary(watcher.StartSummary());
+                    greet = _settings.ShowStartSummary || _settings.WatchedGroups.Count == 0;
                 }
 
                 WatchStatus.Update(watcher.Snapshot());
-                // Asked for, or by itself once when your working day starts (Notifications → Working hours).
-                if (_catchUpRequested || watcher.DayStartCatchUpDue())
+                // Asked for, at the start, or by itself once when your working day starts (Notifications → Working hours).
+                if (_catchUpRequested || greet || watcher.DayStartCatchUpDue())
                 {
                     var requested = _catchUpRequested;
                     _catchUpRequested = false;
-                    try { await watcher.CatchUpAsync(ct, requestedByUser: requested); }
+                    var reason = requested ? CatchUpReason.Requested : greet ? CatchUpReason.AppStart : CatchUpReason.DayStart;
+                    try { await watcher.CatchUpAsync(ct, reason: reason); }
                     catch (Exception ex) when (ex is not (OperationCanceledException or AuthRequiredException))
                     {
                         Log.Error("Catch up failed", ex);
@@ -415,8 +424,9 @@ public sealed class TrayAppContext : ApplicationContext
     // ------------------------------------------------------------------ settings window
 
     /// <param name="knownSignedOut">The session was just found to be inactive; the window skips its own check.</param>
-    private void ShowSettings(bool knownSignedOut = false)
+    private void ShowSettings(bool knownSignedOut = false, bool guided = false)
     {
+        guided |= Settings.IsFirstRun && !_guideDone; // the very first start: lead through the vital settings
         if (_settingsForm is not null)
         {
             _settingsForm.Activate();
@@ -429,8 +439,13 @@ public sealed class TrayAppContext : ApplicationContext
         // Checking works right now: Settings shows who is signed in at once instead of asking Zendesk again.
         var signedInAs = !knownSignedOut && _loopCts is not null && _taker is not null && WatchStatus.Latest is not null &&
             WatchStatus.Problem is null ? _me : null;
-        var form = new SettingsForm(_settings, CreateSessionForSettings, _notifier, knownSignedOut, signedInAs);
+        var form = new SettingsForm(_settings, CreateSessionForSettings, _notifier, knownSignedOut, signedInAs, guided);
         _settingsForm = form;
+        form.GuideFinished += () =>
+        {
+            _guideDone = true;
+            WakeUp(); // the greeting (Catch up) comes with the next check, now that the vital things are set
+        };
         form.Saved += saved =>
         {
             _settings = saved;
@@ -445,6 +460,11 @@ public sealed class TrayAppContext : ApplicationContext
         form.ShowUpdateState(_updates.Text, _updates.Enabled);
         form.FormClosed += (_, _) =>
         {
+            if (form.Guiding)
+            {
+                _guideDone = true; // closed with the window's X: like Skip, it doesn't come back
+                WakeUp();          // and the greeting comes
+            }
             _settingsForm = null;
             _settings = form.Result; // the last saved settings
             MemoryTrim.Soon();       // the window and its controls are gone (closed forms dispose themselves)
@@ -496,7 +516,7 @@ public sealed class TrayAppContext : ApplicationContext
         return await TicketWatcher.StillNeededAsync(taker.Client, taker.MeId, waiting, _settings.DropAnswered, deep, CancellationToken.None);
     }
 
-    private void SendFeedback() => FeedbackMail.Send(_updates.CurrentVersion, _notifier);
+    private void SendFeedback() => _ = FeedbackMail.SendAsync(_updates.CurrentVersion, _notifier);
 
     private static void OpenUrl(string? url)
     {

@@ -107,7 +107,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     }
 
     private static readonly TimeSpan RequestReportInterval = TimeSpan.FromMinutes(10);
-    private DateTime _lastRequestReport = DateTime.UtcNow;
+    // Shared like the request counter: a Settings save restarts the watcher, and the minutes must still match the count.
+    private static DateTime _lastRequestReport = DateTime.UtcNow;
 
     public async Task PollAsync(CancellationToken ct)
     {
@@ -116,7 +117,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             var minutes = (DateTime.UtcNow - _lastRequestReport).TotalMinutes;
             var count = ZendeskClient.TakeRequestCount();
-            Log.Info($"Zendesk API requests in the last {minutes:0} min: {count} ({count / minutes:0.#} per minute)");
+            Log.Info($"Zendesk API requests in the last {minutes:0} min: {count} ({count / minutes:0.#} per minute): {ZendeskClient.TakeRequestBreakdown()}");
             _lastRequestReport = DateTime.UtcNow;
         }
 
@@ -308,10 +309,6 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             settings.TrackCcTickets ? _state.CcTickets.Count : null, settings.TrackCcTickets && _state.CcBaselineFull);
     }
 
-    /// <summary>The start summary: a greeting, then what's waiting and what's watched as running text.</summary>
-    public NotificationContent StartSummary() => new(NotificationKind.MyTicket, "Zendesk Watcher", TicketRules.Greeting(DateTime.Now, Me?.Name),
-        TicketRules.SummaryText(Snapshot(), settings.WatchedGroups, settings.EffectiveHelpGroups.Count > 0 ? settings.HelpPriorities : null, DateTimeOffset.UtcNow));
-
     private async Task CheckMyTicketsAsync(CancellationToken ct)
     {
         var me = Me!.Id;
@@ -488,17 +485,20 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                     continue;
                 }
 
-                var (away, local) = OutsideWorkingHours(assignee, now);
+                // Off work by their hours (unless active in Zendesk just now), or in their hours but inactive for long.
+                var (away, local, why) = await ColleagueAwayAsync(assigneeId, assignee, now, ct);
+                var who = assignee?.Name ?? $"User {assigneeId}";
                 if (away is not true)
                 {
                     if (away is null)
-                        Log.Info($"Ticket #{ticket.Id}: customer replied, but {assignee?.Name ?? $"user {assigneeId}"} has no usable time zone");
+                        Log.Info($"Ticket #{ticket.Id}: customer replied, but {who} has no usable time zone");
+                    else if (OutsideWorkingHours(assignee, now).Away is true)
+                        Log.Info($"Ticket #{ticket.Id}: customer replied; {who} is outside working hours but active in Zendesk");
                     continue;
                 }
 
-                var who = assignee?.Name ?? $"User {assigneeId}";
-                Log.Info($"Ticket #{ticket.Id}: {reply.Value.Customer} replied while {who} is outside working hours ({English(local, "ddd HH:mm")} their time)");
-                await ShowCustomerWaitingAsync(ticket, group, who, local, reply.Value, now, ct);
+                Log.Info($"Ticket #{ticket.Id}: {reply.Value.Customer} replied; stepping in for {who} ({Markdown.Strip(why)})");
+                await ShowCustomerWaitingAsync(ticket, group, why, reply.Value, now, ct);
             }
         }
 
@@ -507,15 +507,15 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.HelpSeen.Remove(old);
     }
 
-    /// <summary>"Customer waiting": what the customer wrote, that the colleague is off work, and the status if it says something.</summary>
-    private async Task ShowCustomerWaitingAsync(Ticket ticket, WatchedGroup group, string who, DateTime local,
+    /// <summary>"Customer waiting": what the customer wrote, why the colleague can't (<paramref name="why"/>), and the status if it says something.</summary>
+    private async Task ShowCustomerWaitingAsync(Ticket ticket, WatchedGroup group, string why,
         (string Customer, AuditEvent Comment, DateTimeOffset At) reply, DateTimeOffset now, CancellationToken ct)
     {
         var name = Markdown.Escape(reply.Customer);
         var said = settings.ShowCommentText ? $"**{name}** replied: {Markdown.Escape(Snippet(reply.Comment))}" : $"**{name}** replied";
         Show(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting",
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-            $"{said}\n{Markdown.Escape(who)} is off work · {Clock.DayTime(local)} their time{StatusSuffix(ticket)}",
+            $"{said}\n{why}{StatusSuffix(ticket)}",
             ticket.Id, ticket.Priority, GroupLabel(group))
         { IsTicketNotification = true, ChangedAt = reply.At }, ticket, group, ct, sla: (reply.At, FirstReply: false),
             customerTexts: [TextCleanup.Plain(reply.Comment.PlainBody ?? reply.Comment.Body)], waitingSince: reply.At));
@@ -616,6 +616,55 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             return (null, default);
         var local = TimeZoneInfo.ConvertTime(now, zone).DateTime;
         return (IsOutsideHours(local), local);
+    }
+
+    /// <summary>Colleague id → when their activity was read, and their latest change or comment then (null: none in 3 h).</summary>
+    private readonly Dictionary<long, (DateTimeOffset ReadAt, DateTimeOffset? Last, bool Known)> _activity = [];
+    private static readonly TimeSpan RememberActivity = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// The colleague's latest change or comment on one of their tickets in the last 3 hours (null: none), from the 5
+    /// they updated last; remembered for 15 minutes. Known false when Zendesk couldn't be read.
+    /// </summary>
+    private async Task<(bool Known, DateTimeOffset? Last)> LastActiveAsync(long userId, DateTimeOffset now, CancellationToken ct)
+    {
+        if (_activity.TryGetValue(userId, out var remembered) && now - remembered.ReadAt < RememberActivity)
+            return (remembered.Known, remembered.Last); // a failed read is remembered too: not retried on every check
+        try
+        {
+            var since = now - TicketRules.InactiveFor;
+            DateTimeOffset? last = null;
+            foreach (var ticket in (await zendesk.GetAssigneeTicketsUpdatedSinceAsync(userId, since, ct)).Take(5))
+                foreach (var audit in await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
+                    if (audit.AuthorId == userId && (last is null || audit.CreatedAt > last))
+                        last = audit.CreatedAt;
+            _activity[userId] = (now, last, true);
+            return (true, last);
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Error($"Could not read the activity of user {userId}; going by working hours only", ex);
+            _activity[userId] = (now, null, false);
+            return (false, null);
+        }
+    }
+
+    /// <summary>
+    /// Whether to step in on <paramref name="assignee"/>'s ticket (<see cref="TicketRules.ColleagueAway"/>), their local
+    /// time, and the line saying why: "Anna is off work · Tue 22:10 their time · last active 4 h ago" or
+    /// "Anna: no activity in Zendesk for 3+ h · Tue 11:10 their time".
+    /// </summary>
+    private async Task<(bool? Away, DateTime Local, string Why)> ColleagueAwayAsync(long assigneeId, User? assignee, DateTimeOffset now, CancellationToken ct)
+    {
+        var (outside, local) = OutsideWorkingHours(assignee, now);
+        // Unknown time zone: always skipped, whatever they did lately, so their activity isn't read for nothing.
+        var (known, last) = outside is null ? (false, null) : await LastActiveAsync(assigneeId, now, ct);
+        var away = TicketRules.ColleagueAway(outside, known, last, now);
+        var who = Markdown.Escape(assignee?.Name ?? $"User {assigneeId}");
+        var why = outside is true
+            ? $"{who} is off work · {Clock.DayTime(local)} their time{(last is { } at ? $" · last active {NotificationContent.Ago(now - at)}" : "")}"
+            : $"{who}: no activity in Zendesk for {TicketRules.InactiveFor.TotalHours:0}+ h · {Clock.DayTime(local)} their time";
+        return (away, local, why);
     }
 
     private bool IsOutsideHours(DateTime local) =>
@@ -796,7 +845,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             // Zendesk's own timer when the ticket has one (the real policy, business hours and pauses included), which
             // also teaches the target; otherwise the target for the client's SLA type and the priority.
-            var breach = await zendesk.GetSlaBreachAsync(ticket.Id, firstReply ? "first_reply_time" : "next_reply_time", ct);
+            // Tickets read with show_many already carry their timers (include=slas): no extra request then.
+            var metric = firstReply ? "first_reply_time" : "next_reply_time";
+            var breach = ticket.Slas is { } slas
+                ? slas.PolicyMetrics.FirstOrDefault(m => m.Metric == metric && m.Stage == "active" && m.BreachAt is not null)?.BreachAt
+                : await zendesk.GetSlaBreachAsync(ticket.Id, metric, ct);
             if (breach is { } at)
                 await NoteSlaTypeAsync(slaType, ct, () => _state.Sla.Record(ticket.Id, slaType, ticket.Priority, firstReply, start, at));
             var due = breach ?? Sla.Due(start, slaType, ticket.Priority, firstReply, settings.SlaOverrides, _state.Sla);
@@ -806,7 +859,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             PriorityGuess.Guess(ticket.Priority, ticket.Subject, customerTexts, slaType,
                 waitingSince is { } since ? DateTimeOffset.UtcNow - since : TimeSpan.Zero, LikeEarlier(ticket)) is { } hint)
         {
-            Log.Info($"Ticket #{ticket.Id}: priority guess {hint.Short} ({string.Join(", ", hint.Reasons)})");
+            Log.Info($"Ticket #{ticket.Id}: priority guess: {Markdown.Strip(hint.Text)}");
             content = content with { PriorityHint = hint };
         }
         if (ticket.OrganizationId is not { } orgId || org?.Name is not { Length: > 0 } name)
@@ -918,7 +971,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             }
 
             case "Change" when ev.FieldName == "priority" && settings.NotifyPriorityChanges:
-                return $"Priority {NotificationContent.LabelForPriority(Text(ev.PreviousValue)) ?? "None"} → {NotificationContent.LabelForPriority(Text(ev.Value)) ?? "None"} ({author})";
+                return $"Priority {TicketRules.PriorityWithTag(Text(ev.PreviousValue))} → {TicketRules.PriorityWithTag(Text(ev.Value))} ({author})";
 
             case "Change" when ev.FieldName == "assignee_id" && settings.NotifyAssignmentChanges:
                 var assignee = Id(ev.Value);

@@ -131,7 +131,7 @@ public sealed class Settings
         set => _myWorkdayEndHour = value;
     }
 
-    /// <summary>After the first check of each start: a short summary of what's being watched and what's waiting.</summary>
+    /// <summary>After the first check of each start: Catch up as a greeting (the one-by-one ones only once a working day).</summary>
     public bool ShowStartSummary { get; set; } = true;
 
     /// <summary>How long the Snooze button on a popup hides it before it shows again.</summary>
@@ -153,7 +153,7 @@ public sealed class Settings
     /// <summary>Show the SLA deadline ("Reply due in 25 min") in red bold on ticket notifications (Notifications → SLA).</summary>
     public bool ShowSlaDeadlines { get; set; } = true;
 
-    /// <summary>Experimental: "Looks like P1: site down" when what the customer wrote sounds more urgent than the priority
+    /// <summary>Experimental: "Set as P3 · looks like P1: site down" when what the customer wrote sounds more urgent than the priority
     /// (Experimental page). Plain rules on this PC; ticket text never leaves it.</summary>
     public bool GuessPriority { get; set; }
 
@@ -190,6 +190,7 @@ public sealed class Settings
 
     /// <summary>Update ready, welcome, monitored group not found, and the sound of "Sign-in required".</summary>
     public NotificationStyle AppMessageStyle { get; set; } = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Long };
+
 
     /// <summary>The sound: app messages and the summary by their style, ticket notifications by type.</summary>
     public ToastSound SoundFor(UI.Popups.NotificationContent content) =>
@@ -252,6 +253,9 @@ public sealed class Settings
 
     /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
     public bool PausePopupsWhenAway { get; set; } = true;
+
+    /// <summary>A short glow at the screen edge for Urgent, important clients and SLA breaches (Look & sound).</summary>
+    public bool EdgeGlow { get; set; }
 
     /// <summary>
     /// Notifications that waited this long (in the line, or on screen while away) are checked against Zendesk before
@@ -597,5 +601,14 @@ public enum PopupStacking
     /// Tucked away at the screen edge with only a tab showing; the mouse over it slides it out. Needs an edge, so not
     /// with <see cref="PopupPosition.Center"/> (Top center is used then).
     /// </summary>
-    Peek
+    Peek,
+
+    /// <summary>A small pill at the top center ("2 new · 1 P1"); pointing at it opens the notifications below it. Always top center.</summary>
+    Pill,
+
+    /// <summary>A thin bar along the bottom (or top) of the screen scrolling the notifications' one-line text like a news ticker.</summary>
+    Ticker,
+
+    /// <summary>Game style: slides up at the bottom center with a bounce, a trophy and a short tune; one at a time. Always bottom center.</summary>
+    Achievement
 }

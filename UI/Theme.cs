@@ -66,10 +66,12 @@ public static class Theme
 
             if (c is LinkLabel link)
             {
-                link.LinkColor = Map(link.LinkColor);
-                link.ActiveLinkColor = Map(link.ActiveLinkColor);
-                link.VisitedLinkColor = Map(link.VisitedLinkColor);
+                link.LinkColor = to.Link; // not a role (often equals Accent), so set, not mapped
+                link.ActiveLinkColor = to.LinkHover;
+                link.VisitedLinkColor = to.Link;
             }
+            else if (c is LinkText)
+                c.ForeColor = to.Link;
 
             if (c is Button button)
             {

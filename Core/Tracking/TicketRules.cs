@@ -115,93 +115,125 @@ public static class TicketRules
             : $"since {since.ToString("ddd", System.Globalization.CultureInfo.GetCultureInfo("en-GB"))} {time}";
     }
 
-    /// <summary>
-    /// The Catch up summary: always both questions, unassigned tickets and waiting customers, e.g.
-    /// "**11 unassigned tickets** in your groups." and "No customer is waiting for an answer since yesterday 17:00."
-    /// or "**2 customers** wrote since yesterday 17:00 and are waiting for your reply."
-    /// </summary>
-    public static string CatchUpText(DateTime since, DateTime localNow, int unassigned, int mine, int cc, int colleagues, int scheduled = 0)
+    /// <summary>What Catch up found, counted (the "since" time goes in the heading, see <see cref="CatchUpSince"/>).</summary>
+    public sealed record CatchUpCounts
     {
-        var when = CatchUpSince(since, localNow);
-        var lines = new List<string>
-        {
-            unassigned switch
-            {
-                0 => "No unassigned tickets in your groups.",
-                1 => "**1 unassigned ticket** in your groups.",
-                _ => $"**{unassigned} unassigned tickets** in your groups."
-            }
-        };
-        if (unassigned > 0 && scheduled > 0)
-            lines[0] = lines[0][..^1] + ScheduledNote(unassigned, scheduled) + ".";
-        string Waiting(int n, string where) => n == 1 ? $"**1 customer** wrote {when} and is waiting {where}." : $"**{n} customers** wrote {when} and are waiting {where}.";
-        if (mine + cc + colleagues == 0)
-            lines.Add($"No customer is waiting for an answer {when}.");
-        if (mine > 0)
-            lines.Add(Waiting(mine, "for your reply"));
-        if (cc > 0)
-            lines.Add(Waiting(cc, "on tickets you're CC'd on or follow"));
-        if (colleagues > 0)
-            lines.Add(Waiting(colleagues, "on off-work colleagues' tickets"));
-        return string.Join("\n", lines);
+        public int Mine { get; init; }
+        public int Cc { get; init; }
+        public int Colleagues { get; init; }
+        public int Unassigned { get; init; }
+        public int Scheduled { get; init; }
+        public int SlaPast { get; init; }
+        public int SlaToday { get; init; }
+        public DateTime? FirstDueToday { get; init; }
+        public int QuietEscalated { get; init; }
+        public int QuietPending { get; init; }
+        public bool NoGroups { get; init; }
+
+        /// <summary>The things that need you (the "N things need attention" count).</summary>
+        public int Attention => Mine + Cc + Colleagues + Unassigned + SlaPast + SlaToday + QuietEscalated + QuietPending;
     }
 
     /// <summary>
-    /// The start summary as short rows, quick to scan, e.g. "**5 unassigned tickets**, oldest from 2 h ago" /
-    /// "3 in Support Tier 2 · 2 in Premium Support" / "Your tickets: 3 open · 4 pending" / "CC / following: 2 open" /
-    /// "Colleagues off work: replies on Urgent and High". Rows that don't apply are left out.
+    /// The Catch up text, quick to scan: one line per thing that needs you, the bold number first, most urgent first
+    /// (waiting customers, SLA, unassigned, things to follow up); nothing about what's zero. Then, after an empty line,
+    /// your tickets by status (<paramref name="yourTickets"/>, null when your own tickets aren't tracked), e.g.
+    /// "**2** waiting for your reply" / "**1** past SLA · **2** due today, first 10:30" / "**5** unassigned in your groups · 1 Scheduled".
     /// </summary>
-    /// <param name="helpPriorities">Help colleagues' priorities, or null when it's off.</param>
-    public static string SummaryText(WatchSnapshot now, IReadOnlyList<WatchedGroup> groups, IReadOnlyList<string>? helpPriorities, DateTimeOffset utcNow)
+    public static string CatchUpBody(CatchUpCounts c, string? yourTickets)
     {
-        static string Name(WatchedGroup g) => Markdown.Escape(g.IsNoGroup ? "No group" : g.Name);
-        static string List(IReadOnlyList<string> items) => items.Count <= 1 ? string.Concat(items) : $"{string.Join(", ", items.Take(items.Count - 1))} and {items[^1]}";
-
         var lines = new List<string>();
-        var withTickets = now.Groups.Where(g => g.Count > 0).ToList();
-        var waiting = now.Unassigned;
-        if (groups.Count == 0)
-            lines.Add("No groups watched yet: Settings \u2192 Groups");
-        else if (waiting == 0)
-            lines.Add($"No unassigned tickets in {(groups.Count == 1 ? Name(groups[0]) : "your groups")}");
-        else
-        {
-            var head = $"**{waiting} unassigned**";
-            if (now.OldestUnassigned is { } oldest)
-                head += $", {(waiting == 1 ? "created" : "oldest")} {NotificationContent.Ago(utcNow - oldest)}";
-            lines.Add(head);
-            lines.Add(withTickets.Count > 1
-                ? string.Join(" \u00b7 ", withTickets.Select(g => $"{g.Count} in {Name(g.Group)}"))
-                : $"{(groups.Count > 1 && waiting > 1 ? "All in" : "In")} {(groups.Count == 1 ? Name(groups[0]) : Name(withTickets[0].Group))}");
-            if (now.Scheduled > 0)
-                lines.Add(waiting == 1 ? "**It's Scheduled**" : ScheduledRow(waiting, now.Scheduled));
-        }
-
-        if (now.Mine is var (open, pending, hold))
-        {
-            var parts = new[] { (open, "open"), (pending, "pending"), (hold, "on hold") }.Where(p => p.Item1 > 0).Select(p => $"{p.Item1} {p.Item2}").ToList();
-            lines.Add(parts.Count == 0 ? "Your tickets: none open" : $"Your tickets: {string.Join(" \u00b7 ", parts)}");
-        }
-        if (now.Cc is { } count && count > 0)
-            lines.Add($"CC / following: {(now.CcAtLeast ? "at least " : "")}{count} open");
-
-        if (helpPriorities is not null)
-        {
-            var names = Settings.AllPriorities.Where(helpPriorities.Contains).Select(p => char.ToUpperInvariant(p[0]) + p[1..]).ToList();
-            lines.Add(names.Count is 0 or 4
-                ? "Colleagues off work: customer replies"
-                : $"Colleagues off work: replies on {List(names)}");
-        }
-
+        if (c.NoGroups)
+            lines.Add("No groups watched yet: choose them on the **Groups** page in Settings.");
+        if (c.Mine > 0)
+            lines.Add($"**{c.Mine}** waiting for your reply");
+        var first = c.FirstDueToday is { } due ? $", first {Clock.Time(due)}" : "";
+        if (c.SlaPast > 0)
+            lines.Add($"**{c.SlaPast}** past SLA" + (c.SlaToday > 0 ? $" · **{c.SlaToday}** due today{first}" : ""));
+        else if (c.SlaToday > 0)
+            lines.Add($"**{c.SlaToday}** SLA due today{first}");
+        if (c.Unassigned > 0)
+            lines.Add($"**{c.Unassigned}** unassigned in your groups" + (c.Scheduled > 0 ? $" · {c.Scheduled} Scheduled" : ""));
+        if (c.Cc > 0)
+            lines.Add($"**{c.Cc}** waiting on tickets you're CC'd on or follow");
+        if (c.Colleagues > 0)
+            lines.Add($"**{c.Colleagues}** waiting on colleagues' tickets");
+        if (c.QuietEscalated > 0)
+            lines.Add($"**{c.QuietEscalated}** Escalated, no reply to the customer for {EscalatedQuietFor.TotalDays:0}+ days");
+        if (c.QuietPending > 0)
+            lines.Add($"**{c.QuietPending}** Pending, no update for {PendingQuietFor.TotalDays:0}+ days");
+        if (c.Attention == 0 && !c.NoGroups)
+            lines.Add("Nothing needs you right now");
+        if (yourTickets is not null)
+            lines.Add("\n" + yourTickets); // set apart: the overview, not something to act on
         return string.Join("\n", lines);
     }
 
-    /// <summary>"**2 of them Scheduled**" / "**Both Scheduled**" as a row of its own (the note without its leading comma).</summary>
-    private static string ScheduledRow(int total, int scheduled)
+    /// <summary>Escalated tickets without a public reply to the customer for this long are counted in Catch up.</summary>
+    public static readonly TimeSpan EscalatedQuietFor = TimeSpan.FromDays(2);
+
+    private const char Nbsp = '\u00a0';
+
+    /// <summary>
+    /// Catch up's overview of your own unsolved tickets, by status as agents see it, e.g.
+    /// "Your tickets: 4 Open (1 P1) · 2 In progress · 1 Escalated · 1 Scheduled · 3 Pending". New and Open-like statuses
+    /// first, then Pending, then On-hold; P1 / P2 counted per status. <paramref name="tickets"/>: (status name, basic
+    /// status, priority) of each ticket.
+    /// </summary>
+    public static string YourTicketsText(IReadOnlyList<(string Name, string? Status, string? Priority)> tickets)
     {
-        var note = ScheduledNote(total, scheduled)[2..]; // "**both Scheduled**"
-        return note[..2] + char.ToUpperInvariant(note[2]) + note[3..];
+        if (tickets.Count == 0)
+            return "You have no open tickets.";
+        static int Rank(string? status) => status switch { "new" => 0, "open" => 1, "pending" => 2, "hold" => 3, _ => 4 };
+        var parts = tickets
+            .GroupBy(t => t.Name.Length == 0 ? "Open" : t.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Min(t => Rank(t.Status)))
+            .ThenBy(g => g.Key is "New" or "Open" ? 0 : 1)
+            .ThenBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Select(g =>
+            {
+                var p1 = g.Count(t => t.Priority == "urgent");
+                var p2 = g.Count(t => t.Priority == "high");
+                var urgent = new[] { (p1, "P1"), (p2, "P2") }.Where(p => p.Item1 > 0).Select(p => $"{p.Item1}{Nbsp}{Markdown.Tag(p.Item2)}").ToList();
+                // No break inside "1 Escalated (1 P1)": the line wraps between statuses.
+                return $"{g.Count()}{Nbsp}{Markdown.Escape(g.Key).Replace(' ', Nbsp)}" + (urgent.Count > 0 ? $"{Nbsp}({string.Join($",{Nbsp}", urgent)})" : "");
+            });
+        return $"Your tickets: {string.Join(" · ", parts)}";
     }
+
+    /// <summary>A priority in a notification's text: "Urgent [P1]" (a tag, kept on the line with its word); "None" for none.</summary>
+    public static string PriorityWithTag(string? priority) => priority?.ToLowerInvariant() switch
+    {
+        null or "" => "None",
+        "urgent" or "high" or "normal" or "low" => $"{char.ToUpperInvariant(priority[0])}{priority[1..].ToLowerInvariant()}{Nbsp}{Markdown.Tag(priority)}",
+        _ => Markdown.Escape(priority)
+    };
+
+    /// <summary>A colleague who changed or commented on a ticket this recently is working, whatever their hours say.</summary>
+    public static readonly TimeSpan ActiveWithin = TimeSpan.FromMinutes(30);
+
+    /// <summary>A colleague with no activity in Zendesk for this long counts as away, even in their working hours.</summary>
+    public static readonly TimeSpan InactiveFor = TimeSpan.FromHours(3);
+
+    /// <summary>
+    /// Whether to step in on a colleague's ticket: they're off work by their hours, unless they did something in Zendesk
+    /// in the last 30 minutes; or it's their working hours but they've done nothing for 3 hours. Unknown time zone: null
+    /// (skipped). <paramref name="lastActive"/>: their latest change or comment in the last 3 hours (null: none).
+    /// <paramref name="activityKnown"/>: false when it couldn't be read; then only the hours count.
+    /// </summary>
+    public static bool? ColleagueAway(bool? outsideHours, bool activityKnown, DateTimeOffset? lastActive, DateTimeOffset now)
+    {
+        if (!activityKnown)
+            return outsideHours;
+        if (lastActive is { } recent && now - recent < ActiveWithin)
+            return false;
+        if (outsideHours is not false)
+            return outsideHours; // off work: step in; unknown time zone: always skipped (Colleagues page)
+        return lastActive is null || now - lastActive >= InactiveFor;
+    }
+
+    /// <summary>Pending tickets without any update for this long are counted in Catch up (follow up, or solve them).</summary>
+    public static readonly TimeSpan PendingQuietFor = TimeSpan.FromDays(7);
 
     /// <summary>
     /// Really unassigned, re-read from the ticket itself (search can be stale for hours): no assignee, still open,

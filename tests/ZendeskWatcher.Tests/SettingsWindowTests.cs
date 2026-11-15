@@ -47,6 +47,7 @@ public class SettingsWindowTests
         Theme = NotificationTheme.CleanLight,
         AppTheme = NotificationTheme.Terminal,
         PausePopupsWhenAway = false,
+        EdgeGlow = true,
         DropAnswered = false,
         OnlyNotifyDuringMyHours = true,
         CatchUpAtDayStart = false,

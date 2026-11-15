@@ -10,12 +10,42 @@ namespace ZendeskWatcher.UI;
 /// </summary>
 public static class Markdown
 {
-    /// <summary>A piece of text; <see cref="Alert"/> is bold too, in the alert color.</summary>
-    public readonly record struct Run(string Text, bool Bold, bool Alert = false);
+    /// <summary>A piece of text; <see cref="Alert"/> is bold too, in the alert color; <see cref="IsTag"/>: a priority
+    /// tag ("P1"), drawn as a colored chip where the style draws tags, otherwise as plain text.</summary>
+    public readonly record struct Run(string Text, bool Bold, bool Alert = false, bool IsTag = false);
+
+    /// <summary>Around a priority tag: private-use characters, which no text of ours uses; <see cref="Escape"/>
+    /// escapes them in text from Zendesk, so they show as written there.</summary>
+    private const char TagOpen = '\uE000', TagClose = '\uE001';
+
+    /// <summary>A priority as a tag in the text: "urgent" or "P1" → [P1] (a colored chip; plain "P1" in
+    /// <see cref="Strip"/> and in styles without tags). Unknown priorities come back as plain escaped text.</summary>
+    public static string Tag(string? priority)
+    {
+        var tag = priority?.ToLowerInvariant() switch
+        {
+            "urgent" or "p1" => "P1",
+            "high" or "p2" => "P2",
+            "normal" or "p3" => "P3",
+            "low" or "p4" => "P4",
+            _ => null
+        };
+        return tag is null ? Escape(priority) : $"{TagOpen}{tag}{TagClose}";
+    }
+
+    /// <summary>The priority a tag stands for: "P1" → "urgent" … "P4" → "low".</summary>
+    public static string PriorityOfTag(string tag) => tag switch
+    {
+        "P1" => "urgent",
+        "P2" => "high",
+        "P3" => "normal",
+        _ => "low"
+    };
 
     /// <summary>Makes text show exactly as written.</summary>
     public static string Escape(string? text) =>
-        string.IsNullOrEmpty(text) ? "" : text.Replace("\\", "\\\\").Replace("*", "\\*").Replace("!", "\\!");
+        string.IsNullOrEmpty(text) ? "" : text.Replace("\\", "\\\\").Replace("*", "\\*").Replace("!", "\\!")
+            .Replace(TagOpen.ToString(), "\\" + TagOpen).Replace(TagClose.ToString(), "\\" + TagClose);
 
     /// <summary>The text in pieces, bold, alert or neither. A marker without a partner shows as written.</summary>
     public static List<Run> Parse(string? markdown)
@@ -56,6 +86,12 @@ public static class Markdown
             {
                 current.Append(markdown[++i]);
             }
+            else if (c == TagOpen && markdown.IndexOf(TagClose, i + 1) is var close and > 0 && close > i + 1)
+            {
+                Flush();
+                runs.Add(new Run(markdown[(i + 1)..close], bold || alert, alert, IsTag: true));
+                i = close;
+            }
             else if (boldToggles.Contains(i))
             {
                 Flush();
@@ -95,7 +131,10 @@ public static class Markdown
                 break;
             var text = run.Text.Length <= visibleChars ? run.Text : run.Text[..visibleChars];
             visibleChars -= text.Length;
-            result.Append(run.Alert ? $"!!{Escape(text)}!!" : run.Bold ? $"**{Escape(text)}**" : Escape(text));
+            if (run.IsTag && text.Length == run.Text.Length)
+                result.Append(Tag(text)); // a tag shows once it's whole
+            else
+                result.Append(run.Alert ? $"!!{Escape(text)}!!" : run.Bold ? $"**{Escape(text)}**" : Escape(text));
         }
         return result.ToString();
     }
