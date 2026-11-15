@@ -30,7 +30,7 @@ so another platform (e.g. a Mac app) could reuse `Core/`.
 dotnet run -c Release
 ```
 
-Or build and start `bin\Release\net10.0-windows10.0.17763.0\ZendeskWatcher.exe`.
+Or build and start `bin\Release\net10.0-windows\ZendeskWatcher.exe`.
 
 **Tests:** `dotnet test tests/ZendeskWatcher.Tests`. They cover the notification rules (`Core/Tracking/TicketRules.cs`), the
 checks end to end against a fake Zendesk (unassigned tickets, ticket changes, Help colleagues, Catch up, client filter), the Settings

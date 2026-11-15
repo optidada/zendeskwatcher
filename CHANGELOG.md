@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.2
+
+- **Smaller and lighter**: the app takes about 23 MB less on disk (a Windows library it no longer needs), and sounds now play through Windows' simple audio output, which closes as soon as a sound ends instead of keeping Windows' media player loaded.
+
 ## 1.8.1
 
 - **Clients stay put**: changing a client (Important, Only urgent, Muted, own sound) no longer moves its row. The list sorts itself again after Save or Discard, or the next time you open the page, as on the Groups page.

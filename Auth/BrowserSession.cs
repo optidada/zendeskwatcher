@@ -324,6 +324,10 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     {
         // As light as it can be: no GPU (the hidden page only runs fetch(), the sign-in renders fine in software), and
         // none of the browser's background work (component and safe-browsing updates, sync, extensions).
+        // Tried and left out (measured 2026-11-15, ~185 MB private for all browser processes): NetworkServiceInProcess2
+        // saves ~16 MB but the first request then hangs until its 60 s timeout; --in-process-gpu saves ~10 MB at most
+        // (the browser process grows), within the run-to-run noise; --js-flags=--lite-mode and disabling features
+        // (Translate, OptimizationHints, SpareRenderer…) changed nothing measurable.
         var options = new CoreWebView2EnvironmentOptions(
             "--disable-gpu --disable-background-networking --disable-component-update --disable-sync --disable-extensions");
         var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
