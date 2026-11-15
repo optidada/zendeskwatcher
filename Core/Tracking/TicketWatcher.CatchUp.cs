@@ -162,6 +162,10 @@ public sealed partial class TicketWatcher
             QuietEscalated = quietEscalated, QuietPending = quietPending, NoGroups = settings.WatchedGroups.Count == 0
         };
         var yourTickets = settings.TrackMyTickets ? TicketRules.YourTicketsText(myOpen.Select(t => (StatusName(t), t.Status, t.Priority)).ToList()) : null;
+        // And a reminder of what you're working on today, by name (each number opens the ticket).
+        if (yourTickets is not null && TicketRules.WorkingOnText(myOpen.Select(t => new TicketRules.WorkItem(t.Id, t.Subject ?? "", StatusName(t), t.Status,
+                t.Priority, t.Slas?.PolicyMetrics.Where(m => m.Stage == "active" && m.BreachAt is not null).Min(m => m.BreachAt), t.UpdatedAt))) is { } workingOn)
+            yourTickets += "\n" + workingOn;
         notifier.Show(new NotificationContent(NotificationKind.MyTicket, $"Catch up · {TicketRules.CatchUpSince(start, DateTime.Now)}",
             TicketRules.Greeting(DateTime.Now, Me?.Name), TicketRules.CatchUpBody(counts, yourTickets))
         {

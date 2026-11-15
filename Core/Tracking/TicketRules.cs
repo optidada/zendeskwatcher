@@ -201,6 +201,42 @@ public static class TicketRules
         return $"Your tickets: {string.Join(" · ", parts)}";
     }
 
+    /// <summary>Catch up lists at most this many of the tickets you're working on.</summary>
+    public const int MaxWorkingOn = 5;
+
+    /// <summary>One of your tickets for Catch up's "To work on" list.</summary>
+    public readonly record struct WorkItem(long Id, string Subject, string StatusName, string? Status, string? Priority,
+        DateTimeOffset? SlaDue, DateTimeOffset UpdatedAt);
+
+    /// <summary>
+    /// Catch up's reminder of what you're working on: your New, Open and In progress tickets (not Pending, On-hold or
+    /// Escalated: those wait on someone else), most urgent first, then the nearest SLA, then the longest untouched.
+    /// "#123 [P1] Subject" per line, at most <see cref="MaxWorkingOn"/>, then "+N more". Null when there are none.
+    /// </summary>
+    public static string? WorkingOnText(IEnumerable<WorkItem> tickets)
+    {
+        static int Rank(string? priority) => priority switch { "urgent" => 0, "high" => 1, "low" => 3, _ => 2 };
+        var work = tickets
+            .Where(t => t.Status is "new" or "open" && !TeamWorkload.IsEscalatedStatus(t.StatusName))
+            .OrderBy(t => Rank(t.Priority))
+            .ThenBy(t => t.SlaDue ?? DateTimeOffset.MaxValue)
+            .ThenBy(t => t.UpdatedAt)
+            .ToList();
+        if (work.Count == 0)
+            return null;
+        var lines = work.Take(MaxWorkingOn).Select(t =>
+        {
+            var tag = t.Priority is "urgent" or "high" ? Markdown.Tag(t.Priority) + Nbsp : "";
+            var subject = TextCleanup.Plain(t.Subject);
+            if (subject.Length > 60)
+                subject = subject[..59].TrimEnd() + "…";
+            return $"#{t.Id} {tag}{Markdown.Escape(subject)}";
+        }).ToList();
+        if (work.Count > MaxWorkingOn)
+            lines.Add($"+{work.Count - MaxWorkingOn} more");
+        return "To work on:\n" + string.Join("\n", lines);
+    }
+
     /// <summary>A priority in a notification's text: "Urgent [P1]" (a tag, kept on the line with its word); "None" for none.</summary>
     public static string PriorityWithTag(string? priority) => priority?.ToLowerInvariant() switch
     {

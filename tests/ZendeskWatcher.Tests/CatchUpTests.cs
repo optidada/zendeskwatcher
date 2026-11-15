@@ -45,6 +45,30 @@ public class CatchUpTests
     }
 
     [Fact]
+    public void Working_on_lists_open_tickets_most_urgent_first()
+    {
+        var now = DateTimeOffset.UtcNow;
+        TicketRules.WorkItem T(long id, string status, string name, string? priority, double hoursAgo, DateTimeOffset? sla = null) =>
+            new(id, $"Ticket {id}", name, status, priority, sla, now.AddHours(-hoursAgo));
+
+        Assert.Null(TicketRules.WorkingOnText([T(1, "pending", "Pending", "urgent", 1), T(2, "open", "Escalated to Engineering", "high", 1)]));
+
+        var text = TicketRules.WorkingOnText([
+            T(10, "open", "Open", "normal", 1),
+            T(11, "open", "Open", "normal", 5),             // untouched longer: before 10
+            T(12, "open", "In Progress", "urgent", 1),      // P1 first
+            T(13, "pending", "Pending", "urgent", 1),       // waits on the customer: not listed
+            T(14, "new", "New", "normal", 1, now.AddHours(1)), // SLA soon: first among the normal ones
+            T(15, "open", "Open", "high", 1),
+            T(16, "open", "Open", "low", 9),
+            T(17, "open", "Open", "low", 1)]);
+        Assert.Equal("To work on:\n" +
+                     $"#12 {ZendeskWatcher.UI.Markdown.Tag("urgent")} Ticket 12\n" +
+                     $"#15 {ZendeskWatcher.UI.Markdown.Tag("high")} Ticket 15\n" +
+                     "#14 Ticket 14\n#11 Ticket 11\n#10 Ticket 10\n+2 more", text);
+    }
+
+    [Fact]
     public async Task Runs_by_itself_once_per_working_day()
     {
         File.Delete(AppPaths.StateFile);
@@ -127,12 +151,15 @@ public class CatchUpTests
         // The priorities are tags: as plain text "P1".
         Assert.Contains("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines.Select(l => ZendeskWatcher.UI.Markdown.Strip(l)));
         Assert.DoesNotContain("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines);
-        // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets last.
+        // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets, then what to work on.
         Assert.Contains("**1** waiting for your reply", lines);
         Assert.Contains("**1** past SLA", lines);
         Assert.Contains("**1** Escalated, no reply to the customer for 2+ days", lines);
         Assert.Contains("**1** Pending, no update for 7+ days", lines);
-        Assert.StartsWith("Your tickets:", lines[^1]);
+        var work = Array.IndexOf(lines, "To work on:");
+        Assert.True(work > 0);
+        Assert.StartsWith("Your tickets:", lines[work - 1]);
+        Assert.All(lines[(work + 1)..], l => Assert.StartsWith("#", l));
         Assert.False(greeting.RequestedByUser);
     }
 

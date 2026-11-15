@@ -86,7 +86,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "customer hasn't had a reply for 2+ days, and Pending ones with no update for 7+ days (follow up, or solve them). " +
             "Nothing at all: “Nothing needs you right now”.",
             "Below that, your own open tickets by status (Open, In progress, Escalated, Scheduled, Pending, …), with how many " +
-            "are P1 or P2.",
+            "are P1 or P2. Then “To work on”: up to 5 of your New, Open and In progress tickets, most urgent first, then " +
+            "the nearest SLA, then the longest untouched (click a number to open it).",
             "It greets you when the app starts (General → Startup) and right after the guide on your first start, comes by " +
             "itself when your working day starts (Notifications → Working hours), and from the tray menu at any time.",
             "Up to 5 waiting customers and up to 3 unassigned tickets also come one by one: once a working day, or when you ask.",
@@ -108,7 +109,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "taken, solved or closed, or (with Behavior → Skip old news) already answered by someone.",
             "Snooze brings a notification back after the time you chose, but only if the ticket still needs you.",
             "Glow at the screen edge (Look & sound): Urgent tickets, SLAs breached or due within 15 minutes and important clients " +
-            "also make the screen edges pulse briefly (in the priority's color, or the notification's color for a client); while you're away it waits until you're back."
+            "also make the screen edges pulse briefly (in the priority's color, or the notification's color for a client); while you're away it waits until you're back. " +
+            "Several at once glow only once."
         ]),
         ("Summaries",
         [

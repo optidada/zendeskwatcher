@@ -16,6 +16,9 @@ internal sealed class EdgeGlow : NativeWindow, IDisposable
     private const byte MaxAlpha = 235;
 
     private static EdgeGlow? _current;
+    /// <summary>Notifications arriving together glow once: no new glow this soon after the last one ended.</summary>
+    private static readonly TimeSpan Calm = TimeSpan.FromSeconds(10);
+    private static DateTime _lastEnded = DateTime.MinValue;
     private static NotificationContent? _whenBack;
     private static Color _whenBackColor;
 
@@ -57,10 +60,13 @@ internal sealed class EdgeGlow : NativeWindow, IDisposable
             Flash(_whenBackColor);
     }
 
-    /// <summary>Pulses the glow once on the primary screen (where notifications appear); ignored while one is running.</summary>
+    /// <summary>
+    /// Pulses the glow once on the primary screen (where notifications appear); ignored while one is running or just
+    /// after one (a burst of notifications glows once, not again and again).
+    /// </summary>
     public static void Flash(Color color, Action? done = null)
     {
-        if (_current != null)
+        if (_current != null || DateTime.UtcNow - _lastEnded < Calm)
         {
             done?.Invoke();
             return;
@@ -222,6 +228,7 @@ internal sealed class EdgeGlow : NativeWindow, IDisposable
         DestroyHandle();
         if (_current == this)
             _current = null;
+        _lastEnded = DateTime.UtcNow;
         _done?.Invoke();
     }
 

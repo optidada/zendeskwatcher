@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.3
+
+- **Catch up: "To work on"**: under your tickets, up to 5 of your New, Open and In progress tickets by name, most urgent first, then the nearest SLA. Click a number to open the ticket.
+- **One glow at a time**: several notifications arriving together glow at the screen edge once, not one glow after another.
+
 ## 1.8.2
 
 - **Smaller and lighter**: the app takes about 23 MB less on disk (a Windows library it no longer needs), and sounds now play through Windows' simple audio output, which closes as soon as a sound ends instead of keeping Windows' media player loaded.
