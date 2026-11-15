@@ -171,6 +171,9 @@ public sealed class PopupManager
             case PopupForm.Result.Open:
                 _onAction(content.ResolvedAction, content.TicketId);
                 break;
+            case PopupForm.Result.Take when clickedLink is { } assign:
+                _onAction(assign.Action, assign.TicketId); // assign to a colleague (the ▾ next to Take it)
+                break;
             case PopupForm.Result.Take:
                 _onAction(Notifier.ActionTake, content.TicketId);
                 break;

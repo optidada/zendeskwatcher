@@ -52,6 +52,7 @@ internal static class ThemedMenu
             menu.Close();
             bitmap.Save(Path.Combine(dir, $"{theme}.png"));
         }
+        Popups.AssignMenu.RenderSample(Path.Combine(dir, "who-could-take-it.png")); // in the app theme of the moment
     }
 
     private sealed class Renderer(UiPalette p) : ToolStripProfessionalRenderer(new Colors(p))

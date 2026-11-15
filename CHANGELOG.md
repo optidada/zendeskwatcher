@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.4
+
+- **Who could take it**: the ▾ next to Take it on a new-ticket notification lists up to 3 colleagues in the ticket's group who are in their working hours and active in Zendesk, least busy first. Pick one to assign the ticket to them (you're asked first).
+- **Insights: Your team** gets a Solved column (solved or closed in the last 7 days); "Waiting" is now "Pending" (Pending and On-hold), and names are shortened so no column is cut off.
+- **Smoother Insights**: the page scrolls smoothly, without smudges, and its cards have clearer titles.
+- In Pill mode, an open menu on a notification keeps the pill open.
+
 ## 1.8.3
 
 - **Catch up: "To work on"**: under your tickets, up to 5 of your New, Open and In progress tickets by name, most urgent first, then the nearest SLA. Click a number to open the ticket.

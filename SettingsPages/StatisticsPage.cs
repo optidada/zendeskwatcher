@@ -24,7 +24,7 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly Label _nowStatus = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
     private readonly Label _teamTitle = Theme.Label("Your team", Theme.BodyBold, Theme.Text);
     private readonly Label _teamStatus = Theme.Linked("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-    private readonly TableLayoutPanel _team = new() { ColumnCount = 8, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
+    private readonly GridTable _team = new() { Margin = new Padding(0, 2, 0, 0) };
 
     /// <summary>How often the team's tickets are read again, at most (only while Insights is shown).</summary>
     private static readonly TimeSpan TeamRefresh = TimeSpan.FromMinutes(10);
@@ -35,14 +35,14 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly TableLayoutPanel _now = new() { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 4, 0, 0) };
     private readonly ToolTip _tips = new();
     private readonly Label _summary = Theme.Label("", Theme.Body, Theme.Text, Kit.CardWidth - 44);
-    private readonly TableLayoutPanel _table = new() { AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 8, 0, 8) };
+    private readonly GridTable _table = new() { Margin = new Padding(0, 8, 0, 8) };
     private readonly Button _clear = Theme.SecondaryButton("Clear statistics");
     private readonly TableLayoutPanel _insights = new() { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
 
     public StatisticsPage(SettingsContext context)
         : base(context, "Insights", "What's waiting now, how you used notifications, and tips. Counted on this PC only.")
     {
-        var now = new Card("Right now", null, Kit.CardWidth);
+        var now = new Card("Tickets right now", null, Kit.CardWidth);
         now.Body.Controls.Add(_nowStatus);
         now.Body.Controls.Add(_now);
         _teamTitle.Margin = new Padding(0, 14, 0, 0);
@@ -54,7 +54,7 @@ internal sealed class StatisticsPage : SettingsPage
         WatchStatus.Changed += ShowNow;
         Panel.Disposed += (_, _) => WatchStatus.Changed -= ShowNow;
 
-        var card = new Card("Last 30 days", null, Kit.CardWidth);
+        var card = new Card("How you used notifications · 30 days", null, Kit.CardWidth);
         card.Body.Controls.Add(_summary);
         card.Body.Controls.Add(_table);
         card.Body.Controls.Add(Theme.Label(
@@ -63,7 +63,7 @@ internal sealed class StatisticsPage : SettingsPage
         card.Body.Controls.Add(_clear);
         Panel.Controls.Add(card);
 
-        var suggestions = new Card("Suggestions", "Based on the last 30 days.", Kit.CardWidth);
+        var suggestions = new Card("Tips for your notifications", "From how you used them in the last 30 days.", Kit.CardWidth);
         suggestions.Body.Controls.Add(_insights);
         Panel.Controls.Add(suggestions);
 
@@ -124,7 +124,8 @@ internal sealed class StatisticsPage : SettingsPage
                 .Where(u => u.Role != "end-user" && (u.Id == me.Id || TimeRegions.Of(TimeRegions.ZoneOf(u)) == region))
                 .DistinctBy(u => u.Id)
                 .ToDictionary(u => u.Id, u => u.Id == me.Id ? "You" : u.Name ?? $"User {u.Id}");
-            var tickets = await Task.WhenAll(groups.Select(id => client.GetAssignedOpenTicketsAsync(id, CancellationToken.None)));
+            var tickets = await Task.WhenAll(groups.Select(id => client.GetAssignedOpenTicketsAsync(id, CancellationToken.None))
+                .Concat(groups.Select(id => client.GetRecentlySolvedTicketsAsync(id, TeamWorkload.SolvedDays, CancellationToken.None))));
             var statuses = (await client.GetCustomStatusesAsync(CancellationToken.None))
                 .Where(s => s.AgentLabel is { Length: > 0 }).ToDictionary(s => s.Id, s => s.AgentLabel!);
             var rows = TeamWorkload.Count(tickets.SelectMany(t => t), team, me.Id, statuses);
@@ -171,10 +172,6 @@ internal sealed class StatisticsPage : SettingsPage
             ? $"Busiest first. Click a name to see their tickets; point at a heading for details. Updated " +
                 $"{(at is { } read ? Clock.Time(read.ToLocalTime()) : "")}."
             : "No colleagues in your region in these groups.");
-        _team.SuspendLayout();
-        foreach (var old in _team.Controls.Cast<Control>().ToList())
-            old.Dispose();
-        _team.Controls.Clear();
         _team.Visible = rows is { Count: > 0 };
         if (rows is { Count: > 0 })
         {
@@ -183,45 +180,46 @@ internal sealed class StatisticsPage : SettingsPage
             [
                 ("", "", _ => 0),
                 ("Open", "New and Open, also other open statuses", r => r.Open),
-                ("In progress", "Statuses with \u201cin progress\u201d in their name", r => r.InProgress),
+                ("In progress", "Statuses with “in progress” in their name", r => r.InProgress),
                 ("P1/P2", "Of the Open and In progress ones: Urgent or High", r => r.UrgentOrHigh)
             ];
             if (escalated is { Length: > 1 })
                 foreach (var status in escalated)
                     columns.Add((TeamWorkload.ShortEscalatedName(status), status, r => r.EscalatedBy?.GetValueOrDefault(status) ?? 0));
             else
-                columns.Add(("Escalated", escalated is { Length: > 0 } e ? e[0] : "No status with \u201cescalat\u201d in its name", r => r.Escalated));
-            columns.Add(("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with \u201cscheduled\u201d in its name",
+                columns.Add(("Escalated", escalated is { Length: > 0 } e ? e[0] : "No status with “escalat” in its name", r => r.Escalated));
+            columns.Add(("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with “scheduled” in its name",
                 r => r.Scheduled));
-            columns.Add(("Waiting", "Pending and On-hold: waiting on the customer or someone else", r => r.Waiting));
-            _team.ColumnCount = columns.Count;
-            for (var c = 0; c < columns.Count; c++)
-            {
-                Control header = columns[c].Text == "P1/P2"
-                    ? new PriorityLabel("", "urgent", "high") { Anchor = AnchorStyles.Right, Margin = new Padding(4, 4, 0, 4) }
-                    : Cell(columns[c].Text, Theme.Small, Theme.TextMuted, left: c == 0);
-                if (columns[c].Tip.Length > 0)
-                    _tips.SetToolTip(header, columns[c].Tip);
-                _team.Controls.Add(header, c, 0);
-            }
-            var baseUrl = Context.Current().BaseUrl;
-            for (var i = 0; i < rows.Count; i++)
-            {
-                var row = rows[i];
-                var name = Kit.LinkLabel(row.Name, row.IsMe ? Theme.BodyBold : Theme.Body);
-                name.Margin = new Padding(0, 4, 10, 4);
-                var query = $"assignee:{row.AssigneeId} status<solved";
-                _tips.SetToolTip(name, $"{(row.IsMe ? "Your" : $"{row.Name}'s")} unsolved tickets \u2013 opens in Zendesk");
-                name.Click += (_, _) => OpenSearch(baseUrl, query);
-                _team.Controls.Add(name, 0, i + 1);
-                for (var c = 1; c < columns.Count; c++)
-                    _team.Controls.Add(Number(columns[c].Count(row)), c, i + 1);
-            }
-        }
-        _team.ResumeLayout();
+            columns.Add(("Pending", "Pending and On-hold: waiting on the customer or someone else", r => r.Pending));
+            columns.Add(("Solved", $"Solved or closed in the last {TeamWorkload.SolvedDays} days", r => r.Solved));
 
-        static Label Number(int n) => Cell(n == 0 ? "\u2013" : n.ToString(), Theme.Body, n == 0 ? Theme.TextMuted : Theme.Text);
+            var table = new List<GridTable.Cell[]>
+            {
+                columns.Select(c => c.Text == "P1/P2"
+                    ? new GridTable.Cell("", Theme.Small, Tip: c.Tip, Tags: ["urgent", "high"])
+                    : new GridTable.Cell(c.Text, Theme.Small, GridTable.Ink.Muted, c.Tip.Length > 0 ? c.Tip : null)).ToArray()
+            };
+            var baseUrl = Context.Current().BaseUrl;
+            var shortNames = TeamWorkload.ShortNames(rows.Select(r => r.Name));
+            foreach (var row in rows)
+            {
+                var query = $"assignee:{row.AssigneeId} status<solved";
+                var name = new GridTable.Cell(shortNames[row.Name], row.IsMe ? Theme.BodyBold : Theme.Body, GridTable.Ink.Link,
+                    $"{(row.IsMe ? "Your" : $"{row.Name}'s")} unsolved tickets – opens in Zendesk", () => OpenSearch(baseUrl, query));
+                table.Add([name, .. columns.Skip(1).Select(c => Number(c.Count(row), Theme.Body))]);
+            }
+            _team.MaxWidth = TableRoom(_team);
+            _team.SetRows(table);
+        }
     }
+
+    /// <summary>The width a table may use in its card (names give way when it's wider).</summary>
+    private static int TableRoom(Control table) => table.Parent?.Parent is Card card
+        ? card.Width - card.Padding.Horizontal - table.Margin.Horizontal
+        : int.MaxValue;
+
+    private static GridTable.Cell Number(int n, Font font) =>
+        new(n == 0 ? "–" : n.ToString(), font, n == 0 ? GridTable.Ink.Muted : GridTable.Ink.Text);
 
     /// <summary>What each part last showed: shown again unchanged, it isn't rebuilt (about 100 labels).</summary>
     private string? _statsShown, _nowShown, _teamShown;
@@ -262,39 +260,14 @@ internal sealed class StatisticsPage : SettingsPage
             : $"{shown} ticket notification{(shown == 1 ? "" : "s")}. You acted on {acted} ({Percent(acted, shown)}), not on " +
               $"{Math.Max(0, shown - acted)}; {Total(StatOutcome.Snoozed)} snoozed, {Total(StatOutcome.Closed)} closed and {Total(StatOutcome.TimedOut)} timed out.";
 
-        _table.SuspendLayout();
-        foreach (var old in _table.Controls.Cast<Control>().ToList())
-            old.Dispose();
-        _table.Controls.Clear();
-        _table.ColumnStyles.Clear();
-        _table.ColumnCount = Columns.Length + 1;
-        // Columns size to their contents, so nothing is cut off at any display scaling.
-        for (var c = 0; c <= Columns.Length; c++)
-            _table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        _table.Controls.Add(Cell("", Theme.Small, Theme.TextMuted, left: true), 0, 0);
-        for (var c = 0; c < Columns.Length; c++)
-            _table.Controls.Add(Cell(Columns[c].Label, Theme.Small, Theme.TextMuted), c + 1, 0);
-
-        var row = 1;
+        List<GridTable.Cell[]> table = [[new("", Theme.Small), .. Columns.Select(c => new GridTable.Cell(c.Label, Theme.Small, GridTable.Ink.Muted))]];
         foreach (var (kind, label) in Kinds)
-        {
-            _table.Controls.Add(Cell(label, Theme.Body, Theme.Text, left: true), 0, row);
-            for (var c = 0; c < Columns.Length; c++)
-            {
-                var count = Count(kind, Columns[c].Outcome);
-                _table.Controls.Add(Cell(count == 0 ? "–" : count.ToString(), Theme.Body, count == 0 ? Theme.TextMuted : Theme.Text), c + 1, row);
-            }
-            row++;
-        }
+            table.Add([new(label, Theme.Body), .. Columns.Select(c => Number(Count(kind, c.Outcome), Theme.Body))]);
+        table.Add([new("Total", Theme.BodyBold), .. Columns.Select(c => new GridTable.Cell(Total(c.Outcome).ToString(), Theme.BodyBold))]);
+        _table.SetRows(table);
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         ShowInsights(StatsInsights.Analyze(totals, Context.Notifier.Stats.ActiveDays(today), Context.Current(), Context.Notifier.Stats.ClientTotals(today)));
-
-        _table.Controls.Add(Cell("Total", Theme.BodyBold, Theme.Text, left: true), 0, row);
-        for (var c = 0; c < Columns.Length; c++)
-            _table.Controls.Add(Cell(Total(Columns[c].Outcome).ToString(), Theme.BodyBold, Theme.Text), c + 1, row);
-        _table.ResumeLayout();
     }
 
     private void ShowInsights(List<StatsInsights.Insight> insights)

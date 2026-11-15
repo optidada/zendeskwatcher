@@ -32,13 +32,13 @@ public class TeamWorkloadTests
         var rows = TeamWorkload.Count(tickets, team, meId: 2, Statuses);
 
         Assert.Equal(["Maria", "Alex", "Robin"], rows.Select(r => r.Name));
-        Assert.Equal((2, 1, 3, 0, 0, 1), (rows[0].Open, rows[0].InProgress, rows[0].UrgentOrHigh, rows[0].Escalated, rows[0].Scheduled, rows[0].Waiting));
+        Assert.Equal((2, 1, 3, 0, 0, 1), (rows[0].Open, rows[0].InProgress, rows[0].UrgentOrHigh, rows[0].Escalated, rows[0].Scheduled, rows[0].Pending));
         Assert.Equal(10, TeamWorkload.Score(rows[0])); // In progress weighs like Open
-        Assert.Equal((1, 0, 2, 1, 2, true), (rows[1].Open, rows[1].UrgentOrHigh, rows[1].Escalated, rows[1].Scheduled, rows[1].Waiting, rows[1].IsMe));
+        Assert.Equal((1, 0, 2, 1, 2, true), (rows[1].Open, rows[1].UrgentOrHigh, rows[1].Escalated, rows[1].Scheduled, rows[1].Pending, rows[1].IsMe));
         Assert.Equal(1, rows[1].EscalatedBy!["Escalated to Engineering"]); // and per status
         Assert.Equal(1, rows[1].EscalatedBy!["Escalated internally"]);
         Assert.Equal(7, TeamWorkload.Score(rows[1]));
-        Assert.Equal((0, 0, 0), (rows[2].Open, rows[2].UrgentOrHigh, rows[2].Waiting)); // no tickets: still listed
+        Assert.Equal((0, 0, 0), (rows[2].Open, rows[2].UrgentOrHigh, rows[2].Pending)); // no tickets: still listed
     }
 
     [Theory]
@@ -62,4 +62,26 @@ public class TeamWorkloadTests
     [InlineData("escalated - tier 2", "Esc. Tier")]
     [InlineData("Escalated", "Escalated")]
     public void Short_headings_for_escalated_statuses(string label, string expected) => Assert.Equal(expected, TeamWorkload.ShortEscalatedName(label));
+
+    [Fact]
+    public void Solved_and_closed_count_as_solved_not_as_workload()
+    {
+        var team = new Dictionary<long, string> { [1] = "Maria" };
+        var rows = TeamWorkload.Count([T(1, 1, "solved"), T(2, 1, "closed", customStatus: 77), T(3, 1, "pending")], team, meId: 9, Statuses);
+
+        Assert.Equal((2, 1, 0), (rows[0].Solved, rows[0].Pending, rows[0].Escalated));
+        Assert.Equal(1, TeamWorkload.Score(rows[0]));
+    }
+
+    [Fact]
+    public void Short_names_unless_two_would_look_the_same()
+    {
+        var names = TeamWorkload.ShortNames(["Maria Svensson", "You", "Anna van der Berg", "Kim Larsen", "Kim Lund"]);
+
+        Assert.Equal("Maria S.", names["Maria Svensson"]);
+        Assert.Equal("You", names["You"]);
+        Assert.Equal("Anna B.", names["Anna van der Berg"]);
+        Assert.Equal("Kim Larsen", names["Kim Larsen"]);
+        Assert.Equal("Kim Lund", names["Kim Lund"]);
+    }
 }

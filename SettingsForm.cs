@@ -716,8 +716,8 @@ public sealed class SettingsForm : Form
             }, TimeRegion.EuropeAfrica);
             StatisticsPage.SetTeamSample(settings.Subdomain, settings.WatchedGroups.Select(g => g.Id), TimeRegion.EuropeAfrica,
             [
-                new(10, "Maria Svensson", 14, 2, 3, 1, 6, false), new(99, "You", 11, 1, 1, 0, 4, true),
-                new(9, "Alex Example", 7, 0, 4, 2, 9, false), new(17, "Kim Larsen", 3, 0, 0, 0, 1, false)
+                new(10, "Maria Svensson", 14, 2, 3, 1, 6, false, Solved: 12), new(99, "You", 11, 1, 1, 0, 4, true, Solved: 9),
+                new(9, "Alexandra Lindqvist-Example", 7, 0, 4, 2, 9, false, Solved: 15), new(17, "Kim Larsen", 3, 0, 0, 0, 1, false, Solved: 4)
             ]);
             form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)

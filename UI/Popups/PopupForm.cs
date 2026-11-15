@@ -15,6 +15,9 @@ public sealed class PopupForm : Form
     /// <summary>The button between Open and Snooze/Close: "Take it" on new tickets.</summary>
     private bool HasExtraButton => _content.CanTake;
 
+    /// <summary>"▾" on the right of Take it: who could take it (<see cref="AssignMenu"/>), once signed in (samples too).</summary>
+    private bool HasWho => HasExtraButton && _content.TicketId is not null && (AssignMenu.Find is not null || _content.IsSample);
+
     private const int BaseWidth = 380;
 
     /// <summary>Badge column and heading prefix ("Achievement unlocked"), or null.</summary>
@@ -47,7 +50,7 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _clientRect, _muteRect;
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _whoRect, _dismissRect, _clientRect, _muteRect;
     private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _dismissLabel = "";
 
     // State
@@ -192,6 +195,9 @@ public sealed class PopupForm : Form
     /// <summary>The "Mute ▾" menu is open: the countdown waits, as when hovering.</summary>
     private bool _menuOpen;
 
+    /// <summary>Its Mute ▾ or Who could take it ▾ menu is open (the pill stays open meanwhile).</summary>
+    internal bool MenuOpen => _menuOpen;
+
     private double _copiedUntil;
     private Font? _iconFont;
 
@@ -294,6 +300,7 @@ public sealed class PopupForm : Form
         _openRect.Offset(0, delta);
         _snoozeRect.Offset(0, delta);
         _takeRect.Offset(0, delta);
+        _whoRect.Offset(0, delta);
         _dismissRect.Offset(0, delta);
         _barRect.Offset(0, delta);
         ClientSize = new Size(ClientSize.Width, height);
@@ -670,7 +677,7 @@ public sealed class PopupForm : Form
         var withDismiss = SecondButton == Result.Snooze;
         int Fit(int padding, bool dismiss) =>
             new[] { _openLabel, HasExtraButton ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
-                .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8);
+                .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8) + WhoWidth;
         var padding = _palette.Terminal ? 8 : 28;
         if (Fit(padding, withDismiss) > width && !_palette.Terminal)
             padding = 16;
@@ -683,8 +690,10 @@ public sealed class PopupForm : Form
         var openWidth = WidthOf(_openLabel);
         var snoozeWidth = WidthOf(_snoozeLabel);
         _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
-        var takeWidth = HasExtraButton ? WidthOf(_takeLabel) : 0;
+        var takeWidth = HasExtraButton ? WidthOf(_takeLabel) + WhoWidth : 0;
         _takeRect = HasExtraButton ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
+        // The ▾ is the right end of the Take it button (a split button); _takeRect stays the whole button.
+        _whoRect = HasWho ? new Rectangle(_takeRect.Right - WhoWidth, y, WhoWidth, buttonHeight) : Rectangle.Empty;
         var snoozeRight = HasExtraButton ? _takeRect.Left : _openRect.Left;
         _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight)
             : SecondButton == Result.Dismiss ? new Rectangle(left, y, snoozeWidth, buttonHeight) // "Close" on app messages: bottom left too
@@ -881,14 +890,53 @@ public sealed class PopupForm : Form
         if (_snoozeRect.Width > 0)
             PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
         if (HasExtraButton)
-            PaintButton(g, _takeRect, _takeLabel, primary: false);
+            PaintTakeButton(g);
         PaintButton(g, _openRect, _openLabel, primary: true);
     }
 
-    private void PaintButton(Graphics g, Rectangle rect, string label, bool primary)
-    {
-        var hover = _hoverButton == rect;
+    private int WhoWidth => HasWho ? Px(_palette.Terminal ? 20 : 24) : 0;
 
+    /// <summary>Take it, with the ▾ part on its right (hovered separately) when there is one.</summary>
+    private void PaintTakeButton(Graphics g)
+    {
+        if (_whoRect.IsEmpty)
+        {
+            PaintButton(g, _takeRect, _takeLabel, primary: false);
+            return;
+        }
+        var label = new Rectangle(_takeRect.X, _takeRect.Y, _takeRect.Width - _whoRect.Width, _takeRect.Height);
+        var hoverWho = _hoverButton == _whoRect;
+        var hoverTake = _hoverButton == _takeRect;
+        if (_palette.Terminal)
+        {
+            PaintButton(g, label, _takeLabel, primary: false, hover: hoverTake);
+            PaintButton(g, _whoRect, "▾", primary: false, hover: hoverWho);
+            return;
+        }
+        // One outline; the hovered part lights up.
+        PaintButton(g, _takeRect, "", primary: false, hover: false);
+        if (hoverTake || hoverWho)
+        {
+            var radius = _palette.ButtonRadius == UiPalette.Pill ? _takeRect.Height / 2f : Math.Min(_palette.ButtonRadius * _s, _takeRect.Height / 2f);
+            using var path = Theme.RoundedRect(new RectangleF(_takeRect.X + 0.5f, _takeRect.Y + 0.5f, _takeRect.Width - 1, _takeRect.Height - 1), radius);
+            var state = g.Save();
+            g.SetClip(hoverWho ? _whoRect : label);
+            using var fill = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 20, _palette.Text));
+            g.FillPath(fill, path);
+            g.Restore(state);
+        }
+        using (var pen = new Pen(_palette.Dark ? Color.FromArgb(70, _palette.Text) : _palette.Border))
+            g.DrawLine(pen, _whoRect.Left, _whoRect.Top + Px(6), _whoRect.Left, _whoRect.Bottom - Px(6));
+        DrawText(g, _takeLabel, _smallFont, new Rectangle(label.X + Px(4), label.Y, label.Width - Px(2), label.Height), _palette.Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        DrawText(g, "▾", _smallFont, new Rectangle(_whoRect.X - Px(1), _whoRect.Y, _whoRect.Width, _whoRect.Height), _palette.Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+
+    private void PaintButton(Graphics g, Rectangle rect, string label, bool primary) => PaintButton(g, rect, label, primary, _hoverButton == rect);
+
+    private void PaintButton(Graphics g, Rectangle rect, string label, bool primary, bool hover)
+    {
         if (_palette.Terminal)
         {
             if (hover)
@@ -986,7 +1034,7 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _whoRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
     }
 
@@ -1032,6 +1080,8 @@ public sealed class PopupForm : Form
         }
         else if (_snoozeRect.Contains(e.Location))
             Dismiss(SecondButton);
+        else if (!_whoRect.IsEmpty && _whoRect.Contains(e.Location))
+            ShowWhoMenu();
         else if (HasExtraButton && _takeRect.Contains(e.Location))
             Dismiss(Result.Take);
         else
@@ -1040,6 +1090,35 @@ public sealed class PopupForm : Form
             ClickedLink = LinkAt(e.Location);
             Dismiss(Result.Open);
         }
+    }
+
+    /// <summary>
+    /// Who could take it: the menu under the ▾ (the countdown waits while it's open). A colleague picked and confirmed:
+    /// the notification closes and the app assigns the ticket to them (counted like Take it).
+    /// </summary>
+    private void ShowWhoMenu()
+    {
+        var ticketId = _content.TicketId!.Value;
+        // In the lower half of the screen it opens upwards (it grows when the colleagues are in), else downwards.
+        var screen = Screen.FromControl(this).WorkingArea;
+        var up = PointToScreen(new Point(0, _whoRect.Bottom)).Y > screen.Top + screen.Height / 2;
+        ContextMenuStrip? menu = null;
+        menu = AssignMenu.Build(ticketId, _content.IsSample, candidate =>
+        {
+            _menuOpen = true; // the question is open: no countdown, and the pill stays open
+            var yes = ThemedDialog.Confirm(this, $"Assign #{ticketId} to {candidate.Name}?",
+                $"The ticket is assigned to {candidate.Name} in Zendesk.", "Assign");
+            _menuOpen = false;
+            if (!yes)
+                return;
+            ClickedLink = new RichText.Link(NotificationActions.Assign(candidate.UserId, candidate.Name), ticketId);
+            Dismiss(Result.Take);
+        }, () => Open(menu!));
+        void Open(ContextMenuStrip m) => m.Show(this, up ? new Point(_whoRect.Right, _whoRect.Top) : new Point(_whoRect.Right, _whoRect.Bottom),
+            up ? ToolStripDropDownDirection.AboveLeft : ToolStripDropDownDirection.BelowLeft);
+        _menuOpen = true;
+        menu.Closed += (_, _) => { _menuOpen = false; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
+        Open(menu);
     }
 
     private RichText.Link? LinkAt(Point at) => _links.Where(l => l.Bounds.Contains(at)).Select(l => l.Link).FirstOrDefault();
@@ -1055,7 +1134,7 @@ public sealed class PopupForm : Form
             var i = 0;
             foreach (var content in Notifier.AllSamples())
             {
-                using var form = new PopupForm(content, PopupPalette.For(theme), 0, 1f) { _phase = Phase.Showing };
+                using var form = new PopupForm(content with { IsSample = true }, PopupPalette.For(theme), 0, 1f) { _phase = Phase.Showing };
                 using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(dir, $"{theme}-{i++}.png"));

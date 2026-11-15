@@ -170,7 +170,8 @@ internal sealed class PillHost : Form
         var mouse = Cursor.Position;
         var gap = (int)(12 * _s);
         var inside = Bounds.Contains(mouse) || _cards().Any(c => c.Visible && Rectangle.Inflate(c.Bounds, gap, gap).Contains(mouse))
-            || DateTime.UtcNow < _openUntil;
+            || DateTime.UtcNow < _openUntil
+            || _cards().Any(c => !c.IsDisposed && c.MenuOpen); // a card's menu (or its Assign question) is open
         if (inside)
             _outsideSince = DateTime.MaxValue;
         else if (_outsideSince == DateTime.MaxValue)

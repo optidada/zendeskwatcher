@@ -17,6 +17,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
             "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
+            "The ▾ next to Take it: up to 3 colleagues in the ticket's group who could take it, least busy first. Only those in their working hours who did something in Zendesk in the last 3 hours. Pick one to assign it to them (you're asked first).",
             "Muted clients stay quiet and aren't counted; \u201conly urgent\u201d clients only for Urgent (P1) and High (P2). [[Groups → Clients|Clients]], or Mute \u25be on a notification."
         ]),
         ("Clients",
@@ -99,7 +100,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "Peek from the edge (Look & sound): it waits as a tab and counts down only after you've slid it out. " +
             "Urgent and important ones, app messages and Catch up come out by themselves.",
             "A pill at the top: a small pill at the top center says what's there (\"2 new · 1 P1\"); point at it to see them. " +
-            "Like Peek, they count down only after you've seen them, and urgent ones open it by themselves.",
+            "Like Peek, they count down only after you've seen them, and urgent ones open it by themselves. The countdown stops " +
+            "while you point at them and runs on when they close, oldest first: the bar is shorter the next time you look.",
             "A ticker at the screen edge: they scroll along the bottom (or top) of the screen; click one to open it, right-click for " +
             "Take it, Copy or Snooze. The mouse over it pauses it; each leaves after its normal time, in turn.",
             "Achievement unlocked: game style at the bottom center, one at a time, with a short tune instead of its sound (none when that's Silent).",
@@ -120,9 +122,10 @@ internal sealed class HowItWorksPage : SettingsPage
         ]),
         ("Your data",
         [
-            "The app reads Zendesk with your own sign-in and changes nothing, except when you click Take it.",
+            "The app reads Zendesk with your own sign-in and changes nothing, except when you click Take it or assign a ticket to a colleague.",
             "It checks every minute (Zendesk's own search can lag 1–3 minutes behind).",
-            "Insights are counted on this PC only; nothing is sent anywhere.",
+            "Insights are counted on this PC only; nothing is sent anywhere. Its Your team table reads your region's colleagues' " +
+            "tickets in your groups while the page is open (at most every 10 minutes); Solved counts the last 7 days.",
             "Send feedback (Updates & feedback) emails what you write from your own Outlook, with the log if you tick it: " +
             "ticket numbers and subjects, never comments. Without classic Outlook, an email opens for you to send."
         ])

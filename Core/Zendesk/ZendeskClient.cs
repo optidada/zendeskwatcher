@@ -383,6 +383,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     public Task<List<Ticket>> GetAssignedOpenTicketsAsync(long groupId, CancellationToken ct) =>
         SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved", ct);
 
+    /// <summary>Tickets in a group solved (or since closed) in the last <paramref name="days"/> days (Insights → Your team).</summary>
+    public Task<List<Ticket>> GetRecentlySolvedTicketsAsync(long groupId, int days, CancellationToken ct) =>
+        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status>=solved solved>{DateTime.UtcNow.AddDays(-days):yyyy-MM-ddTHH:mm:ssZ}", ct);
+
     private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct, [CallerMemberName] string caller = "") =>
         await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct, caller: caller);
 

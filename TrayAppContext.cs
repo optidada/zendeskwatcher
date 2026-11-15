@@ -171,6 +171,10 @@ public sealed class TrayAppContext : ApplicationContext
             case Notifier.ActionTake when ticketId is { } takeId:
                 _ = TakeTicketAsync(takeId);
                 break;
+            case var assign when assign.StartsWith(NotificationActions.AssignPrefix, StringComparison.Ordinal) && ticketId is { } assignId:
+                var parts = assign[NotificationActions.AssignPrefix.Length..].Split(':', 2);
+                _ = AssignTicketAsync(assignId, long.Parse(parts[0]), parts[1]);
+                break;
             case Notifier.ActionUpdate:
                 _updates.RestartToUpdate();
                 break;
@@ -290,6 +294,10 @@ public sealed class TrayAppContext : ApplicationContext
                     try { await watcher.InitializeAsync(ct); }
                     finally { _tray.EndBusy(); }
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
+                    // The ▾ next to Take it: who could take a new ticket, read by the watcher checking now.
+                    UI.Popups.AssignMenu.Find = id => _lastWatcher is { Me: not null } current
+                        ? current.FindCandidatesAsync(id, CancellationToken.None)
+                        : Task.FromResult<(List<AssignCandidate>, string?)>(([], "Not signed in yet."));
                     _me = watcher.Me;
                     initialized = true;
                     // Signed in: show it right away; the first check (a few seconds) then sets the state (green while online).
@@ -506,6 +514,33 @@ public sealed class TrayAppContext : ApplicationContext
         }
 
         OpenUrl(_settings.TicketUrl(ticketId));
+    }
+
+    /// <summary>
+    /// Assigns a new ticket to a colleague (the ▾ next to Take it), unless someone took it meanwhile. Says how it went.
+    /// Runs on the UI thread.
+    /// </summary>
+    private async Task AssignTicketAsync(long ticketId, long userId, string name)
+    {
+        if (_taker is not { } taker)
+            return;
+        try
+        {
+            var result = await taker.Client.TakeTicketAsync(ticketId, userId, CancellationToken.None);
+            Log.Info(result.Taken ? $"Assigned ticket #{ticketId} to user {userId}" : $"Ticket #{ticketId} was already taken by {result.TakenBy}");
+            _notifier.ShowInfo(result.Taken ? $"#{ticketId} assigned to {name}" : $"#{ticketId} was already taken",
+                result.Taken ? "Maybe tell them in Teams too." : $"{result.TakenBy} got it first.", ticketId);
+            WakeUp(); // refresh the unassigned count
+        }
+        catch (AuthRequiredException)
+        {
+            _notifier.ShowSignInRequired();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not assign ticket #{ticketId} to user {userId}", ex);
+            _notifier.ShowInfo($"Could not assign #{ticketId}", ex.Message, ticketId);
+        }
     }
 
     /// <summary>For snoozed and long-waiting notifications (see <see cref="TicketWatcher.StillNeededAsync"/>). Not signed in yet: all still needed.</summary>
