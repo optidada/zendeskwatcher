@@ -1,9 +1,10 @@
 using ZendeskWatcher.Tracking;
+using ZendeskWatcher.UI;
 using ZendeskWatcher.UI.Popups;
 
 namespace ZendeskWatcher.Tests;
 
-/// <summary>The experimental priority guess: only higher guesses, with readable reasons; calm and solved texts stay quiet.</summary>
+/// <summary>The experimental priority guess: higher guesses with readable reasons, "probably not" for Urgent/High without any sign; calm and solved texts stay quiet.</summary>
 public class PriorityGuessTests
 {
     private static PriorityHint? Guess(string? priority, string subject, string text, string sla = Sla.StandardKey, double waitedHours = 0) =>
@@ -17,7 +18,7 @@ public class PriorityGuessTests
         Assert.Equal("urgent", hint?.Priority);
         Assert.Equal("site down", hint!.Reasons[0]);
         Assert.Contains("frustrated tone", hint.Reasons);
-        Assert.StartsWith("Looks like P1: site down", hint.Text);
+        Assert.StartsWith("Set as P3 · looks like P1: site down", Markdown.Strip(hint.Text));
     }
 
     [Fact]
@@ -43,10 +44,53 @@ public class PriorityGuessTests
     }
 
     [Fact]
-    public void Only_higher_guesses_are_shown()
+    public void Agreeing_guesses_are_not_shown()
     {
         Assert.Null(Guess("urgent", "Site down", "The website is down"));
         Assert.Null(Guess("high", "Question", "Is this urgent? Seems critical to the editor")); // says urgent only: P2 at most
+    }
+
+    [Theory]
+    [InlineData("urgent", "P1")]
+    [InlineData("high", "P2")]
+    [InlineData("High", "P2")]
+    public void Urgent_or_high_without_any_sign_is_probably_not(string priority, string tag)
+    {
+        var hint = Guess(priority, "Footer link", "Hi, the footer link on the about page points to the old address. Thanks");
+
+        Assert.NotNull(hint);
+        Assert.True(hint!.Lower);
+        Assert.Equal($"Set as {tag} · probably not: no signs of urgency", Markdown.Strip(hint.Text));
+        Assert.Equal($"**Set as {Markdown.Tag(tag)} · probably not:** no signs of urgency", hint.Text);
+    }
+
+    [Theory]
+    [InlineData("urgent", "Login", "We cannot log in to the CMS")]        // one signal is enough to say nothing
+    [InlineData("high", "Question", "Any update on this?")]               // a frustrated tone
+    [InlineData("urgent", "Fixed", "Thanks, that fixed it. You can close the ticket.")] // solved: no hint at all
+    [InlineData("normal", "Footer link", "The footer link points to the old address.")] // only for P1 and P2
+    [InlineData("low", "Footer link", "The footer link points to the old address.")]
+    [InlineData(null, "Footer link", "The footer link points to the old address.")]
+    public void Probably_not_only_for_P1_and_P2_with_no_signal_at_all(string? priority, string subject, string text)
+    {
+        Assert.False(Guess(priority, subject, text)?.Lower ?? false);
+    }
+
+    [Fact]
+    public void Similar_earlier_P1s_count_as_a_signal_for_probably_not()
+    {
+        Assert.Null(PriorityGuess.Guess("urgent", "Footer link", ["The footer link points to the old address."], Sla.StandardKey,
+            TimeSpan.Zero, ("urgent", 3)));
+    }
+
+    [Fact]
+    public void Wording_for_higher_guesses_names_both_priorities()
+    {
+        Assert.Equal("Set as P3 · looks like P1: site down · frustrated tone",
+            Markdown.Strip(new PriorityHint("urgent", ["site down", "frustrated tone"], "normal").Text));
+        Assert.Equal("Set as P4 · looks like P2: deadline soon", Markdown.Strip(new PriorityHint("high", ["deadline soon"], "low").Text));
+        Assert.Equal("No priority · looks like P1: site down", Markdown.Strip(new PriorityHint("urgent", ["site down"]).Text));
+        Assert.False(new PriorityHint("urgent", ["site down"], "normal").Lower);
     }
 
     [Fact]
@@ -100,12 +144,12 @@ public class PriorityGuessTests
     public void The_notification_shows_the_guess_under_the_SLA_line()
     {
         var content = new NotificationContent(NotificationKind.NewTicket, "New ticket", "#1 Site down", "Jane · Created 10:00")
-            { PriorityHint = new PriorityHint("urgent", ["site down", "frustrated tone"]), SlaDue = DateTimeOffset.UtcNow.AddMinutes(30) };
+            { PriorityHint = new PriorityHint("urgent", ["site down", "frustrated tone"], "normal"), SlaDue = DateTimeOffset.UtcNow.AddMinutes(30) };
 
         var lines = content.DisplayBody(DateTimeOffset.UtcNow).Split('\n');
 
         Assert.StartsWith("!!", lines[0]);
-        Assert.Equal("**Looks like P1:** site down · frustrated tone", lines[1]);
+        Assert.Equal($"**Set as {Markdown.Tag("P3")} · looks like {Markdown.Tag("P1")}:** site down · frustrated tone", lines[1]);
         Assert.Equal("Jane · Created 10:00", lines[2]);
     }
 }

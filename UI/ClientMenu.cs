@@ -23,6 +23,12 @@ internal static class ClientMenu
             return item;
         }
 
+        // Whose notifications these choices are about, so "Mute" clearly means this client.
+        var headerFont = new Font(menu.Font, FontStyle.Bold);
+        menu.Disposed += (_, _) => headerFont.Dispose(); // an item's font isn't disposed with it
+        menu.Items.Add(new ToolStripMenuItem($"Notifications from {current.Name.Replace("&", "&&")}") { Enabled = false, Font = headerFont });
+        menu.Items.Add(new ToolStripSeparator());
+
         // The client's own choice (kept while muted); picking one also unmutes.
         var own = current.Mode == ClientMode.Muted ? ClientMode.Normal : current.Mode;
         Item("Normal", own == ClientMode.Normal, c => WithMode(c, ClientMode.Normal));
@@ -51,7 +57,7 @@ internal static class ClientMenu
                     copy.Sound = value;
                     chosen(copy);
                     if (value is { } v && ChipSounds.IsChip(v))
-                        ChipSounds.Play(v); // a preview
+                        Popups.PopupManager.PlaySound(v); // a preview
                 };
                 sound.DropDownItems.Add(item);
             }

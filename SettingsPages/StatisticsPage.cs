@@ -24,7 +24,7 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly Label _nowStatus = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
     private readonly Label _teamTitle = Theme.Label("Your team", Theme.BodyBold, Theme.Text);
     private readonly Label _teamStatus = Theme.Linked("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-    private readonly TableLayoutPanel _team = new() { ColumnCount = 6, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
+    private readonly TableLayoutPanel _team = new() { ColumnCount = 8, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
 
     /// <summary>How often the team's tickets are read again, at most (only while Insights is shown).</summary>
     private static readonly TimeSpan TeamRefresh = TimeSpan.FromMinutes(10);
@@ -145,10 +145,19 @@ internal sealed class StatisticsPage : SettingsPage
         }
     }
 
-    /// <summary>For the screenshot tool: a sample team, as if just read.</summary>
+    /// <summary>For the screenshot tool: a sample team, as if just read (some Open moved to In progress, Escalated split up).</summary>
     internal static void SetTeamSample(string subdomain, IEnumerable<long> groups, TimeRegion region, List<WorkloadRow> rows) =>
-        _teamCache = ($"{subdomain}|{string.Join(',', groups.Order())}", DateTime.UtcNow, region, rows,
+        _teamCache = ($"{subdomain}|{string.Join(',', groups.Order())}", DateTime.UtcNow, region, rows.Select(SampleRow).ToList(),
             ["Escalated internally", "Escalated to Engineering"], ["Scheduled"]);
+
+    private static WorkloadRow SampleRow(WorkloadRow row) => row.EscalatedBy is not null ? row : row with
+    {
+        Open = row.Open - row.Open / 3, InProgress = row.InProgress + row.Open / 3,
+        EscalatedBy = new Dictionary<string, int>
+        {
+            ["Escalated to Engineering"] = (row.Escalated + 1) / 2, ["Escalated internally"] = row.Escalated / 2
+        }
+    };
 
     private void ShowTeam(TimeRegion? region, List<WorkloadRow>? rows, string? message, DateTime? at = null,
         string[]? escalated = null, string[]? scheduled = null)
@@ -169,20 +178,30 @@ internal sealed class StatisticsPage : SettingsPage
         _team.Visible = rows is { Count: > 0 };
         if (rows is { Count: > 0 })
         {
-            (string Text, string Tip)[] headers =
+            // One column per escalated status when there are several (e.g. to Engineering, internally), else one for all.
+            List<(string Text, string Tip, Func<WorkloadRow, int> Count)> columns =
             [
-                ("", ""), ("Open", "New and Open, also In progress and other open statuses"), ("P1/P2", "Of the open ones: Urgent or High"),
-                ("Escalated", escalated is { Length: > 0 } e ? string.Join(", ", e) : "No status with \u201cescalat\u201d in its name"),
-                ("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with \u201cscheduled\u201d in its name"),
-                ("Pending/On-hold", "Waiting on the customer or someone else")
+                ("", "", _ => 0),
+                ("Open", "New and Open, also other open statuses", r => r.Open),
+                ("In progress", "Statuses with \u201cin progress\u201d in their name", r => r.InProgress),
+                ("P1/P2", "Of the Open and In progress ones: Urgent or High", r => r.UrgentOrHigh)
             ];
-            for (var c = 0; c < headers.Length; c++)
+            if (escalated is { Length: > 1 })
+                foreach (var status in escalated)
+                    columns.Add((TeamWorkload.ShortEscalatedName(status), status, r => r.EscalatedBy?.GetValueOrDefault(status) ?? 0));
+            else
+                columns.Add(("Escalated", escalated is { Length: > 0 } e ? e[0] : "No status with \u201cescalat\u201d in its name", r => r.Escalated));
+            columns.Add(("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with \u201cscheduled\u201d in its name",
+                r => r.Scheduled));
+            columns.Add(("Waiting", "Pending and On-hold: waiting on the customer or someone else", r => r.Waiting));
+            _team.ColumnCount = columns.Count;
+            for (var c = 0; c < columns.Count; c++)
             {
-                Control header = headers[c].Text == "P1/P2"
+                Control header = columns[c].Text == "P1/P2"
                     ? new PriorityLabel("", "urgent", "high") { Anchor = AnchorStyles.Right, Margin = new Padding(4, 4, 0, 4) }
-                    : Cell(headers[c].Text, Theme.Small, Theme.TextMuted, left: c == 0);
-                if (headers[c].Tip.Length > 0)
-                    _tips.SetToolTip(header, headers[c].Tip);
+                    : Cell(columns[c].Text, Theme.Small, Theme.TextMuted, left: c == 0);
+                if (columns[c].Tip.Length > 0)
+                    _tips.SetToolTip(header, columns[c].Tip);
                 _team.Controls.Add(header, c, 0);
             }
             var baseUrl = Context.Current().BaseUrl;
@@ -190,16 +209,13 @@ internal sealed class StatisticsPage : SettingsPage
             {
                 var row = rows[i];
                 var name = Kit.LinkLabel(row.Name, row.IsMe ? Theme.BodyBold : Theme.Body);
-                name.Margin = new Padding(0, 4, 18, 4);
+                name.Margin = new Padding(0, 4, 10, 4);
                 var query = $"assignee:{row.AssigneeId} status<solved";
                 _tips.SetToolTip(name, $"{(row.IsMe ? "Your" : $"{row.Name}'s")} unsolved tickets \u2013 opens in Zendesk");
                 name.Click += (_, _) => OpenSearch(baseUrl, query);
                 _team.Controls.Add(name, 0, i + 1);
-                _team.Controls.Add(Number(row.Open), 1, i + 1);
-                _team.Controls.Add(Number(row.UrgentOrHigh), 2, i + 1);
-                _team.Controls.Add(Number(row.Escalated), 3, i + 1);
-                _team.Controls.Add(Number(row.Scheduled), 4, i + 1);
-                _team.Controls.Add(Number(row.Waiting), 5, i + 1);
+                for (var c = 1; c < columns.Count; c++)
+                    _team.Controls.Add(Number(columns[c].Count(row)), c, i + 1);
             }
         }
         _team.ResumeLayout();

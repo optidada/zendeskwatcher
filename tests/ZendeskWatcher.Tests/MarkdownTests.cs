@@ -59,4 +59,37 @@ public class MarkdownTests
         Assert.Equal("New ticket · P2 · Support Tier 2", content.FullHeading);
         Assert.Equal("New ticket", (content with { Priority = null, Context = null }).FullHeading);
     }
+
+    [Fact]
+    public void Priority_tags_parse_as_tags_and_strip_to_plain_text()
+    {
+        var text = $"**Set as {Markdown.Tag("normal")} · looks like {Markdown.Tag("P1")}:** site down";
+
+        Assert.Equal("Set as P3 · looks like P1: site down", Markdown.Strip(text));
+        Assert.Equal(["P3", "P1"], Markdown.Parse(text).Where(r => r.IsTag).Select(r => r.Text));
+        Assert.Equal(Markdown.Tag("urgent"), Markdown.Tag("P1"));
+        Assert.Equal("custom", Markdown.Tag("custom")); // unknown: plain text
+        Assert.Equal("", Markdown.Tag(null));
+    }
+
+    [Fact]
+    public void Text_from_Zendesk_with_the_tag_characters_never_becomes_a_tag()
+    {
+        var sneaky = "look " + Markdown.Tag("urgent") + " here \uE000P2\uE001 and \uE001\uE000";
+
+        var runs = Markdown.Parse("**Jane** wrote: " + Markdown.Escape(sneaky));
+
+        Assert.DoesNotContain(runs, r => r.IsTag);
+        Assert.Equal("Jane wrote: " + sneaky, Markdown.Strip("**Jane** wrote: " + Markdown.Escape(sneaky)));
+    }
+
+    [Fact]
+    public void Truncate_shows_a_tag_only_when_whole()
+    {
+        var text = $"Open {Markdown.Tag("P1")} now";
+
+        Assert.Equal("Open P", Markdown.Strip(Markdown.Truncate(text, 6)));
+        Assert.DoesNotContain(Markdown.Parse(Markdown.Truncate(text, 6)), r => r.IsTag);
+        Assert.Contains(Markdown.Parse(Markdown.Truncate(text, 7)), r => r.IsTag && r.Text == "P1");
+    }
 }

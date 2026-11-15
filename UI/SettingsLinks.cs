@@ -81,6 +81,9 @@ public static partial class SettingsLinks
     private static partial Regex PageWord();
 }
 
+/// <summary>A label that's a link as a whole (see <c>Kit.LinkLabel</c>); <see cref="Theme.Recolor"/> keeps it in the link color.</summary>
+public sealed class LinkText : Label;
+
 /// <summary>A label whose page references are links (see <see cref="SettingsLinks"/>); set <see cref="Text"/> as usual.</summary>
 public sealed class LinkedLabel : LinkLabel
 {
@@ -89,9 +92,9 @@ public sealed class LinkedLabel : LinkLabel
         AutoSize = true;
         UseMnemonic = false;
         LinkBehavior = LinkBehavior.HoverUnderline;
-        LinkColor = Theme.Accent;
-        ActiveLinkColor = Theme.AccentHover;
-        VisitedLinkColor = Theme.Accent;
+        LinkColor = Theme.Current.Link;
+        ActiveLinkColor = Theme.Current.LinkHover;
+        VisitedLinkColor = Theme.Current.Link;
         BackColor = Color.Transparent;
     }
 

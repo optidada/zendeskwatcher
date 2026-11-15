@@ -43,6 +43,21 @@ public sealed partial class TicketWatcher
         _historyLoad = LoadHistoryAsync(ct);
     }
 
+    /// <summary>Which account and groups the history is of.</summary>
+    private string HistoryKey => settings.Subdomain + ":" + string.Join(",", settings.WatchedGroups.Select(g => g.Id).Order());
+
+    /// <summary>
+    /// Keeps the ticket history of the watcher this one replaces (checking restarts after every save in Settings), when
+    /// it's of the same account and groups: otherwise each save read 90 days of tickets again (about ten requests).
+    /// </summary>
+    public void TakeHistoryFrom(TicketWatcher? previous)
+    {
+        if (previous?._history is not { } history || previous.HistoryKey != HistoryKey || !settings.NeedsTicketHistory)
+            return;
+        _history = history;
+        _historyAt = previous._historyAt;
+    }
+
     /// <summary>For tests: until the ticket history read in the background is done.</summary>
     internal Task HistoryLoaded => _historyLoad ?? Task.CompletedTask;
 

@@ -13,6 +13,8 @@ internal sealed class AccountPage : SettingsPage
     private readonly Label _status = Theme.Label("Not signed in", maxWidth: Kit.CardWidth - 70);
     /// <summary>"Signed in for 5 h 12 min. …" under the status, when the sign-in time is known.</summary>
     private readonly Label _sessionAge = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 70);
+    /// <summary>Signed in but no group monitored yet: points to the Groups page (new unassigned tickets need a group).</summary>
+    private readonly Label _nextStep = Theme.Linked("Next: choose the groups to monitor on the Groups page.", maxWidth: Kit.CardWidth - 70);
     private readonly Button _signIn = Theme.PrimaryButton("Sign in");
     private readonly Button _signOut = Theme.SecondaryButton("Sign out");
     private readonly Button _catchUp = Theme.SecondaryButton("Catch up");
@@ -55,6 +57,9 @@ internal sealed class AccountPage : SettingsPage
         _sessionAge.Margin = new Padding(26, 0, 0, 0); // under the status text, past the dot
         _sessionAge.Visible = false;
         status.Body.Controls.Add(_sessionAge);
+        _nextStep.Margin = new Padding(26, 6, 0, 0);
+        _nextStep.Visible = false;
+        status.Body.Controls.Add(_nextStep);
         var buttons = Kit.Row(_signIn, _signOut);
         buttons.Margin = new Padding(0, 12, 0, 0);
         status.Body.Controls.Add(buttons);
@@ -62,8 +67,8 @@ internal sealed class AccountPage : SettingsPage
 
         // Its own card, shown once signed in (it needs the app to be checking with this account).
         _catchUpCard = new Card("Catch up",
-            "What still needs you since you last worked: unassigned tickets and waiting customers. Also in the tray menu, " +
-                "and automatic when your day starts.", Kit.CardWidth);
+            "What still needs you since you last worked: waiting customers, SLAs, unassigned tickets, and your tickets by status. " +
+                "It also comes when the app starts and when your day starts, and from the tray menu.", Kit.CardWidth);
         _catchUpCard.Body.Controls.Add(_catchUp);
         _catchUpCard.Visible = false;
         Panel.Controls.Add(_catchUpCard);
@@ -84,7 +89,7 @@ internal sealed class AccountPage : SettingsPage
         _signIn.Click += async (_, _) => await SignInAsync();
         _signOut.Click += (_, _) => SignOut();
         _catchUp.Click += async (_, _) => await CatchUpAsync();
-        _groups.ReloadRequested += async () => await RefreshAsync(force: true);
+        _groups.ReloadRequested += async () => await RefreshAsync(force: true, reload: true);
         TrackChanges(_subdomain);
     }
 
@@ -151,10 +156,11 @@ internal sealed class AccountPage : SettingsPage
         _loadedFor = key;
         var client = new ZendeskClient(connection, Context.SessionFactory(connection));
         SetStatus(SignedInText(connection, me), AccountState.SignedIn);
-        Context.SetSession(client, me);
+        var otherUser = ListCache.ChangeOwner(key, me.Id);
+        Context.SetSession(client, me, reload: otherUser);
         try
         {
-            await _groups.LoadAsync(client, me.Id, key, force: false, stale: () => key != _loadedFor);
+            await _groups.LoadAsync(client, me.Id, key, force: otherUser, stale: () => key != _loadedFor);
         }
         catch (AuthRequiredException)
         {
@@ -171,8 +177,11 @@ internal sealed class AccountPage : SettingsPage
         }
     }
 
-    /// <summary>Checks the session for the subdomain and loads the groups. Skipped if nothing changed, unless forced.</summary>
-    private async Task RefreshAsync(bool force = false)
+    /// <summary>
+    /// Checks the session for the subdomain and loads the groups. Skipped if nothing changed, unless forced. The saved
+    /// lists (groups, clients, colleagues) stay unless <paramref name="reload"/> (Reload) or another user signed in.
+    /// </summary>
+    private async Task RefreshAsync(bool force = false, bool reload = false)
     {
         if (_signingIn)
             return;
@@ -201,10 +210,11 @@ internal sealed class AccountPage : SettingsPage
                 return; // the subdomain changed meanwhile
 
             SetStatus(SignedInText(connection, me), AccountState.SignedIn);
-            Context.SetSession(client, me, reload: force);
+            reload |= ListCache.ChangeOwner(key, me.Id);
+            Context.SetSession(client, me, reload);
             Log.Info($"Settings: session {clock.ElapsedMilliseconds} ms");
 
-            await _groups.LoadAsync(client, me.Id, key, force, stale: () => key != _loadedFor);
+            await _groups.LoadAsync(client, me.Id, key, reload, stale: () => key != _loadedFor);
         }
         catch (AuthRequiredException)
         {
@@ -269,6 +279,7 @@ internal sealed class AccountPage : SettingsPage
         var text = _signedIn ? SignInTime.Text() : null;
         _sessionAge.Text = text is null ? "" : text + " Zendesk asks you to sign in again after about 8 hours.";
         _sessionAge.Visible = text is not null;
+        _nextStep.Visible = _signedIn && Context.Current().WatchedGroups.Count == 0;
     }
 
     private bool _signedIn;

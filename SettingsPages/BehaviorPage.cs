@@ -66,7 +66,7 @@ internal sealed class BehaviorPage : SettingsPage
     public override void Apply(Settings s)
     {
         s.TicketDisplayLength = Lengths[_ticketLength.SelectedIndex];
-        s.ApplyDisplayLength(); // the start summary and app messages follow the same choice
+        s.ApplyDisplayLength(); // Catch up and app messages follow the same choice
         // Only the duration: the sound is set on Look & sound.
         s.PausePopupsWhenAway = _pauseAway.Checked;
         s.DropAnswered = _dropAnswered.Checked;
@@ -84,6 +84,6 @@ internal sealed class BehaviorPage : SettingsPage
             ? $"Tickets: Urgent and High until closed · Normal {Time(normal)} · Low {Time(low)}"
             : $"Tickets: Urgent until closed · High {Time(high)} · Normal {Time(normal)} · Low {Time(low)}";
         var (summary, app) = TicketDisplayTimes.Others(length);
-        _otherTimes.Text = $"Start summary {Time(summary.Seconds())} · App messages {Time(app.Seconds())} · Sign-in required until closed";
+        _otherTimes.Text = $"Catch up {Time(summary.Seconds())} · App messages {Time(app.Seconds())} · Sign-in required until closed";
     }
 }

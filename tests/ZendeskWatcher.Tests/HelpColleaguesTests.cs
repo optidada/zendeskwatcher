@@ -113,4 +113,30 @@ public class HelpColleaguesTests
         _settings.HelpRegionDefaultDone = true; // e.g. Berlin was ticked again on purpose
         Assert.Equal([301L, 302L], await CustomerRepliesNotifiedAsync());
     }
+
+    [Fact]
+    public async Task Off_work_but_active_in_Zendesk_just_now_is_left_alone()
+    {
+        _settings.HelpRegionDefaultDone = true;
+        _zendesk.AddAssigned(303, "normal", assignee: Berlin);
+        _zendesk.Reply(303, Berlin, "Looking into it.");
+        _zendesk.Audits[303][^1].CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-10); // Berlin worked late
+
+        Assert.Equal([302L], await CustomerRepliesNotifiedAsync()); // New York is off and idle: still notified
+        Assert.Contains(" is off work · ", _notifier.Shown.Single(n => n.TicketId == 302).Body);
+    }
+
+    [Fact]
+    public async Task In_working_hours_but_inactive_for_hours_counts_as_away()
+    {
+        _settings.HelpRegionDefaultDone = true;
+        _settings.WorkDays = [.. Enum.GetValues<DayOfWeek>()]; // everyone is in their working hours
+        _settings.WorkdayStartHour = 0;
+        _settings.WorkdayEndHour = 24;
+        _zendesk.AddAssigned(303, "normal", assignee: Berlin);
+        _zendesk.Reply(303, Berlin, "Looking into it.");       // Berlin did something within the last 3 hours
+
+        Assert.Equal([302L], await CustomerRepliesNotifiedAsync()); // New York has done nothing: away
+        Assert.Contains("Nia NewYork: no activity in Zendesk for 3+ h", _notifier.Shown.Single(n => n.TicketId == 302).Body);
+    }
 }

@@ -13,6 +13,7 @@ internal sealed class HowItWorksPage : SettingsPage
         ("New tickets",
         [
             "A ticket in a group you monitor (Groups page) that nobody has picked up yet.",
+            "No group monitored yet: none of these come, and Catch up reminds you each time the app starts.",
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
             "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
@@ -37,7 +38,12 @@ internal sealed class HowItWorksPage : SettingsPage
         ("Colleagues' tickets: Customer waiting",
         [
             "When a customer has written on a colleague's ticket and the colleague is off work (their working hours, in " +
-            "their own time zone), so you can step in. [[Notifications → Colleagues|Colleagues]].",
+            "their own time zone), so you can step in. [[Notifications → Colleagues|Colleagues]]. Colleagues without a " +
+            "time zone in Zendesk are always skipped.",
+            "Activity in Zendesk counts too: off work but they changed or commented on a ticket in the last 30 minutes, " +
+            "they're on it (no notification). In their working hours but nothing for 3 hours: probably away, so you're " +
+            "told, with the reason on the notification. Only checked when a customer has written (a few requests, " +
+            "remembered for 15 minutes). Calls, chat and just reading tickets don't show in Zendesk.",
             "The customer: someone outside your company. Colleagues on the ticket, also as CC, count as you, " +
             "except the person who opened it.",
             "Waiting: the customer's message is the newest public comment. An internal note isn't an answer.",
@@ -67,39 +73,56 @@ internal sealed class HowItWorksPage : SettingsPage
             "It knows words, not your product, so some matches are missed.",
             "Priority guess: reads what the customer wrote (the first message, or the latest replies) for signs of urgency: the " +
             "site is down, security, data loss, lost sales, everyone affected, a deadline, a frustrated tone, and similar earlier " +
-            "P1 or P2 tickets. Shown when that's higher than the priority. A long wait or a demanding SLA type adds a little, never on its own; " +
-            "“no rush” and “that fixed it” keep it quiet.",
+            "P1 or P2 tickets. When that's higher than the priority: “Set as P3 · looks like P1” with the reasons. A long wait or a " +
+            "demanding SLA type adds a little, never on its own; “that fixed it” keeps it quiet. A P1 or P2 ticket without a single " +
+            "sign (“no rush” counts as none): “Set as P1 · probably not”. Just a line of text: the order, sound and time on screen stay.",
             "Quiet thank-yous: a short reply that thanks or says it's solved, with no question and no “but”."
         ]),
         ("Catch up",
         [
-            "What still needs you since you stopped working last time (e.g. yesterday 17:00): tickets still unassigned in " +
-            "your groups, and customers still waiting on your own, CC'd and colleagues' tickets.",
-            "From the tray menu at any time, from the button on the morning summary, and by itself when your working day " +
-            "starts (Notifications → Working hours)."
+            "What still needs you since you stopped working last time (the end of your last working day), one line each, " +
+            "the number first: customers waiting for your reply, SLAs past or due today, tickets unassigned in your groups " +
+            "(and how many are Scheduled), customers waiting on CC'd and colleagues' tickets, Escalated ones where the " +
+            "customer hasn't had a reply for 2+ days, and Pending ones with no update for 7+ days (follow up, or solve them). " +
+            "Nothing at all: “Nothing needs you right now”.",
+            "Below that, your own open tickets by status (Open, In progress, Escalated, Scheduled, Pending, …), with how many " +
+            "are P1 or P2.",
+            "It greets you when the app starts (General → Startup) and right after the guide on your first start, comes by " +
+            "itself when your working day starts (Notifications → Working hours), and from the tray menu at any time.",
+            "Up to 5 waiting customers and up to 3 unassigned tickets also come one by one: once a working day, or when you ask.",
+            "Catch up, What's new and app messages show all their text; ticket notifications show a short preview."
         ]),
         ("On screen",
         [
-            "How long a ticket notification stays: Short, Normal or Long (Behavior → On screen), then by priority; Urgent stays until you close it. The start summary and app messages follow the same choice. Hover over it to pause the countdown.",
+            "How long a ticket notification stays: Short, Normal or Long (Behavior → On screen), then by priority; Urgent stays until you close it. Catch up and app messages follow the same choice. Hover over it to pause the countdown.",
             "Peek from the edge (Look & sound): it waits as a tab and counts down only after you've slid it out. " +
-            "Urgent and important ones, app messages and the welcome summary come out by themselves.",
+            "Urgent and important ones, app messages and Catch up come out by themselves.",
+            "A pill at the top: a small pill at the top center says what's there (\"2 new · 1 P1\"); point at it to see them. " +
+            "Like Peek, they count down only after you've seen them, and urgent ones open it by themselves.",
+            "A ticker at the screen edge: they scroll along the bottom (or top) of the screen; click one to open it, right-click for " +
+            "Take it, Copy or Snooze. The mouse over it pauses it; each leaves after its normal time, in turn.",
+            "Achievement unlocked: game style at the bottom center, one at a time, with a short tune instead of its sound (none when that's Silent).",
             "Several take turns, and while you're away (screen locked, or no mouse or keyboard for a minute) they wait for you. " +
             "So they do while you present or use a full-screen app, silently, and nothing pops up over your screen. " +
             "When you're back, ones that waited 15 minutes or more are checked again and dropped if they're no longer needed: " +
             "taken, solved or closed, or (with Behavior → Skip old news) already answered by someone.",
-            "Snooze brings a notification back after the time you chose, but only if the ticket still needs you."
+            "Snooze brings a notification back after the time you chose, but only if the ticket still needs you.",
+            "Glow at the screen edge (Look & sound): Urgent tickets, SLAs breached or due within 15 minutes and important clients " +
+            "also make the screen edges pulse briefly (in the priority's color, or the notification's color for a client); while you're away it waits until you're back."
         ]),
         ("Summaries",
         [
-            "Good morning: after the app starts, what's waiting and what's watched.",
+            "Catch up: the greeting when the app starts (see Catch up above).",
             "While you were away: instead of more than 5 notifications that waited.",
-            "Many new tickets at once: one notification per group instead of one each."
+            "More than 5 new tickets in a group at once: one notification with the list instead of one each."
         ]),
         ("Your data",
         [
             "The app reads Zendesk with your own sign-in and changes nothing, except when you click Take it.",
             "It checks every minute (Zendesk's own search can lag 1–3 minutes behind).",
-            "Insights are counted on this PC only; nothing is sent anywhere."
+            "Insights are counted on this PC only; nothing is sent anywhere.",
+            "Send feedback (Updates & feedback) emails what you write from your own Outlook, with the log if you tick it: " +
+            "ticket numbers and subjects, never comments. Without classic Outlook, an email opens for you to send."
         ])
     ];
 

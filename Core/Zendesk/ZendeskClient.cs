@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Net;
 using System.Text.Json;
 
@@ -29,6 +31,18 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
     /// <summary>Zendesk API requests made since the last call (all clients); for the request statistics in the log.</summary>
     public static int TakeRequestCount() => Interlocked.Exchange(ref _requestCount, 0);
+
+    /// <summary>Requests per purpose (the method that made them, e.g. "UnassignedTickets"), for the log.</summary>
+    private static readonly ConcurrentDictionary<string, int> RequestsByPurpose = new();
+
+    /// <summary>"UnassignedTickets 40, Audits 22, …" since the last call, most first; then starts counting again.</summary>
+    public static string TakeRequestBreakdown()
+    {
+        var counts = RequestsByPurpose.ToArray();
+        RequestsByPurpose.Clear();
+        static string Name(string method) => method.Replace("Async", "").Replace("Get", "");
+        return string.Join(", ", counts.OrderByDescending(kv => kv.Value).Select(kv => $"{Name(kv.Key)} {kv.Value}"));
+    }
     private readonly HashSet<string> _unsupportedLists = [];
 
     public async Task<User> GetMeAsync(CancellationToken ct) =>
@@ -355,14 +369,25 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     public Task<List<Ticket>> GetAssignedOpenTicketsUpdatedSinceAsync(long groupId, DateTimeOffset since, CancellationToken ct) =>
         SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
 
+    /// <summary>
+    /// An agent's tickets (any status) updated since <paramref name="since"/>, newest first, up to 10: where to look for
+    /// what they did lately (Colleagues: are they active in Zendesk?).
+    /// </summary>
+    public async Task<List<Ticket>> GetAssigneeTicketsUpdatedSinceAsync(long userId, DateTimeOffset since, CancellationToken ct)
+    {
+        var query = $"type:ticket assignee:{userId} updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}";
+        return (await GetAsync<SearchResponse>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&sort_by=updated_at&sort_order=desc&per_page=10", ct)).Results;
+    }
+
     /// <summary>All open tickets in a group that are assigned to someone (for Insights → Your team).</summary>
     public Task<List<Ticket>> GetAssignedOpenTicketsAsync(long groupId, CancellationToken ct) =>
         SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved", ct);
 
-    private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct) =>
-        await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct);
+    private async Task<List<Ticket>> SearchTicketsAsync(string query, CancellationToken ct, [CallerMemberName] string caller = "") =>
+        await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct, caller: caller);
 
-    private async Task<List<TItem>> GetAllPagesAsync<TResponse, TItem>(string path, Func<TResponse, List<TItem>> items, CancellationToken ct, int maxPages = MaxPages)
+    private async Task<List<TItem>> GetAllPagesAsync<TResponse, TItem>(string path, Func<TResponse, List<TItem>> items, CancellationToken ct, int maxPages = MaxPages,
+        [CallerMemberName] string caller = "")
         where TResponse : PagedResponse
     {
         var result = new List<TItem>();
@@ -370,7 +395,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
         for (var page = 0; next is not null && page < maxPages; page++)
         {
-            var response = await GetAsync<TResponse>(next, ct);
+            var response = await GetAsync<TResponse>(next, ct, caller);
             result.AddRange(items(response));
             next = response.Next;
         }
@@ -378,9 +403,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         return result;
     }
 
-    private Task<T> GetAsync<T>(string pathOrUrl, CancellationToken ct) => RequestAsync<T>(pathOrUrl, null, null, ct);
+    private Task<T> GetAsync<T>(string pathOrUrl, CancellationToken ct, [CallerMemberName] string caller = "") =>
+        RequestAsync<T>(pathOrUrl, null, null, ct, caller);
 
-    private async Task<T> RequestAsync<T>(string pathOrUrl, string? method, string? jsonBody, CancellationToken ct)
+    private async Task<T> RequestAsync<T>(string pathOrUrl, string? method, string? jsonBody, CancellationToken ct, [CallerMemberName] string caller = "")
     {
         var url = pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? pathOrUrl : settings.BaseUrl + pathOrUrl;
         var recovered = false;
@@ -388,6 +414,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         for (var attempt = 0; ; attempt++)
         {
             Interlocked.Increment(ref _requestCount);
+            RequestsByPurpose.AddOrUpdate(caller, 1, (_, n) => n + 1);
             var response = method is null
                 ? await session.GetAsync(url, ct)
                 : await session.SendAsync(method, url, jsonBody ?? "", ct);

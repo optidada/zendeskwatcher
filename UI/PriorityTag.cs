@@ -47,8 +47,8 @@ public static class PriorityTag
         using (var brush = new SolidBrush(fill))
             g.FillPath(brush, path);
         g.SmoothingMode = mode;
-        var light = fill.R * 0.299 + fill.G * 0.587 + fill.B * 0.114 > 170;
-        TextRenderer.DrawText(g, text, TagFont, rect, light ? Color.FromArgb(20, 20, 20) : Color.White,
+        // White, or near-black where white would be too faint (orange, lime, light grey).
+        TextRenderer.DrawText(g, text, TagFont, rect, Contrast.On(fill, Color.White),
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         return size.Width;
     }

@@ -29,7 +29,7 @@ public sealed record NotificationContent(
     /// <summary>The SLA deadline is for the first reply (a new ticket), not a follow-up.</summary>
     public bool SlaFirstReply { get; init; }
 
-    /// <summary>The experimental priority guess ("Looks like P1: site down"), shown under the SLA deadline.</summary>
+    /// <summary>The experimental priority guess ("Set as [P3] · looks like [P1]: site down"), shown under the SLA deadline. Text only.</summary>
     public Tracking.PriorityHint? PriorityHint { get; init; }
 
     /// <summary>Just a thank-you from the customer (Experimental page): no sound, and only as long as Low (P4) ones stay.</summary>
@@ -46,7 +46,7 @@ public sealed record NotificationContent(
             body = newline < 0 ? $"{body} · {ago}" : $"{body[..newline]} · {ago}{body[newline..]}";
         }
         if (PriorityHint is { } hint)
-            body = $"**Looks like {hint.Short}:** {string.Join(" · ", hint.Reasons)}" + (body.Length > 0 ? "\n" + body : "");
+            body = hint.Text + (body.Length > 0 ? "\n" + body : "");
         if (SlaDue is { } due)
             body = $"!!{Tracking.Sla.DueText(due, now, SlaFirstReply)}!!" + (body.Length > 0 ? "\n" + body : "");
         return body;
@@ -76,17 +76,25 @@ public sealed record NotificationContent(
     /// <summary>How many body lines a popup shows before it cuts off (more for app summaries).</summary>
     public int MaxBodyLines { get; init; } = 5;
 
+    /// <summary>
+    /// The lines actually shown: a ticket notification is a preview (click to read the rest in Zendesk), so it keeps
+    /// <see cref="MaxBodyLines"/>; anything else (Catch up, What's new, app messages) has nowhere else to read it, so it
+    /// shows all of its text, up to 20 lines.
+    /// </summary>
+    public int BodyLines => IsTicketNotification ? MaxBodyLines : Math.Max(MaxBodyLines, 20);
+
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 
-    /// <summary>Show a "Catch up" button (the start summary), in the place of "Take it".</summary>
-    public bool CanCatchUp { get; init; }
 
     /// <summary>The user asked for it (Catch up): shown even while notifications are paused.</summary>
     public bool RequestedByUser { get; init; }
 
     /// <summary>About tickets (not an app message or sample): counted in the statistics.</summary>
     public bool IsTicketNotification { get; init; }
+
+    /// <summary>A sample from Try it (or --test-popups): may glow at the screen edge to show what that looks like.</summary>
+    public bool IsSample { get; init; }
 
     /// <summary>A snoozed notification coming back (not counted as shown again).</summary>
     public bool IsSnoozedRepeat { get; init; }

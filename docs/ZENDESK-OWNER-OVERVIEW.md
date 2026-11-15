@@ -5,9 +5,11 @@
 - new unassigned tickets in groups they choose,
 - changes on their own tickets (and, optionally, tickets they're CC'd on or follow),
 - "Help colleagues" (on by default, the agent can switch it off): a customer waiting for an answer on a colleague's
-  ticket while that colleague is outside working hours, so someone can step in,
-- "Catch up": on request (and once when the agent's working day starts), what still needs attention since they last
-  worked: tickets still unassigned, customers still waiting.
+  ticket while that colleague is outside working hours (and hasn't been active in Zendesk in the last 30 minutes), or
+  in their working hours but with no activity in Zendesk for 3 hours, so someone can step in,
+- "Catch up": when the app starts, when the agent's working day starts, and on request, what still needs attention
+  since they last worked: customers still waiting, SLA timers past or due today, tickets still unassigned, and the
+  agent's own open tickets by status.
 
 It's a notification layer on top of Zendesk; all work is still done in Zendesk itself.
 
@@ -24,25 +26,30 @@ It's a notification layer on top of Zendesk; all work is still done in Zendesk i
 
 ## Load on Zendesk
 
-Checks run every 60 seconds by default (the agent can choose 30 s – 1 h). Per check:
+Checks run every 60 seconds (fixed; not configurable). Per check:
 
 | What | Requests |
 |---|---|
-| New unassigned tickets | 1 search per monitored group + 1 ticket lookup (`show_many`) |
+| New unassigned tickets | 1 search per monitored group + 1 ticket lookup (`show_many`, which also brings the SLA timers) |
 | The agent's own tickets | 2 (30 most recently updated assigned tickets + `show_many`) |
 | CC / follower tickets (optional, off by default) | 3 (30 most recent CC'd and followed tickets + `show_many`) |
 | Help colleagues (on by default) | 1 search per chosen group, only tickets updated since the last check |
-| Only for a ticket "In progress" or "Scheduled" whose customer has waited the agent's trust time (4 h by default) | 1 ticket lookup (`show_many`) for all due ones, plus 1 audit request each |
 | Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes) |
+| Only when a customer wrote on a colleague's ticket | the colleague's recent activity: 1 search (their tickets updated in the last 3 hours) + up to 5 audit requests; remembered for 15 minutes per colleague. Skipped for colleagues without a time zone |
+| Only for a notification that shows a client or an SLA deadline | the client's organization (once per session), and for a ticket found by search 1 `show_many` for its SLA timer (tickets read with `show_many` already carry it) |
 | Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned), plus 1 audit request to see whether it was answered since |
-| Only for notifications that waited long (default 15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change |
-| Catch up (on request, and once at the start of the agent's working day) | 1 ticket lookup for the agent's own and CC'd tickets, 1 search per covered group, and 1 audit request per ticket updated since the agent last worked |
+| Only for notifications that waited long (15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change |
+| Catch up (when the app starts, when the working day starts, and on request) | 1 `show_many` for the agent's own and CC'd tickets, 1 search per covered group, 1 audit request per ticket updated since the agent last worked, 1 per own Escalated ticket, and the activity lookup above when a colleague's customer is waiting. Unassigned tickets come from the check that just ran; when there are more than 3, they're only counted, not looked up one by one |
 | Once at start | the custom ticket statuses (`/api/v2/custom_statuses.json`), to show them by name |
+| Experimental features (off by default) | when switched on: 90 days of tickets per monitored group (1 search, up to 5 pages each), every 6 hours |
 
 **Measured** on an agent's PC with 2 groups, CC tracking and Help colleagues all switched on: **3–11 requests per
 minute** (11-minute averages; the higher one includes opening the Settings window). With default settings it's about
-5. A check takes a few seconds. Also: user names are cached, the group list, the agent's group memberships and
-their open tickets (for group suggestions), and, with Help colleagues on, the members of the covered groups (1 request per group, to choose which colleagues to cover) are loaded at most twice an hour, when Settings is opened, and the update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
+5. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
+Settings window shows (the group list, the agent's group memberships and open tickets for group suggestions, the
+members of the covered groups, and the clients of the monitored groups from 90 days of tickets) are loaded when needed
+and reused for 24 hours. Insights → Your team reads the members and open tickets of the monitored groups, at most
+every 10 minutes while that page is open. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
 (on HTTP 429 the app waits as instructed by `Retry-After`), and the app logs its own request count every 10 minutes.
 
 For comparison, an open Agent Workspace tab also polls continuously (views, ticket counts, notifications, plus
@@ -53,17 +60,22 @@ internal APIs and live-update connections), so the Watcher adds about the load o
 - **Read from Zendesk:** the API returns complete objects; the app keeps only what it needs, in memory: ticket ID,
   subject, status (and custom status names), priority, group, assignee, CC/follower IDs, timestamps, change types,
   user names, roles, time zones and email addresses (only to tell the agent's own company from customers), and – for
-  notifications – the first 140 characters of a comment (the agent can turn that off).
+  notifications – the first 140 characters of a comment (the agent can turn that off). With the Experimental features
+  switched on (off by default), ticket and comment text is also read by rules and a small language model that runs on
+  the PC; it is never sent anywhere.
 - **Stored on disk** (only in the agent's Windows profile, `%LOCALAPPDATA%`):
   - settings (subdomain, chosen groups, preferences), with a backup copy of the previous version,
   - ticket IDs, status and timestamps already seen (no subjects or other ticket content),
-  - a log with ticket IDs, names and change types, but never comment text,
+  - the lists the Settings window shows (groups, group members, clients: names only), reused for 24 hours,
+  - a log with ticket IDs and subjects, names and change types, but never comment text,
   - the embedded browser profile with the login cookies. API responses are not cached (`no-store`), and the cache
     is cleared at every start.
-- **Nothing is sent anywhere except to Zendesk.** No telemetry, no analytics.
+- **Nothing is sent anywhere except to Zendesk.** No telemetry, no analytics. The only exception is "Send feedback",
+  which the agent writes and sends themselves (an email from their own Outlook, optionally with the log and settings).
 - **Colleagues' time zones** (for "Help colleagues") come from their Zendesk profiles, which agents can already see.
   "Outside working hours" is the agent's own setting (working days and hours, default Monday–Friday 08:00–17:00, in
-  the colleague's time zone); it is not tracked or stored.
+  the colleague's time zone). Whether a colleague was active lately is read from their own recent ticket changes
+  (only when a customer is waiting on one of their tickets), kept in memory for 15 minutes, and never stored.
 
 ## Technology
 

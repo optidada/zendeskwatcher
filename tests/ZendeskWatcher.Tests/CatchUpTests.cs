@@ -23,18 +23,25 @@ public class CatchUpTests
         Assert.Equal(expected, TicketRules.CatchUpSince(DateTime.Parse(since), DateTime.Parse(now)));
 
     [Fact]
-    public void The_summary_has_a_line_per_kind_with_something()
+    public void The_text_is_a_line_per_thing_number_first_most_urgent_first()
     {
-        var now = DateTime.Parse("2026-11-11 10:00");
-        var since = DateTime.Parse("2026-11-10 17:00");
-        Assert.Equal("**3 unassigned tickets** in your groups.\n" +
-                     "**1 customer** wrote since yesterday 17:00 and is waiting for your reply.\n" +
-                     "**2 customers** wrote since yesterday 17:00 and are waiting on off-work colleagues' tickets.",
-            TicketRules.CatchUpText(since, now, 3, 1, 0, 2));
-        Assert.Equal("**11 unassigned tickets** in your groups.\nNo customer is waiting for an answer since yesterday 17:00.",
-            TicketRules.CatchUpText(since, now, 11, 0, 0, 0));
-        Assert.Equal("No unassigned tickets in your groups.\nNo customer is waiting for an answer since yesterday 17:00.",
-            TicketRules.CatchUpText(since, now, 0, 0, 0, 0));
+        var due = DateTime.Parse("2026-11-11 10:30");
+        Assert.Equal("**1** waiting for your reply\n" +
+                     $"**2** past SLA · **3** due today, first {Clock.Time(due)}\n" +
+                     "**4** unassigned in your groups · 1 Scheduled\n" +
+                     "**2** waiting on colleagues' tickets\n" +
+                     "**1** Escalated, no reply to the customer for 2+ days\n" +
+                     "**5** Pending, no update for 7+ days\n" +
+                     "\nYour tickets: 3 Open",
+            TicketRules.CatchUpBody(new TicketRules.CatchUpCounts
+            {
+                Mine = 1, SlaPast = 2, SlaToday = 3, FirstDueToday = due, Unassigned = 4, Scheduled = 1, Colleagues = 2,
+                QuietEscalated = 1, QuietPending = 5
+            }, "Your tickets: 3 Open"));
+        // Only what's there: nothing about zeros, and a clear word when nothing needs you.
+        Assert.Equal($"**2** SLA due today, first {Clock.Time(due)}", TicketRules.CatchUpBody(new() { SlaToday = 2, FirstDueToday = due }, null));
+        Assert.Equal("Nothing needs you right now", TicketRules.CatchUpBody(new(), null));
+        Assert.StartsWith("No groups watched yet", TicketRules.CatchUpBody(new() { NoGroups = true }, null));
     }
 
     [Fact]
@@ -77,9 +84,56 @@ public class CatchUpTests
         await watcher.CatchUpAsync(CancellationToken.None, since: DateTime.Now.AddDays(-1));
 
         Assert.Equal(2, notifier.Shown.Count);
-        Assert.Equal("5 things need attention", notifier.Shown[0].Title); // the summary counts everything
-        Assert.StartsWith("**4 unassigned tickets** in your groups.", notifier.Shown[0].Body);
+        Assert.StartsWith("Catch up · since ", notifier.Shown[0].Heading);
+        Assert.Contains("**4** unassigned in your groups", notifier.Shown[0].Body);     // the greeting counts everything
+        Assert.Contains("**1** waiting for your reply", notifier.Shown[0].Body);
         Assert.Equal(201, notifier.Shown[1].TicketId);                    // the waiting customer on its own
+    }
+
+    [Fact]
+    public async Task The_greeting_lists_your_tickets_by_status_and_quiet_escalated_ones()
+    {
+        File.Delete(AppPaths.StateFile);
+        var zendesk = new FakeZendesk();
+        var notifier = new RecordingNotifier();
+        var settings = new Settings { Subdomain = "test", WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }], HelpColleagues = false };
+        zendesk.Users[Customer] = new User { Id = Customer, Name = "Sam Customer", Role = "end-user" };
+        zendesk.CustomStatuses.Add(new CustomStatus { Id = 7, AgentLabel = "Escalated", StatusCategory = "hold" });
+        zendesk.AddAssigned(201, "urgent");
+        zendesk.AddAssigned(202, "normal").CustomStatusId = 7;   // nobody wrote to the customer: quiet
+        zendesk.AddAssigned(203, "normal").CustomStatusId = 7;
+        zendesk.AddAssigned(301, "normal").Slas = new TicketSlas   // its SLA ran out an hour ago
+        {
+            PolicyMetrics = [new SlaMetric { Metric = "next_reply_time", Stage = "active", BreachAt = DateTimeOffset.UtcNow.AddHours(-1) }]
+        };
+        var stale = zendesk.AddAssigned(302, "normal");           // Pending, untouched for 10 days
+        stale.Status = "pending";
+        stale.UpdatedAt = DateTimeOffset.UtcNow.AddDays(-10);
+
+        var watcher = new TicketWatcher(settings, new ZendeskClient(settings, zendesk), notifier);
+        await watcher.InitializeAsync(CancellationToken.None);
+        await watcher.PollAsync(CancellationToken.None);
+        zendesk.Reply(201, Customer, "Any news?");
+        zendesk.Reply(203, zendesk.Me.Id, "Engineering is on it.");   // the customer had an update
+        await watcher.PollAsync(CancellationToken.None);
+        notifier.Shown.Clear();
+
+        // At app start, the first time ever: just the greeting, nothing one by one.
+        await watcher.CatchUpAsync(CancellationToken.None, since: DateTime.Now.AddDays(-1), reason: CatchUpReason.AppStart);
+
+        var greeting = Assert.Single(notifier.Shown);
+        Assert.StartsWith("Catch up · since ", greeting.Heading);
+        var lines = greeting.Body!.Replace('\u00a0', ' ').Split('\n');
+        // The priorities are tags: as plain text "P1".
+        Assert.Contains("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines.Select(l => ZendeskWatcher.UI.Markdown.Strip(l)));
+        Assert.DoesNotContain("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines);
+        // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets last.
+        Assert.Contains("**1** waiting for your reply", lines);
+        Assert.Contains("**1** past SLA", lines);
+        Assert.Contains("**1** Escalated, no reply to the customer for 2+ days", lines);
+        Assert.Contains("**1** Pending, no update for 7+ days", lines);
+        Assert.StartsWith("Your tickets:", lines[^1]);
+        Assert.False(greeting.RequestedByUser);
     }
 
     [Fact]
@@ -119,7 +173,7 @@ public class CatchUpTests
         Assert.Equal([101L], result.Unassigned.Select(n => n.TicketId));
         Assert.Equal([201L], result.Mine.Select(n => n.TicketId));   // 202 was answered after the customer wrote
         Assert.Equal([301L], result.Colleagues.Select(n => n.TicketId));
-        Assert.Equal(3, notifier.Shown.Count);                         // a few: one notification each
+        Assert.Equal(4, notifier.Shown.Count);                         // the greeting, then a few one by one
         Assert.All(notifier.Shown, n => Assert.True(n.RequestedByUser)); // shown even while paused
         Assert.True(result.Unassigned[0].CanTake);
     }

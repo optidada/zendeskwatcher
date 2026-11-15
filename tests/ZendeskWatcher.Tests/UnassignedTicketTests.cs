@@ -34,7 +34,7 @@ public class UnassignedTicketTests
     }
 
     [Fact]
-    public async Task Start_summary_says_what_is_waiting_and_what_is_watched_in_words()
+    public async Task Snapshot_counts_what_is_waiting()
     {
         _zendesk.AddUnassigned(101);
         _settings.HelpColleagues = true;
@@ -46,11 +46,6 @@ public class UnassignedTicketTests
         Assert.Equal(1, now.Unassigned);
         Assert.Equal(("Tier 2", 1), (now.Groups.Single().Group.Name, now.Groups.Single().Count));
         Assert.Null(now.Mine); // not tracked in these tests
-
-        var lines = watcher.StartSummary().Body!.Split('\n');
-        Assert.StartsWith("**1 unassigned**, created ", lines[0]);
-        Assert.Equal("In Tier 2", lines[1]);
-        Assert.Equal("Colleagues off work: replies on Urgent and High", lines[^1]);
     }
 
     [Fact]
@@ -69,9 +64,8 @@ public class UnassignedTicketTests
         Assert.Equal("New ticket · Scheduled", shown.Heading);
         Assert.Equal(1, shown.ScheduledCount);
 
-        // The start summary counts them.
+        // Insights' "Right now" counts them.
         Assert.Equal(1, watcher.Snapshot().Scheduled);
-        Assert.Equal("**1 of them Scheduled**", watcher.StartSummary().Body!.Split('\n')[2]);
 
         // An ordinary one: no mention.
         _zendesk.AddUnassigned(103);
@@ -120,13 +114,13 @@ public class UnassignedTicketTests
     public void Catch_up_and_away_summaries_mention_scheduled_ones()
     {
         var now = new DateTime(2026, 11, 14, 9, 0, 0);
-        Assert.StartsWith("**3 unassigned tickets** in your groups, **1 of them Scheduled**.",
-            TicketRules.CatchUpText(now.AddHours(-16), now, 3, 0, 0, 0, scheduled: 1));
+        Assert.Equal("**3** unassigned in your groups · 1 Scheduled",
+            TicketRules.CatchUpBody(new TicketRules.CatchUpCounts { Unassigned = 3, Scheduled = 1 }, null));
 
         var waiting = new List<NotificationContent>
         {
-            new(NotificationKind.NewTicket, "New ticket · Scheduled", "#1 A", null) { ScheduledCount = 1 },
-            new(NotificationKind.NewTicket, "New ticket", "#2 B", null)
+            new(NotificationKind.NewTicket, "New ticket · Scheduled", "#1 A", "") { ScheduledCount = 1 },
+            new(NotificationKind.NewTicket, "New ticket", "#2 B", "")
         };
         Assert.Equal("2 new tickets, **1 of them Scheduled**", Notifier.AwaySummary(waiting, 0).Body);
     }
@@ -199,7 +193,6 @@ public class UnassignedTicketTests
         Assert.Equal("Tier 2", shown.Context);
         Assert.True(shown.CanTake);
         Assert.True(shown.IsTicketNotification); // counted in the statistics
-        Assert.False(watcher.StartSummary().IsTicketNotification); // the summary isn't
 
         await watcher.PollAsync(CancellationToken.None);
         Assert.Empty(TakeShown()); // not again on the next check

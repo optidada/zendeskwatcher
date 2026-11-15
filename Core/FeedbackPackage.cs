@@ -15,24 +15,25 @@ public static class FeedbackPackage
     public static string Subject(string version) => $"Zendesk Watcher feedback ({version})";
 
     /// <param name="system">E.g. "Windows 10.0.26200" or "macOS 15.1".</param>
-    /// <param name="zipPath">The zip; when the mail app couldn't attach it, the body asks to attach it by hand.</param>
+    /// <param name="zipPath">The zip (null: no logs); when the mail app couldn't attach it, the body asks to attach it by hand.</param>
+    /// <param name="message">What the user wrote in the app; null leaves room to write it in the email.</param>
     /// <param name="attached">True when the mail app attached the zip itself (classic Outlook, Apple Mail).</param>
-    public static string Body(string version, string system, string zipPath, bool attached) => string.Join("\r\n",
-        "What happened, or what would you like?",
+    public static string Body(string version, string system, string? zipPath, bool attached, string? message = null) => string.Join("\r\n",
+        message ?? "What happened, or what would you like?",
         "",
-        "",
-        "",
+        message is null ? "\r\n" : "",
         "---",
         $"Version: {version}",
         $"System: {system}",
-        attached
-            ? $"Attached: {Path.GetFileName(zipPath)} (log, settings and app details; no ticket text)."
-            : $"Please attach {Path.GetFileName(zipPath)} (log, settings and app details; no ticket text). " +
+        zipPath is null ? "No logs attached."
+        : attached
+            ? $"Attached: {Path.GetFileName(zipPath)} (log, settings and app details; no comment text)."
+            : $"Please attach {Path.GetFileName(zipPath)} (log, settings and app details; no comment text). " +
               $"It's in the folder that just opened: {zipPath}");
 
     /// <summary>The address with subject and body, as used after "mailto:" (and by Outlook's /m switch).</summary>
-    public static string Address(string version, string system, string zipPath, bool attached) =>
-        $"{Email}?subject={Uri.EscapeDataString(Subject(version))}&body={Uri.EscapeDataString(Body(version, system, zipPath, attached))}";
+    public static string Address(string version, string system, string? zipPath, bool attached, string? message = null) =>
+        $"{Email}?subject={Uri.EscapeDataString(Subject(version))}&body={Uri.EscapeDataString(Body(version, system, zipPath, attached, message))}";
 
     /// <summary>What about.txt says: app, system, and whether checking works right now.</summary>
     public static string About(string version, string system, DateTime now) => string.Join(Environment.NewLine,

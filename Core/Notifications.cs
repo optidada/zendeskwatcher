@@ -50,4 +50,9 @@ public static class NotificationActions
     public const string UrlPrefix = "url:";
 
     public static string Url(string address) => UrlPrefix + address;
+
+    /// <summary>Opens Settings at a page (and card): "settings:" and "Groups" or "Behavior/Snooze".</summary>
+    public const string SettingsPrefix = "settings:";
+
+    public static string SettingsPage(string page, string? section = null) => SettingsPrefix + page + (section is null ? "" : "/" + section);
 }
