@@ -33,9 +33,14 @@ internal sealed class ClientsView
     /// <summary>Clients per group loaded from Zendesk, remembered like the group list.</summary>
     private static (string Subdomain, DateTime At, Dictionary<long, List<Client>> Groups)? _cache;
 
+    /// <summary>The clients from before the last daily refresh: in view while it loads, and for a group that failed.</summary>
+    private static (string Subdomain, Dictionary<long, List<Client>> Groups) _old = ("", []);
+
     private int _version;
     private int _failed;
-    private bool _loaded;
+    /// <summary>The clients in view per group (null before any loaded).</summary>
+    private Dictionary<long, List<Client>>? _inView;
+    private bool _loaded => _inView is not null;
     private List<(WatchedGroup Group, List<Client> Clients)> _shown = [];
 
     /// <summary>Where the list is shown: the same place as the group list.</summary>
@@ -95,7 +100,7 @@ internal sealed class ClientsView
                 Store(choice);
                 // A deliberate choice: re-sort right away (tick boxes don't, so rows don't jump while ticking),
                 // keep the scroll position and highlight the client where it is now.
-                Arrange(_lastGroups, _loaded ? _cache?.Groups : null, keepScroll: true);
+                Arrange(_lastGroups, _inView, keepScroll: true);
                 HighlightClient(client.Id);
                 Changed?.Invoke();
             }, AppearancePage.SoundOptions.Where(o => o.Value != ToastSound.Silent).Select(o => (o.Value, o.Label)).Prepend((ToastSound.Silent, "Silent")).ToList())
@@ -200,7 +205,7 @@ internal sealed class ClientsView
     public void Resort()
     {
         if (_lastGroups.Count > 0)
-            Arrange(_lastGroups, _loaded ? _cache?.Groups : null, keepScroll: true);
+            Arrange(_lastGroups, _inView, keepScroll: true);
     }
 
     /// <summary>While signed out: greyed, no ticking or client menu, still scrolls.</summary>
@@ -246,10 +251,44 @@ internal sealed class ClientsView
     public static void ClearCache()
     {
         _cache = null;
+        _old = ("", []);
         ListCache.Clear(CacheName);
     }
 
     private const string CacheName = "clients";
+
+    /// <summary>Groups whose clients are being fetched right now (a second request joins the first).</summary>
+    private static readonly Dictionary<(long Group, ZendeskClient Client), Task<List<Client>?>> Loading = [];
+
+    /// <summary>A group's clients from Zendesk; null when they couldn't be loaded.</summary>
+    private static Task<List<Client>?> LoadGroupAsync(long groupId, ZendeskClient client)
+    {
+        if (Loading.TryGetValue((groupId, client), out var running))
+            return running;
+        var task = Fetch();
+        Loading[(groupId, client)] = task;
+        return task;
+
+        async Task<List<Client>?> Fetch()
+        {
+            await Task.Yield(); // registered in Loading before it can finish
+            try
+            {
+                return (await client.GetGroupClientsAsync(groupId, CancellationToken.None))
+                    .Select(c => new Client(c.Id, c.Name, c.Tickets)).ToList();
+            }
+            catch (Exception ex)
+            {
+                if (ex is not AuthRequiredException)
+                    Log.Error($"Settings: could not load the clients of group {groupId}", ex);
+                return null;
+            }
+            finally
+            {
+                Loading.Remove((groupId, client));
+            }
+        }
+    }
 
     /// <summary>For the screenshot tool: sample clients (cached, so nothing is requested).</summary>
     internal static void SetSample(string subdomain, Dictionary<long, List<Client>> groups) => _cache = (subdomain, DateTime.UtcNow, groups);
@@ -263,53 +302,56 @@ internal sealed class ClientsView
         var version = ++_version;
         Dictionary<long, List<Client>>? loaded = null;
         var failed = 0;
+        var refreshed = false; // the old clients were in view while loading: the scroll position stays
 
         if (client is not null && groups.Count > 0)
         {
-            if (_cache is null && ListCache.Load<Dictionary<long, List<Client>>>(CacheName, subdomain) is { } saved)
+            if (_cache is null && ListCache.Load<Dictionary<long, List<Client>>>(CacheName, subdomain, anyAge: true) is { } saved)
                 _cache = (subdomain, saved.At, saved.Value); // from an earlier run
-            if (_cache is not { } cache || cache.Subdomain != subdomain || DateTime.UtcNow - cache.At > GroupsPage.CacheLifetime)
+            // Over a day old: shown while the clients load again, and kept for a group that fails to load.
+            if (_old.Subdomain != subdomain)
+                _old = (subdomain, []);
+            var expired = _cache is { } aged && aged.Subdomain == subdomain && DateTime.UtcNow - aged.At > GroupsPage.CacheLifetime;
+            if (expired)
+                _old = (subdomain, _cache!.Value.Groups);
+            if (_cache is not { } cache || cache.Subdomain != subdomain || expired)
                 _cache = (subdomain, DateTime.UtcNow, []);
+            var old = _old.Groups;
             var cached = _cache.Value.Groups;
             var missing = groups.Where(g => !cached.ContainsKey(g.Id)).ToList();
             if (missing.Count > 0)
             {
-                ShowMessage("Loading the clients of your groups…");
+                if (missing.Any(g => old.ContainsKey(g.Id)))
+                {
+                    _inView = cached.Concat(old.Where(o => !cached.ContainsKey(o.Key))).ToDictionary();
+                    Arrange(groups, _inView);
+                    refreshed = true;
+                }
+                else
+                    ShowMessage("Loading the clients of your groups…");
                 SetHint("Loading…");
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 // All groups at once (the app sends a few requests side by side).
-                var results = await Task.WhenAll(missing.Select(async group =>
-                {
-                    try
-                    {
-                        return (group.Id, Clients: (await client.GetGroupClientsAsync(group.Id, CancellationToken.None))
-                            .Select(c => new Client(c.Id, c.Name, c.Tickets)).ToList());
-                    }
-                    catch (Exception ex)
-                    {
-                        if (ex is not AuthRequiredException)
-                            Log.Error($"Settings: could not load the clients of group {group.Id}", ex);
-                        return (group.Id, Clients: (List<Client>?)null);
-                    }
-                }));
+                var results = await Task.WhenAll(missing.Select(async group => (group.Id, Clients: await LoadGroupAsync(group.Id, client))));
                 foreach (var (id, clients) in results)
                 {
-                    if (clients is null)
-                        failed++;
-                    else
+                    if (clients is not null)
                         cached[id] = clients;
+                    else if (!old.ContainsKey(id))
+                        failed++;
                 }
-                Log.Info($"Settings: clients of {missing.Count - failed} group(s) in {clock.ElapsedMilliseconds} ms");
+                Log.Info($"Settings: clients of {results.Count(r => r.Clients is not null)} group(s) in {clock.ElapsedMilliseconds} ms");
                 ListCache.Save(CacheName, subdomain, _cache.Value.At, cached);
             }
             if (version != _version)
                 return; // the groups, filter or session changed meanwhile
-            loaded = cached;
+            // A group that failed to load keeps its old clients in view (tried again next time).
+            loaded = old.Count == 0 ? cached : cached.Concat(old.Where(o => !cached.ContainsKey(o.Key))).ToDictionary();
         }
         else if (client is null && groups.Count > 0)
         {
             // Signed out: the clients as last loaded (any age; the page says they may be out of date), read-only.
-            if (_cache is null && ListCache.Load<Dictionary<long, List<Client>>>(CacheName, subdomain) is { } saved)
+            if (_cache is null && ListCache.Load<Dictionary<long, List<Client>>>(CacheName, subdomain, anyAge: true) is { } saved)
                 _cache = (subdomain, saved.At, saved.Value);
             if (_cache is { } cache && cache.Subdomain == subdomain)
                 loaded = cache.Groups;
@@ -317,9 +359,9 @@ internal sealed class ClientsView
         else if (version != _version)
             return;
 
-        _loaded = loaded is not null;
+        _inView = loaded;
         _failed = failed;
-        Arrange(groups, loaded);
+        Arrange(groups, loaded, keepScroll: refreshed);
     }
 
     /// <summary>

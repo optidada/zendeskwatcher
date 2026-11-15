@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.7.3
+
+- **Lists kept after signing in again**: your groups, clients and colleagues stay in Settings when Zendesk asks you to sign in again. They're only loaded again for a different account, or when you click Reload.
+- **Clients ready right away**: they load in the background after you sign in, so the Clients page doesn't have to wait.
+- **Refreshed quietly**: lists over a day old stay in view while fresh ones load. If a group can't be loaded, its last list stays too.
+- **Fix**: while signed out, lists older than a day disappeared instead of showing as last loaded.
+
 ## 1.7.2
 
 - **Always-visible tray icon**: the icon now sits next to the clock instead of behind the ^ arrow. If you hide it in Windows Settings, it stays hidden.

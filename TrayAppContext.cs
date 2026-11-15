@@ -130,6 +130,9 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>Zendesk Watcher was started again: say it's already running (from any thread).</summary>
     public void ShowAlreadyRunning() => _ui.Post(_ => _notifier.ShowAlreadyRunning(), null);
 
+    /// <summary>Opens Settings once the app is running (developer helper, --open-settings).</summary>
+    public void OpenSettingsOnStart() => _ui.Post(_ => ShowSettings(), null);
+
     /// <summary>Shows sample notifications with the saved settings once the app is running.</summary>
     public void ShowTestPopups() => _ui.Post(_ => _notifier.ShowTestBurst(_settings), null);
 

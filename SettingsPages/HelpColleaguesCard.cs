@@ -302,9 +302,13 @@ internal sealed class HelpColleaguesCard
         if (_help.Checked && _context.Client is { } client && groupIds.Count > 0)
         {
             var subdomain = _context.Current().Subdomain;
-            if (_memberCache is null && ListCache.Load<Dictionary<long, List<Member>>>(MemberCacheName, subdomain) is { } saved)
+            if (_memberCache is null && ListCache.Load<Dictionary<long, List<Member>>>(MemberCacheName, subdomain, anyAge: true) is { } saved)
                 _memberCache = (subdomain, saved.At, saved.Value); // from an earlier run
-            if (_memberCache is not { } cache || cache.Subdomain != subdomain || DateTime.UtcNow - cache.At > GroupsPage.CacheLifetime)
+            // Over a day old: loaded again, keeping the old members of a group that fails to load.
+            Dictionary<long, List<Member>> old = [];
+            if (_memberCache is { } aged && aged.Subdomain == subdomain && DateTime.UtcNow - aged.At > GroupsPage.CacheLifetime)
+                old = aged.Groups;
+            if (_memberCache is not { } cache || cache.Subdomain != subdomain || old.Count > 0)
                 _memberCache = (subdomain, DateTime.UtcNow, []);
             var groups = _memberCache.Value.Groups;
 
@@ -331,23 +335,23 @@ internal sealed class HelpColleaguesCard
                 }));
                 foreach (var (id, members) in results)
                 {
-                    if (members is null)
-                        failed++;
-                    else
+                    if (members is not null)
                         groups[id] = members;
+                    else if (!old.ContainsKey(id))
+                        failed++;
                 }
-                Log.Info($"Settings: loaded the members of {missing.Count - failed} group(s) for Help colleagues");
+                Log.Info($"Settings: loaded the members of {results.Count(r => r.Members is not null)} group(s) for Help colleagues");
                 ListCache.Save(MemberCacheName, subdomain, _memberCache.Value.At, groups);
             }
             if (version != _peopleVersion || !ReferenceEquals(client, _context.Client))
                 return; // the choices or the session changed meanwhile
-            loaded = groups;
+            loaded = old.Count == 0 ? groups : groups.Concat(old.Where(o => !groups.ContainsKey(o.Key))).ToDictionary();
         }
         else if (_help.Checked && _context.Client is null && groupIds.Count > 0)
         {
             // Signed out: the members as last loaded (any age; the page says they may be out of date), read-only.
             var subdomain = _context.Current().Subdomain;
-            if (_memberCache is null && ListCache.Load<Dictionary<long, List<Member>>>(MemberCacheName, subdomain) is { } saved)
+            if (_memberCache is null && ListCache.Load<Dictionary<long, List<Member>>>(MemberCacheName, subdomain, anyAge: true) is { } saved)
                 _memberCache = (subdomain, saved.At, saved.Value);
             if (_memberCache is { } cache && cache.Subdomain == subdomain)
                 loaded = cache.Groups;

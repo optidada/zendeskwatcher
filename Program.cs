@@ -116,6 +116,8 @@ internal static class Program
         var app = new TrayAppContext();
         if (args.Contains("--test-popups"))
             app.ShowTestPopups(); // for trying the notification styles without waiting for real tickets
+        if (args.Contains("--open-settings"))
+            app.OpenSettingsOnStart(); // for trying Settings with the real session
         Application.Run(app);
         Log.Info("Stopped");
     }

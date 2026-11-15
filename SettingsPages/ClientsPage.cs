@@ -85,7 +85,9 @@ internal sealed class ClientsPage : SettingsPage
         {
             if (reload)
                 ClientsView.ClearCache();
-            if (Panel.Visible)
+            // Also while the page is hidden: signed in, the clients load in the background when they're missing or
+            // over a day old, so the page is ready when opened (nothing is requested while they're fresh).
+            if (Panel.Visible || Context.Client is not null)
                 Refresh();
         };
     }

@@ -89,7 +89,7 @@ internal sealed class AccountPage : SettingsPage
         _signIn.Click += async (_, _) => await SignInAsync();
         _signOut.Click += (_, _) => SignOut();
         _catchUp.Click += async (_, _) => await CatchUpAsync();
-        _groups.ReloadRequested += async () => await RefreshAsync(force: true);
+        _groups.ReloadRequested += async () => await RefreshAsync(force: true, reload: true);
         TrackChanges(_subdomain);
     }
 
@@ -156,10 +156,11 @@ internal sealed class AccountPage : SettingsPage
         _loadedFor = key;
         var client = new ZendeskClient(connection, Context.SessionFactory(connection));
         SetStatus(SignedInText(connection, me), AccountState.SignedIn);
-        Context.SetSession(client, me);
+        var otherUser = ListCache.ChangeOwner(key, me.Id);
+        Context.SetSession(client, me, reload: otherUser);
         try
         {
-            await _groups.LoadAsync(client, me.Id, key, force: false, stale: () => key != _loadedFor);
+            await _groups.LoadAsync(client, me.Id, key, force: otherUser, stale: () => key != _loadedFor);
         }
         catch (AuthRequiredException)
         {
@@ -176,8 +177,11 @@ internal sealed class AccountPage : SettingsPage
         }
     }
 
-    /// <summary>Checks the session for the subdomain and loads the groups. Skipped if nothing changed, unless forced.</summary>
-    private async Task RefreshAsync(bool force = false)
+    /// <summary>
+    /// Checks the session for the subdomain and loads the groups. Skipped if nothing changed, unless forced. The saved
+    /// lists (groups, clients, colleagues) stay unless <paramref name="reload"/> (Reload) or another user signed in.
+    /// </summary>
+    private async Task RefreshAsync(bool force = false, bool reload = false)
     {
         if (_signingIn)
             return;
@@ -206,10 +210,11 @@ internal sealed class AccountPage : SettingsPage
                 return; // the subdomain changed meanwhile
 
             SetStatus(SignedInText(connection, me), AccountState.SignedIn);
-            Context.SetSession(client, me, reload: force);
+            reload |= ListCache.ChangeOwner(key, me.Id);
+            Context.SetSession(client, me, reload);
             Log.Info($"Settings: session {clock.ElapsedMilliseconds} ms");
 
-            await _groups.LoadAsync(client, me.Id, key, force, stale: () => key != _loadedFor);
+            await _groups.LoadAsync(client, me.Id, key, reload, stale: () => key != _loadedFor);
         }
         catch (AuthRequiredException)
         {

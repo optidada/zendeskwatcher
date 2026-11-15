@@ -212,7 +212,7 @@ internal sealed class GroupsPage : SettingsPage
         if (_groupsLoaded)
             return; // loaded in this window already: that list stays
         var subdomain = Context.Current().Subdomain;
-        if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain) is { } saved)
+        if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain, anyAge: true) is { } saved)
             _cache = (subdomain, saved.At, saved.Value.Groups, saved.Value.Suggestions);
         if (_cache is not { } cache || cache.Subdomain != subdomain)
             return;
@@ -300,15 +300,18 @@ internal sealed class GroupsPage : SettingsPage
         // Groups rarely change: reuse what was loaded in the last day, also after a restart (Reload always fetches).
         if (force)
             ListCache.Clear(CacheName);
-        else if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain) is { } saved)
+        else if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain, anyAge: true) is { } saved)
             _cache = (subdomain, saved.At, saved.Value.Groups, saved.Value.Suggestions);
-        if (!force && _cache is { } cache && cache.Subdomain == subdomain && DateTime.UtcNow - cache.At < CacheLifetime)
+        var old = false;
+        if (!force && _cache is { } cache && cache.Subdomain == subdomain)
         {
             _suggestions = cache.Suggestions;
             _groupsLoaded = true;
             SetGroups(WithMissing(cache.Groups));
             _reload.Enabled = true;
-            return;
+            if (DateTime.UtcNow - cache.At < CacheLifetime)
+                return;
+            old = true; // over a day old: it stays in view while a fresh one loads
         }
 
         if (force)
@@ -316,7 +319,7 @@ internal sealed class GroupsPage : SettingsPage
         _reload.SetBusy(true, "Loading\u2026");
         try
         {
-            await FetchAsync(client, meId, subdomain, stale);
+            await FetchAsync(client, meId, subdomain, stale, quiet: old);
         }
         finally
         {
@@ -324,10 +327,12 @@ internal sealed class GroupsPage : SettingsPage
         }
     }
 
-    private async Task FetchAsync(ZendeskClient client, long meId, string subdomain, Func<bool> stale)
+    /// <summary>Fetches the groups and suggestions; <paramref name="quiet"/> keeps the list in view meanwhile.</summary>
+    private async Task FetchAsync(ZendeskClient client, long meId, string subdomain, Func<bool> stale, bool quiet = false)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        SetLoading(true);
+        if (!quiet)
+            SetLoading(true);
         var groups = (await client.GetGroupsAsync(CancellationToken.None)).Select(g => new GroupItem(g.Id, g.Name)).ToList();
         if (stale())
             return;

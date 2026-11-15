@@ -20,8 +20,11 @@ internal static class ListCache
 
     private static string FileFor(string name) => Path.Combine(AppPaths.DataDir, "cache", name + ".json");
 
-    /// <summary>The saved list, if it's for this account and still fresh; null otherwise (or if it can't be read).</summary>
-    public static (DateTime At, T Value)? Load<T>(string name, string subdomain) where T : class
+    /// <summary>
+    /// The saved list, if it's for this account and still fresh (any age with <paramref name="anyAge"/>: shown while a
+    /// fresh one loads, or while signed out); null otherwise (or if it can't be read).
+    /// </summary>
+    public static (DateTime At, T Value)? Load<T>(string name, string subdomain, bool anyAge = false) where T : class
     {
         try
         {
@@ -29,7 +32,7 @@ internal static class ListCache
             if (!File.Exists(file))
                 return null;
             var entry = JsonSerializer.Deserialize<Entry<T>>(File.ReadAllText(file), JsonOptions);
-            if (entry?.Value is null || entry.Subdomain != subdomain || DateTime.UtcNow - entry.At > GroupsPage.CacheLifetime)
+            if (entry?.Value is null || entry.Subdomain != subdomain || !anyAge && DateTime.UtcNow - entry.At > GroupsPage.CacheLifetime)
                 return null;
             return (entry.At, entry.Value);
         }
@@ -51,6 +54,30 @@ internal static class ListCache
         catch (Exception ex)
         {
             Log.Error($"Settings: could not save the {name} list", ex);
+        }
+    }
+
+    /// <summary>
+    /// Notes who the saved lists belong to. True when they were saved for someone else (another user or Zendesk): then
+    /// they're fetched again. Signing in again as the same person keeps them.
+    /// </summary>
+    public static bool ChangeOwner(string subdomain, long userId)
+    {
+        var owner = $"{subdomain}/{userId}";
+        try
+        {
+            var file = Path.Combine(AppPaths.DataDir, "cache", "owner.txt");
+            var previous = File.Exists(file) ? File.ReadAllText(file).Trim() : null;
+            if (previous == owner)
+                return false;
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, owner);
+            return previous is not null; // lists saved before owners were noted: the subdomain check covers them
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Settings: could not note who the saved lists belong to", ex);
+            return false;
         }
     }
 
