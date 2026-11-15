@@ -98,10 +98,10 @@ internal sealed class ClientsView
             ClientMenu.Build(ChoiceFor(client), choice =>
             {
                 Store(choice);
-                // A deliberate choice: re-sort right away (tick boxes don't, so rows don't jump while ticking),
-                // keep the scroll position and highlight the client where it is now.
-                Arrange(_lastGroups, _inView, keepScroll: true);
-                HighlightClient(client.Id);
+                // The row stays where it is (as on the Groups page): it only looks different. The list is sorted
+                // into its sections again after Save or Discard, or when the page is shown next time.
+                _list.Invalidate();
+                UpdateHint();
                 Changed?.Invoke();
             }, AppearancePage.SoundOptions.Where(o => o.Value != ToastSound.Silent).Select(o => (o.Value, o.Label)).Prepend((ToastSound.Silent, "Silent")).ToList())
             .Show(at);
@@ -397,15 +397,6 @@ internal sealed class ClientsView
 
     /// <summary>The groups last shown, for re-sorting after a choice.</summary>
     private IReadOnlyList<WatchedGroup> _lastGroups = [];
-
-    /// <summary>Highlights a client's row (its first one if it's in several groups) and brings it into view.</summary>
-    private void HighlightClient(long id)
-    {
-        var row = _list.PersonRows().FirstOrDefault(r => r.Person.Id == id).Rect;
-        _list.Highlighted = row;
-        if (!row.IsEmpty)
-            CenterOn(row);
-    }
 
     /// <summary>Scrolls so the row is in the middle of the list (as far as the list allows).</summary>
     private void CenterOn(Rectangle row) => ScrollTo(row.Top + row.Height / 2 - Host.Height / 2);

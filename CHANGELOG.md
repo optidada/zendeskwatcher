@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.1
+
+- **Clients stay put**: changing a client (Important, Only urgent, Muted, own sound) no longer moves its row. The list sorts itself again after Save or Discard, or the next time you open the page, as on the Groups page.
+
 ## 1.8.0
 
 - **Catch up greets you**: when the app starts and when your working day begins. One line per thing that needs you, number first: customers waiting, SLAs past or due today, unassigned tickets, Escalated tickets the customer hasn't heard about, quiet Pending ones. Then your tickets by status. It replaces the start summary and is much faster with many unassigned tickets.
