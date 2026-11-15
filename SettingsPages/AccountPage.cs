@@ -13,6 +13,8 @@ internal sealed class AccountPage : SettingsPage
     private readonly Label _status = Theme.Label("Not signed in", maxWidth: Kit.CardWidth - 70);
     /// <summary>"Signed in for 5 h 12 min. …" under the status, when the sign-in time is known.</summary>
     private readonly Label _sessionAge = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 70);
+    /// <summary>Signed in but no group monitored yet: points to the Groups page (new unassigned tickets need a group).</summary>
+    private readonly Label _nextStep = Theme.Linked("Next: choose the groups to monitor on the Groups page.", maxWidth: Kit.CardWidth - 70);
     private readonly Button _signIn = Theme.PrimaryButton("Sign in");
     private readonly Button _signOut = Theme.SecondaryButton("Sign out");
     private readonly Button _catchUp = Theme.SecondaryButton("Catch up");
@@ -55,6 +57,9 @@ internal sealed class AccountPage : SettingsPage
         _sessionAge.Margin = new Padding(26, 0, 0, 0); // under the status text, past the dot
         _sessionAge.Visible = false;
         status.Body.Controls.Add(_sessionAge);
+        _nextStep.Margin = new Padding(26, 6, 0, 0);
+        _nextStep.Visible = false;
+        status.Body.Controls.Add(_nextStep);
         var buttons = Kit.Row(_signIn, _signOut);
         buttons.Margin = new Padding(0, 12, 0, 0);
         status.Body.Controls.Add(buttons);
@@ -269,6 +274,7 @@ internal sealed class AccountPage : SettingsPage
         var text = _signedIn ? SignInTime.Text() : null;
         _sessionAge.Text = text is null ? "" : text + " Zendesk asks you to sign in again after about 8 hours.";
         _sessionAge.Visible = text is not null;
+        _nextStep.Visible = _signedIn && Context.Current().WatchedGroups.Count == 0;
     }
 
     private bool _signedIn;

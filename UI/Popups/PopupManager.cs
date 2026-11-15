@@ -121,8 +121,8 @@ public sealed class PopupManager
 
         switch (popup.Outcome)
         {
-            case PopupForm.Result.Open when popup.ClickedTicketId is { } line:
-                _onAction(Notifier.ActionOpenTicket, line); // one ticket of a list
+            case PopupForm.Result.Open when popup.ClickedLink is { } link:
+                _onAction(link.Action, link.TicketId); // a ticket number or a Settings page in the text
                 break;
             case PopupForm.Result.Open:
                 _onAction(popup.Content.ResolvedAction, popup.Content.TicketId);

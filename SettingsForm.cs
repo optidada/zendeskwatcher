@@ -283,7 +283,12 @@ public sealed class SettingsForm : Form
         SelectPage(index);
         _content.AutoScrollPosition = Point.Empty;
         if (section is not null && Page(index).Panel.Controls.OfType<Card>().FirstOrDefault(c => c.Title == section) is { } card)
-            _content.ScrollControlIntoView(card);
+        {
+            // The card at the top (the panel only scrolls by itself for Tab; see RepaintOnScrollPanel).
+            var top = _content.PointToClient(card.PointToScreen(Point.Empty)).Y;
+            _content.AutoScrollPosition = new Point(0, Math.Max(0, top - _content.Padding.Top));
+            _content.Invalidate(true);
+        }
     }
 
     private void SelectPage(int index)

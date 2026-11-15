@@ -155,6 +155,12 @@ public sealed class TrayAppContext : ApplicationContext
             case Notifier.ActionSettings:
                 ShowSettings();
                 break;
+            case var page when page.StartsWith(NotificationActions.SettingsPrefix, StringComparison.Ordinal):
+                // "Settings → Groups" in a notification's text: that page (and card).
+                ShowSettings();
+                var target = page[NotificationActions.SettingsPrefix.Length..].Split('/', 2);
+                SettingsLinks.Go?.Invoke(target[0], target.Length > 1 ? target[1] : null);
+                break;
             case Notifier.ActionTake when ticketId is { } takeId:
                 _ = TakeTicketAsync(takeId);
                 break;
@@ -289,7 +295,8 @@ public sealed class TrayAppContext : ApplicationContext
                 if (!_summaryShown)
                 {
                     _summaryShown = true;
-                    if (_settings.ShowStartSummary && !watcher.ShowedAlreadyWaiting)
+                    // Without a monitored group it's shown anyway: its first line says to choose one (Settings → Groups).
+                    if ((_settings.ShowStartSummary || _settings.WatchedGroups.Count == 0) && !watcher.ShowedAlreadyWaiting)
                         _notifier.ShowSummary(watcher.StartSummary());
                 }
 

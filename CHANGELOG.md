@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.7.2
+
+- **Always-visible tray icon**: the icon now sits next to the clock instead of behind the ^ arrow. If you hide it in Windows Settings, it stays hidden.
+- **Links in notifications**: ticket numbers (also in the title) and "Settings → Groups" stand out and open that ticket or Settings page. In the Terminal theme, links are cyan.
+- **No groups chosen yet?** The Account page points you to the Groups page, and the start summary reminds you each time the app starts.
+- **Fix**: in Settings, the first click on a button sometimes moved the page a bit instead of doing anything.
+
 ## 1.7.1
 
 - **What's new after an update**: one notification with the highlights since the version you used before, also after a big jump. A click opens the release notes.

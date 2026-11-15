@@ -13,6 +13,7 @@ internal sealed class HowItWorksPage : SettingsPage
         ("New tickets",
         [
             "A ticket in a group you monitor (Groups page) that nobody has picked up yet.",
+            "No group monitored yet: none of these come, and the start summary reminds you each time the app starts.",
             "Also the ones that came in while the app was closed, if they're still unassigned when it starts.",
             "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",

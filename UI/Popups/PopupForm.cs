@@ -32,6 +32,8 @@ public sealed class PopupForm : Form
     private readonly Font _bodyBoldFont;
     private readonly Font _clientFont;
     private readonly RichText _rich;
+    /// <summary>The title (bold), so a ticket number in it can be in the link color.</summary>
+    private readonly RichText _titleRich;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 15 };
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
@@ -78,15 +80,15 @@ public sealed class PopupForm : Form
 
     public Result Outcome { get; private set; }
 
-    /// <summary>A ticket line in a list was clicked ("#123456 Subject"): open that ticket rather than the whole list.</summary>
-    public long? ClickedTicketId { get; private set; }
+    /// <summary>A link in the text was clicked (a ticket number, "Settings → Groups"): follow it
+    /// rather than opening what the whole notification is about.</summary>
+    internal RichText.Link? ClickedLink { get; private set; }
 
-    /// <summary>Ticket numbers that can be clicked: the accent of normal tickets (the theme's link color).</summary>
-    private Color LinkColor => _palette.Accent("normal", NotificationKind.NewTicket);
+    /// <summary>Links: the accent of normal tickets (the theme's link color); in Terminal cyan, as links are in a terminal (its accent is the text's green).</summary>
+    private Color LinkColor => _palette.Terminal ? Color.FromArgb(90, 220, 255) : _palette.Accent("normal", NotificationKind.NewTicket);
 
-    /// <summary>The ticket lines of a list notification, and the one the mouse is on (underlined).</summary>
-    private List<(long TicketId, Rectangle Bounds)> _ticketLines = [];
-    private long? _hoverTicket;
+    /// <summary>Where the links are; they're in the link color (the whole notification shows the hand cursor anyway).</summary>
+    private List<(RichText.Link Link, Rectangle Bounds)> _links = [];
 
     /// <summary>Whether it has a countdown at all (not "stay until dismissed").</summary>
     public bool TimesOut => _durationMs > 0;
@@ -187,6 +189,7 @@ public sealed class PopupForm : Form
         _bodyBoldFont = new Font(family, palette.FontSize * size, FontStyle.Bold);
         _clientFont = new Font(family, (palette.FontSize + (palette.Terminal ? 1f : 2.5f)) * size, FontStyle.Bold);
         _rich = new RichText(_bodyFont, _bodyBoldFont);
+        _titleRich = new RichText(_titleFont, _titleFont);
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -557,7 +560,7 @@ public sealed class PopupForm : Form
             _clientRect = _muteRect = Rectangle.Empty;
         }
 
-        var titleHeight = Measure(_content.Title, _titleFont, width, maxLines: 2);
+        var titleHeight = _titleRich.Measure(Markdown.Escape(_content.Title), width, maxLines: 2);
         _titleRect = new Rectangle(left, y, width, titleHeight);
         y += titleHeight + Px(4);
 
@@ -634,13 +637,6 @@ public sealed class PopupForm : Form
         return y;
     }
 
-    private static int Measure(string text, Font font, int width, int maxLines)
-    {
-        var lineHeight = TextRenderer.MeasureText("Ag", font).Height;
-        var size = TextRenderer.MeasureText(text, font, new Size(width, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
-        return Math.Min(size.Height, lineHeight * maxLines);
-    }
-
     // ------------------------------------------------------------------ painting
 
     protected override void OnPaint(PaintEventArgs e)
@@ -712,27 +708,26 @@ public sealed class PopupForm : Form
         if (!_clientRect.IsEmpty)
             PaintClient(g);
         var (title, body, typing) = Typed();
-        DrawText(g, title, _titleFont, _titleRect, _palette.Text, TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+        // Links (ticket numbers, "Settings → Groups") in the link color, also in samples (to see how it looks); they only
+        // open something in real notifications: a "Try it" sample opens nothing.
+        var clickable = _content.ResolvedAction != NotificationActions.None;
+        var titleText = Markdown.Escape(title); // a subject from Zendesk, not markup
+        _titleRich.Draw(g, titleText, _titleRect, 2, _palette.Text, _palette.Text, null, LinkColor);
+        _links = !clickable || typing ? [] : _titleRich.Links(titleText, _titleRect, 2);
         if (_bodyRect.Height > 0)
         {
-            // Alerts (an SLA deadline) in the theme's urgent color; in a list, the ticket numbers in the link color (clickable).
+            // Alerts (an SLA deadline) in the theme's urgent color.
             _rich.Draw(g, body, _bodyRect, _content.MaxBodyLines, _palette.Terminal ? _palette.Text : _palette.Muted, _palette.Text,
-                _palette.Accent("urgent", _content.Kind), _content.TicketCount > 1 ? LinkColor : null);
-            // Clickable only in real notifications (a "Try it" sample opens nothing).
-            _ticketLines = _content.TicketCount > 1 && !typing && _content.ResolvedAction != NotificationActions.None
-                ? _rich.TicketLines(body, _bodyRect, _content.MaxBodyLines) : [];
-            if (_ticketLines.FirstOrDefault(l => l.TicketId == _hoverTicket) is { Bounds.Width: > 0 } hovered)
-            {
-                using var underline = new Pen(_palette.Text, Math.Max(1, Px(1)));
-                g.DrawLine(underline, hovered.Bounds.Left, hovered.Bounds.Bottom - 1, hovered.Bounds.Right, hovered.Bounds.Bottom - 1);
-            }
+                _palette.Accent("urgent", _content.Kind), LinkColor);
+            if (clickable && !typing)
+                _links.AddRange(_rich.Links(body, _bodyRect, _content.MaxBodyLines));
         }
         if (_palette.Terminal && (typing || (_clock.ElapsedMilliseconds / 500) % 2 == 0))
         {
             if (body.Length > 0 || (!typing && _bodyRect.Height > 0))
                 PaintCursorAt(g, _rich.End(body, _bodyRect, _content.MaxBodyLines), _rich.LineHeight);
             else
-                PaintCursor(g, title, _titleRect);
+                PaintCursorAt(g, _titleRich.End(titleText, _titleRect, 2), _titleRich.LineHeight);
         }
 
         PaintFooter(g);
@@ -799,21 +794,6 @@ public sealed class PopupForm : Form
     {
         using var brush = new SolidBrush(_palette.Text);
         g.FillRectangle(brush, at.X + Px(1), at.Y + Px(2), Px(7), lineHeight - Px(4));
-    }
-
-    private void PaintCursor(Graphics g, string text, Rectangle rect)
-    {
-        // Approximate the end of the last line of text.
-        var lines = text.Split('\n');
-        var last = lines[^1];
-        var font = rect == _titleRect ? _titleFont : _bodyFont;
-        var size = TextRenderer.MeasureText(g, last, font, new Size(rect.Width, int.MaxValue), TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-        var full = TextRenderer.MeasureText(g, text, font, new Size(rect.Width, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
-        var lineHeight = TextRenderer.MeasureText("Ag", font).Height;
-        var x = rect.Left + Math.Min(size.Width % Math.Max(1, rect.Width), rect.Width - Px(8));
-        var y = rect.Top + Math.Min(full.Height, rect.Height) - lineHeight;
-        using var brush = new SolidBrush(_palette.Text);
-        g.FillRectangle(brush, x + Px(1), y + Px(2), Px(7), lineHeight - Px(4));
     }
 
     private void PaintFooter(Graphics g)
@@ -928,13 +908,6 @@ public sealed class PopupForm : Form
     protected override void OnMouseMove(MouseEventArgs e)
     {
         SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
-        var ticket = _ticketLines.Where(l => l.Bounds.Contains(e.Location)).Select(l => (long?)l.TicketId).FirstOrDefault();
-        if (ticket != _hoverTicket)
-        {
-            _hoverTicket = ticket;
-            Cursor = ticket is null ? Cursors.Default : Cursors.Hand;
-            Invalidate();
-        }
         base.OnMouseMove(e);
     }
 
@@ -984,11 +957,13 @@ public sealed class PopupForm : Form
             Dismiss(_content.CanCatchUp ? Result.CatchUp : Result.Take);
         else
         {
-            // A ticket line in a list opens that ticket; the Open button or anywhere else opens what the notification is about.
-            ClickedTicketId = _ticketLines.Where(l => l.Bounds.Contains(e.Location)).Select(l => (long?)l.TicketId).FirstOrDefault();
+            // A link is followed; the Open button or anywhere else opens what the notification is about.
+            ClickedLink = LinkAt(e.Location);
             Dismiss(Result.Open);
         }
     }
+
+    private RichText.Link? LinkAt(Point at) => _links.Where(l => l.Bounds.Contains(at)).Select(l => l.Link).FirstOrDefault();
 
     // ------------------------------------------------------------------ helpers
 

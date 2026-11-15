@@ -28,11 +28,19 @@ internal sealed class RepaintOnScrollPanel : Panel
     }
 
     /// <summary>
-    /// A control that gets the focus by a click stays where it is (Windows would scroll the page to show all of it,
-    /// e.g. jump to the top of a long list). Tabbing to a control still scrolls it into view.
+    /// The page only scrolls to a control that gets the focus with Tab. Otherwise Windows scrolls to show all of it: on a
+    /// click (a long list jumps to its top), and when the window becomes active again (back to the control that had the
+    /// focus, e.g. one higher up). Then the button under the mouse moves away and the click is lost.
+    /// "Stay" is <see cref="ScrollableControl.AutoScrollPosition"/>: DisplayRectangle.Location includes the padding, and
+    /// returning it moved the page by its top padding (26 px) on every click that focused a button.
     /// </summary>
     protected override Point ScrollToControl(Control activeControl) =>
-        MouseButtons != MouseButtons.None ? DisplayRectangle.Location : base.ScrollToControl(activeControl);
+        GetKeyState(VK_TAB) < 0 ? base.ScrollToControl(activeControl) : AutoScrollPosition;
+
+    private const int VK_TAB = 0x09;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int key);
 }
 
 internal static class Kit
