@@ -45,7 +45,10 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ChoiceBox _ccSound = Kit.Combo(SoundOptions);
     private readonly ChoiceBox _summarySound = Kit.Combo(SoundOptions);
     private readonly ChoiceBox _appSound = Kit.Combo(SoundOptions);
-    private readonly ChoiceBox _volume = Kit.Combo<int>([new(25, "25%"), new(50, "50%"), new(75, "75%"), new(100, "100%")], width: 182);
+    /// <summary>The app's volume for all its sounds: segmented buttons above the list, so it doesn't look like one more kind of notification.</summary>
+    private readonly ChoicePills _volume = new("25%", "50%", "75%", "100%");
+    private static readonly int[] VolumeSteps = [25, 50, 75, 100];
+    private int SelectedVolume => VolumeSteps[Math.Clamp(_volume.SelectedIndex, 0, VolumeSteps.Length - 1)];
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ToggleSwitch _edgeGlow = new("Glow at the screen edge for Urgent, important clients and SLA breaches");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
@@ -96,6 +99,16 @@ internal sealed class AppearancePage : SettingsPage
         Panel.Controls.Add(style);
 
         var sound = new Card("Sound", "App messages are things like \"Update ready\" or \"Sign in again\".", Kit.CardWidth);
+        // Volume first, for all sounds (this app only, like its slider in Windows' Volume mixer); a line, then each kind's sound.
+        var volumeLabel = Theme.Label("Volume");
+        volumeLabel.Margin = new Padding(0, 0, 12, 0);
+        var volumeNote = Theme.Label("all sounds, this app only", Theme.Small, Theme.TextMuted);
+        volumeNote.Margin = new Padding(10, 0, 0, 0);
+        var volumeRow = Kit.Row(volumeLabel, _volume, volumeNote);
+        volumeRow.Margin = new Padding(0, 4, 0, 10);
+        sound.Body.Controls.Add(volumeRow);
+        var line = new Panel { Height = 1, Width = Kit.CardWidth - 44, BackColor = Theme.Border, Margin = new Padding(0, 0, 0, 8) };
+        sound.Body.Controls.Add(line);
         var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface };
         AddSoundRow(grid, 0, "New tickets", _newSound);
         AddSoundRow(grid, 1, "My tickets", _mySound);
@@ -103,14 +116,6 @@ internal sealed class AppearancePage : SettingsPage
         AddSoundRow(grid, 3, "Colleagues' tickets", _helpSound);
         AddSoundRow(grid, 4, "Catch up", _summarySound);
         AddSoundRow(grid, 5, "App messages", _appSound);
-        // Volume: this app only (its slider in Windows' Volume mixer); ▶ above plays at the chosen one.
-        var volumeLabel = Theme.Label("Volume");
-        volumeLabel.Anchor = AnchorStyles.Left;
-        volumeLabel.Margin = new Padding(0, 10, 10, 4);
-        _volume.Anchor = AnchorStyles.Left;
-        _volume.Margin = new Padding(0, 9, 6, 3);
-        grid.Controls.Add(volumeLabel, 0, 6);
-        grid.Controls.Add(_volume, 1, 6);
         sound.Body.Controls.Add(grid);
         Panel.Controls.Add(sound);
 
@@ -136,7 +141,8 @@ internal sealed class AppearancePage : SettingsPage
         foreach (var radio in new[] { _likeApp, _ownStyle })
             radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
         TrackChanges(_position, _stacking, _size, _newSound, _mySound, _ccSound, _helpSound,
-            _summarySound, _appSound, _volume, _commentText);
+            _summarySound, _appSound, _commentText);
+        _volume.SelectedIndexChanged += (_, _) => Changed();
     }
 
     public override bool IsSubPage => true; // under Notifications: how they look and sound
@@ -149,7 +155,8 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_ccSound, settings.CcTicketStyle.Sound);
         Kit.Select(_summarySound, settings.SummaryStyle.Sound);
         Kit.Select(_appSound, settings.AppMessageStyle.Sound);
-        Kit.Select(_volume, settings.SoundVolume, fallback: 50);
+        // The nearest step (a value from an edited file, e.g. 60, shows as 50%).
+        _volume.SelectedIndex = Array.IndexOf(VolumeSteps, VolumeSteps.MinBy(v => Math.Abs(v - settings.SoundVolume)));
         _commentText.Checked = settings.ShowCommentText;
         _edgeGlow.Checked = settings.EdgeGlow;
         _likeApp.Checked = settings.NotificationsLikeApp;
@@ -203,7 +210,7 @@ internal sealed class AppearancePage : SettingsPage
         s.Position = Kit.Selected<PopupPosition>(_position);
         s.Stacking = Kit.Selected<PopupStacking>(_stacking);
         s.NotificationSize = Kit.Selected<int>(_size);
-        s.SoundVolume = Kit.Selected<int>(_volume);
+        s.SoundVolume = SelectedVolume;
     }
 
     public override void OnShowing() => UpdateStyleOptions(); // the app theme may have changed on the General page
@@ -262,7 +269,7 @@ internal sealed class AppearancePage : SettingsPage
                 other.Playing = false;
             if (stop)
                 return;
-            SoundVolume.Apply(Kit.Selected<int>(_volume)); // as chosen, also before saving
+            SoundVolume.Apply(SelectedVolume); // as chosen, also before saving
             PopupManager.PlaySound(Kit.Selected<ToastSound>(sound));
             play.Playing = PopupManager.IsSoundPlaying;
             _soundWatch.Enabled = play.Playing;

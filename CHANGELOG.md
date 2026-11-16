@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.9
+
+- **Volume stands on its own**: at the top of Look & sound → Sound, as buttons (25% to 100%), so it doesn't look like one more kind of notification. It's for all the app's sounds.
+
 ## 1.8.8
 
 - **Sounds are quieter**: a new Volume on Look & sound, 50% to start with, so a notification doesn't startle you with headphones on. It only affects this app; ▶ plays at the chosen volume, and shows ■ while playing (click it to stop).
