@@ -165,7 +165,7 @@ public sealed partial class TicketWatcher
         // And a reminder of what you're working on today, by name (each number opens the ticket).
         if (yourTickets is not null && TicketRules.WorkingOnText(myOpen.Select(t => new TicketRules.WorkItem(t.Id, t.Subject ?? "", StatusName(t), t.Status,
                 t.Priority, t.Slas?.PolicyMetrics.Where(m => m.Stage == "active" && m.BreachAt is not null).Min(m => m.BreachAt), t.UpdatedAt))) is { } workingOn)
-            yourTickets += "\n" + workingOn;
+            yourTickets += "\n\n" + workingOn; // set apart too: the tickets to start with
         notifier.Show(new NotificationContent(NotificationKind.MyTicket, $"Catch up · {TicketRules.CatchUpSince(start, DateTime.Now)}",
             TicketRules.Greeting(DateTime.Now, Me?.Name), TicketRules.CatchUpBody(counts, yourTickets))
         {

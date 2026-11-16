@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.10
+
+- **Catch up is easier to read**: an empty line before "To work on", so the tickets to start with stand apart.
+- The ▶ next to a sound says "Stop" while it plays.
+
 ## 1.8.9
 
 - **Volume stands on its own**: at the top of Look & sound → Sound, as buttons (25% to 100%), so it doesn't look like one more kind of notification. It's for all the app's sounds.

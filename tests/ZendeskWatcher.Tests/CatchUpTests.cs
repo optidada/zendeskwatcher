@@ -158,7 +158,8 @@ public class CatchUpTests
         Assert.Contains("**1** Pending, no update for 7+ days", lines);
         var work = Array.IndexOf(lines, "To work on:");
         Assert.True(work > 0);
-        Assert.StartsWith("Your tickets:", lines[work - 1]);
+        Assert.Equal("", lines[work - 1]);                      // an empty line before it
+        Assert.StartsWith("Your tickets:", lines[work - 2]);
         Assert.All(lines[(work + 1)..], l => Assert.StartsWith("#", l));
         Assert.False(greeting.RequestedByUser);
     }

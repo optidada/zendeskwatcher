@@ -23,8 +23,12 @@ public sealed class PlayButton : Control
             _playing = value;
             AccessibleName = value ? "Stop" : "Play";
             Invalidate();
+            PlayingChanged?.Invoke(this, EventArgs.Empty);
         }
     }
+
+    /// <summary><see cref="Playing"/> changed (e.g. for the tooltip: "Stop" while playing).</summary>
+    public event EventHandler? PlayingChanged;
 
     public PlayButton()
     {

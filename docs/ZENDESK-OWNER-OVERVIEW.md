@@ -26,13 +26,15 @@ It's a notification layer on top of Zendesk; all work is still done in Zendesk i
 
 ## Load on Zendesk
 
-Checks run every 60 seconds (fixed; not configurable). Per check:
+Checks run every 3 minutes, and every 10 minutes while the agent is away (screen locked, or no mouse or keyboard
+input for 10 minutes), with one check right away when they're back. Fixed; not configurable. Per check:
 
 | What | Requests |
 |---|---|
-| New unassigned tickets | 1 search per monitored group + 1 ticket lookup (`show_many`, which also brings the SLA timers, and re-reads new tickets whose notification may still be up, to close it once someone takes the ticket) |
-| The agent's own tickets | 2 (30 most recently updated assigned tickets + `show_many`) |
-| CC / follower tickets (optional, off by default) | 3 (30 most recent CC'd and followed tickets + `show_many`) |
+| Re-reading tickets as they are now | 1 `show_many` for all of the below together (it also brings the SLA timers) |
+| New unassigned tickets | 1 search per monitored group (the tickets found, and new tickets whose notification may still be up, are re-read in the shared `show_many`, to close a notification once someone takes the ticket) |
+| The agent's own tickets | 1 (30 most recently updated assigned tickets) |
+| CC / follower tickets (optional, off by default) | 2 (30 most recent CC'd and followed tickets) |
 | Help colleagues (on by default) | 1 search per chosen group, only tickets updated since the last check |
 | Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes) |
 | Only when a customer wrote on a colleague's ticket | the colleague's recent activity: 1 search (their tickets updated in the last 3 hours) + up to 5 audit requests; remembered for 15 minutes per colleague. Skipped for colleagues without a time zone |
@@ -45,17 +47,16 @@ Checks run every 60 seconds (fixed; not configurable). Per check:
 | Experimental features (off by default) | when switched on: 90 days of tickets per monitored group (1 search, up to 5 pages each), every 6 hours |
 
 **Measured** on an agent's PC with CC tracking and Help colleagues switched on (the app's own log, 10-minute
-averages, November 2026): usually **8–13 requests per minute**, briefly 20–30 while the agent has the Settings window
-or Insights open or runs Catch up. Fewer groups and default settings mean fewer. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
+averages, November 2026): about **3 requests per minute** while working, fewer while away; more for a moment while
+the agent has the Settings window or Insights open or runs Catch up. Fewer groups and default settings mean fewer. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
 Settings window shows (the group list, the agent's group memberships and open tickets for group suggestions, the
 members of the covered groups, and the clients of the monitored groups from 90 days of tickets) are loaded when needed
 and reused for 24 hours. Insights → Your team reads the members, open tickets and tickets solved in the last 7 days of the monitored
-groups, at most every 10 minutes while that page is open. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
-(on HTTP 429 the app waits as instructed by `Retry-After`), and the app logs its own request count every 10 minutes.
-
-For comparison, an idle Agent Workspace tab makes about 3 API requests per minute by itself (more while the agent
-works in it, plus internal APIs and live-update connections), so the Watcher adds about the load of a few open agent
-tabs. All its requests are small, read-only reads, apart from the assign on an explicit click.
+groups, at most every 10 minutes while that page is open. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected:
+on HTTP 429 the whole app pauses (every request, not just the limited one) for the time `Retry-After` asks. The app
+logs its own request count every 10 minutes. All its requests are small, read-only reads, apart from the assign on an
+explicit click. Planned with the move to an OAuth client: pausing as soon as more than half of the account's
+per-minute limit is in use (from Zendesk's rate-limit headers, which the current browser-session requests don't get).
 
 ## Data handling
 

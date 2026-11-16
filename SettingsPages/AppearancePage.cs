@@ -259,6 +259,7 @@ internal sealed class AppearancePage : SettingsPage
         var play = new PlayButton { Margin = new Padding(0, 3, 10, 3), Anchor = AnchorStyles.Left };
         play.MatchHeight(sound);
         _tips.SetToolTip(play, "Play this sound");
+        play.PlayingChanged += (_, _) => _tips.SetToolTip(play, play.Playing ? "Stop" : "Play this sound");
         _playButtons.Add(play);
         play.Click += (_, _) =>
         {
