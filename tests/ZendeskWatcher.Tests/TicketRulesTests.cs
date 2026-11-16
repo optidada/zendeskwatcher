@@ -33,7 +33,7 @@ public class TicketRulesTests
             ("Escalated", "hold", "normal"), ("Open", "new", "normal"), ("Scheduled", "hold", null),
             ("Pending", "pending", "low"), ("Open", "open", "normal")]);
 
-        Assert.Equal("Your tickets: 3 Open (1 P1) · 1 In progress (1 P2) · 2 Pending · 1 Escalated · 1 Scheduled",
+        Assert.Equal("Your tickets:\n3 Open (1 P1) · 1 In progress (1 P2) · 2 Pending · 1 Escalated · 1 Scheduled",
             ZendeskWatcher.UI.Markdown.Strip(text).Replace('\u00a0', ' '));
         // The priorities are tags, glued to their count by a non-breaking space.
         Assert.Contains("(1\u00a0" + ZendeskWatcher.UI.Markdown.Tag("urgent") + ")", text);

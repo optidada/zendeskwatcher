@@ -63,11 +63,27 @@ public sealed class WatchState
         return new WatchState();
     }
 
+    /// <summary>
+    /// Writes the state (via a temp file, so a crash never leaves half a file). Another program, e.g. a virus scanner, can
+    /// hold the file for a moment just after it was written: then it's tried again a few times, briefly.
+    /// </summary>
     public void Save()
     {
         var temp = AppPaths.StateFile + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(temp, AppPaths.StateFile, overwrite: true);
+        var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.WriteAllText(temp, json);
+                File.Move(temp, AppPaths.StateFile, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 5)
+            {
+                Thread.Sleep(50 * attempt); // 50, 100, 150, 200 ms
+            }
+        }
     }
 }
 

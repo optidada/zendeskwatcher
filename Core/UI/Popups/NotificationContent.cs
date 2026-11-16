@@ -45,11 +45,20 @@ public sealed record NotificationContent(
             var newline = body.IndexOf('\n');
             body = newline < 0 ? $"{body} · {ago}" : $"{body[..newline]} · {ago}{body[newline..]}";
         }
+        // The SLA deadline at the right end of the first line ("Jane Doe · 2 min ago      Reply due in 3 h"; a tab: the
+        // notification puts the rest of the line at the right edge, or on its own line when it doesn't fit), then the
+        // priority guess, then the rest.
+        var newlineAt = body.IndexOf('\n');
+        var (first, rest) = newlineAt < 0 ? (body, "") : (body[..newlineAt], body[newlineAt..]);
         if (PriorityHint is { } hint)
-            body = hint.Text + (body.Length > 0 ? "\n" + body : "");
+            rest = "\n" + hint.Text + rest;
         if (SlaDue is { } due)
-            body = $"!!{Tracking.Sla.DueText(due, now, SlaFirstReply)}!!" + (body.Length > 0 ? "\n" + body : "");
-        return body;
+        {
+            var sla = $"!!{Tracking.Sla.DueText(due, now, SlaFirstReply)}!!";
+            first = first.Length > 0 ? $"{first}\t{sla}" : sla;
+        }
+        body = first + rest;
+        return body.TrimStart('\n');
     }
 
     public static string Ago(TimeSpan span) => span.TotalMinutes switch
@@ -115,7 +124,7 @@ public sealed record NotificationContent(
     public string? ClientName { get; init; }
 
     /// <summary>
-    /// The client the "Mute ▾" menu on the client line acts on (with its current choice), Clients page. Only on new
+    /// The client the "Options ▾" menu on the client line acts on (with its current choice), Clients page. Only on new
     /// tickets and customer replies on colleagues' tickets, the ones muting applies to; null otherwise.
     /// </summary>
     public ClientChoice? MuteTarget { get; init; }

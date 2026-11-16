@@ -96,7 +96,7 @@ internal sealed class GroupsPage : SettingsPage
         : base(context, "Groups", "Groups to watch for new unassigned tickets. Your own tickets notify you in any group.")
     {
         var card = new Card("Monitored groups",
-            $"\"{WatchedGroup.NoGroupName}\" means tickets with no group and no assignee. To skip some clients: [[Groups → Clients|Clients]].", Kit.CardWidth);
+            "To skip some clients: [[Groups → Clients|Clients]].", Kit.CardWidth); // "(No group)" is explained on How it works
         _list.Columns.Add("Group");
         _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
         _listHost.Size = _list.Size;

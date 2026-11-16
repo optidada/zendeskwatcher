@@ -22,6 +22,13 @@ internal static class TestSetup
         Directory.CreateDirectory(dir);
         Environment.SetEnvironmentVariable(AppPaths.DataDirVariable, dir);
     }
+
+    /// <summary>
+    /// Notifications on screen don't depend on the real PC: an idle mouse, a locked screen or a presentation would make
+    /// them wait in line, and tests that show them failed now and then when run while nobody touched the PC.
+    /// </summary>
+    [ModuleInitializer]
+    internal static void AssumeUserAtThePc() => ZendeskWatcher.UI.Popups.PopupForm.AssumeUserPresent = true;
 }
 
 /// <summary>Records what would have been shown.</summary>

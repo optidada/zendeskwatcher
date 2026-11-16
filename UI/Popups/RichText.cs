@@ -142,8 +142,16 @@ internal sealed partial class RichText(Font regular, Font bold)
             for (var i = 0; i <= part.Length; i++)
             {
                 var end = i == part.Length;
-                if (!end && part[i] != ' ' && part[i] != '\n')
+                if (!end && part[i] != ' ' && part[i] != '\n' && part[i] != '\t')
                     continue;
+                if (!end && part[i] == '\t')
+                {
+                    if (i > start)
+                        tokens.Add((part[start..i], style, link));
+                    tokens.Add(("\t", style, null));
+                    start = i + 1;
+                    continue;
+                }
                 if (!end && part[i] == ' ')
                 {
                     tokens.Add((part[start..(i + 1)], style, link));
@@ -172,13 +180,36 @@ internal sealed partial class RichText(Font regular, Font bold)
 
         // A word can be several tokens ("(1\u00a0" + a tag + ")"): it wraps as a whole, where it can.
         static bool GluedToNext(List<(string Text, int Style, Link? Link)> all, int i) =>
-            all[i].Text != "\n" && !all[i].Text.EndsWith(' ') && i + 1 < all.Count && all[i + 1].Text != "\n";
+            all[i].Text is not ("\n" or "\t") && !all[i].Text.EndsWith(' ') && i + 1 < all.Count && all[i + 1].Text is not ("\n" or "\t");
+        // Where the word starting at token i ends (its glued parts included).
+        static int WordEnd(List<(string Text, int Style, Link? Link)> all, int i)
+        {
+            while (GluedToNext(all, i))
+                i++;
+            return i;
+        }
         for (var t = 0; t < tokens.Count; t++)
         {
             var (raw, tokenStyle, link) = tokens[t];
             if (cut.Contains(line) && raw != "\n")
                 continue; // the rest of a row that didn't fit
             var glued = t > 0 && GluedToNext(tokens, t - 1); // the rest of a word that already wrapped where it had to
+            if (raw == "\t")
+            {
+                // The rest of the line at the right edge, if it fits after what's there; otherwise on its own line.
+                var rest = 0;
+                for (var r = t + 1; r < tokens.Count && tokens[r].Text != "\n"; r++)
+                    rest += Width(r == t + 1 ? tokens[r].Text.TrimStart() : tokens[r].Text, tokens[r].Style);
+                var gap = Width("  ", 0);
+                if (x > 0 && x + gap + rest > width)
+                {
+                    NewLine();
+                    if (line >= maxLines) { truncated = true; break; }
+                }
+                else if (x > 0)
+                    x = Math.Max(x + gap, width - rest);
+                continue;
+            }
             if (raw == "\n")
             {
                 paragraph++;
@@ -202,6 +233,27 @@ internal sealed partial class RichText(Font regular, Font bold)
                     pieces.Add(new Piece(text[..fit].TrimEnd(), tokenStyle, x, line, paragraph, link));
                 cut.Add(line);
                 continue;
+            }
+            // No lonely last word: when this word fits but the paragraph's last word after it wouldn't, both go to the next line.
+            if (!OneRowPerLine && !glued && x > 0 && x + w <= width && line + 1 < maxLines)
+            {
+                var end = WordEnd(tokens, t);
+                if (end + 1 < tokens.Count && tokens[end + 1].Text is not ("\n" or "\t"))
+                {
+                    var lastEnd = WordEnd(tokens, end + 1);
+                    if (lastEnd + 1 >= tokens.Count || tokens[lastEnd + 1].Text == "\n")
+                    {
+                        var lastW = 0;
+                        for (var k = end + 1; k <= lastEnd; k++)
+                            lastW += Width(tokens[k].Text.TrimEnd(), tokens[k].Style);
+                        var space = Width(tokens[end].Text, tokens[end].Style) - Width(tokens[end].Text.TrimEnd(), tokens[end].Style);
+                        if (x + w + space + lastW > width && w + space + lastW <= width)
+                        {
+                            NewLine();
+                            text = text.TrimStart();
+                        }
+                    }
+                }
             }
             if (x > 0 && x + w > width && (!glued || x + Width(text.TrimEnd(), tokenStyle) > width))
             {

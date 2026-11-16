@@ -382,6 +382,8 @@ public sealed class SettingsForm : Form
             return;
         SelectPage(index);
         _content.AutoScrollPosition = Point.Empty;
+        if (section is not null && Page(index) is HowItWorksPage howItWorks)
+            howItWorks.OpenTopic(section); // a link to a topic opens it ("see Catch up")
         if (section is not null && Page(index).Panel.Controls.OfType<Card>().FirstOrDefault(c => c.Title == section) is { } card)
         {
             // The card at the top (the panel only scrolls by itself for Tab; see RepaintOnScrollPanel).
@@ -618,7 +620,7 @@ public sealed class SettingsForm : Form
 
         Result = result;
         _savedSnapshot = Snapshot();
-        _saveState.Text = $"✓ Saved at {DateTime.Now:HH:mm}";
+        _saveState.Text = $"✓ Saved at {Clock.Time(DateTime.Now)}"; // as Windows shows times (12 or 24 h)
         _saveState.ForeColor = Theme.Success;
         UpdateSaveState();
         Log.Info("Settings saved");

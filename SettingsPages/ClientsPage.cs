@@ -5,7 +5,7 @@ namespace ZendeskWatcher.SettingsPages;
 
 /// <summary>
 /// Clients (under Groups): the clients of the monitored groups, all Normal by default. A click on a client sets
-/// Important, Only urgent, Mute (for a while) or its own sound; "Mute ▾" on a notification does the same.
+/// Important, Only urgent, Mute (for a while) or its own sound; "Options ▾" on a notification does the same.
 /// </summary>
 internal sealed class ClientsPage : SettingsPage
 {

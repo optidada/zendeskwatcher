@@ -44,7 +44,7 @@ public static class FeedbackPackage
 
     private static string CheckingState() =>
         WatchStatus.Problem is { } problem ? problem
-        : WatchStatus.Latest is { } latest ? $"works (last check {latest.CheckedAt:HH:mm}, signed in)"
+        : WatchStatus.Latest is { } latest ? $"works (last check {Clock.Time(latest.CheckedAt)}, signed in)"
         : "not started yet (not signed in, or still starting)";
 
     /// <summary>

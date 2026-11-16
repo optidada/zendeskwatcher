@@ -29,7 +29,7 @@ public sealed class Notifier : INotificationSink
         };
 
     /// <summary>
-    /// A choice from the "Mute ▾" menu on a notification (mute, mute for a while, only urgent, important): the app
+    /// A choice from the "Options ▾" menu on a notification (mute, mute for a while, only urgent, important): the app
     /// saves it for the client (Clients page).
     /// </summary>
     public event Action<ClientChoice>? ClientChoiceRequested;
@@ -382,11 +382,11 @@ public sealed class Notifier : INotificationSink
             new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123458 Ah ah ah, you didn't say the magic word: editors locked out", "",
                 TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "InGen" }).Append(
             // The priority guess (Experimental): higher than set, and "probably not" for an urgent one with no sign of urgency.
-            GuessSample(new NotificationContent(NotificationKind.HelpColleague, "Customer waiting", "#123459 Flair orders fail for all restaurants",
-                $"**Stan** replied: Any update? Orders are not going through and our launch is tomorrow.\nPeter is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
-                TicketId: 123459, Priority: "normal", Context: "Support Tier 2"))).Append(
+            GuessSample(new NotificationContent(NotificationKind.HelpColleague, "Colleague's ticket", "#123459 Flair orders fail for all restaurants",
+                $"**Stan**\n“Any update? Orders are not going through and our launch is tomorrow.”\nPeter is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+                TicketId: 123459, Priority: "normal", Context: "Support Tier 2") { EventTime = DateTimeOffset.UtcNow.AddMinutes(-40) })).Append(
             GuessSample(new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123465 Homepage plays Surfin' Bird on a loop",
-                $"Brian Griffin · Created {Clock.Time(DateTime.Now.AddMinutes(-3))}", TicketId: 123465, Priority: "urgent", Context: "Support Tier 1"),
+                "Brian Griffin", TicketId: 123465, Priority: "urgent", Context: "Support Tier 1") { EventTime = DateTimeOffset.UtcNow.AddMinutes(-3) },
                 "Hi, our homepage keeps playing Surfin' Bird. Everyone here now knows the bird is the word. Thanks!")).Append(
             new NotificationContent(NotificationKind.MyTicket, $"Catch up · since yesterday {Clock.Hour(17)}", "Good morning, Roy",
                 Tracking.TicketRules.CatchUpBody(new Tracking.TicketRules.CatchUpCounts
@@ -465,21 +465,23 @@ public sealed class Notifier : INotificationSink
             var (title, customer, text, client) = NewTickets[pick % NewTickets.Length];
             var minutes = 2 + pick * 3 % 11;
             return [new NotificationContent(kind, "New ticket", $"#{123456 + pick * 11} {title}",
-                $"{customer} · Created {Clock.Time(DateTime.Now.AddMinutes(-minutes))}\n{text}", TicketId: 123456 + pick * 11, Priority: "high", Context: "Support Tier 2")
+                $"{customer}\n“{text}”", TicketId: 123456 + pick * 11, Priority: "high", Context: "Support Tier 2")
                 { Action = ActionNone, CanTake = true, EventTime = DateTimeOffset.UtcNow.AddMinutes(-minutes), Client = client, MuteTarget = SampleClient(client),
                   SlaDue = DateTimeOffset.UtcNow.AddMinutes(60 - minutes), SlaFirstReply = true }];
         }
         if (kind == NotificationKind.HelpColleague)
         {
             var (title, customer, text, client, colleague) = Waiting[pick % Waiting.Length];
-            return [new NotificationContent(kind, "Customer waiting", $"#{123459 + pick * 11} {title}",
-                $"**{customer}** replied: {text}\n{colleague} is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+            return [new NotificationContent(kind, "Colleague's ticket", $"#{123459 + pick * 11} {title}",
+                $"**{customer}**\n“{text}”\n{colleague} is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
                 TicketId: 123459 + pick * 11, Priority: "urgent", Context: "Support Tier 2")
-                { Action = ActionNone, Client = $"{client} · Premium Support", MuteTarget = SampleClient(client), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25) }];
+                { Action = ActionNone, Client = $"{client} · Premium Support", MuteTarget = SampleClient(client), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25),
+                  EventTime = DateTimeOffset.UtcNow.AddMinutes(-85) }];
         }
         var (updateTitle, who, said, updateClient) = Updates[pick % Updates.Length];
-        return [new NotificationContent(kind, "Ticket updated", $"#{123457 + pick * 11} {updateTitle}", $"**{who}** replied: {said}",
-            TicketId: 123457 + pick * 11, Priority: "normal") { Action = ActionNone, Client = updateClient, SlaDue = DateTimeOffset.UtcNow.AddMinutes(190) }];
+        return [new NotificationContent(kind, "Ticket updated", $"#{123457 + pick * 11} {updateTitle}", $"**{who}**\n“{said}”",
+            TicketId: 123457 + pick * 11, Priority: "normal") { Action = ActionNone, Client = updateClient, SlaDue = DateTimeOffset.UtcNow.AddMinutes(190),
+            EventTime = DateTimeOffset.UtcNow.AddMinutes(-4) }];
     }
 
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromMinutes(1);

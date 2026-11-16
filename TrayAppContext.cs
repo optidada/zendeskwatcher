@@ -65,6 +65,7 @@ public sealed class TrayAppContext : ApplicationContext
             _wakeUp.Release();
     }
     private readonly ToolStripMenuItem _catchUpItem = new("Catch up");
+    private readonly GlobalHotkey _catchUpHotkey;
 
     /// <summary>Catch up was asked for: runs right after the next check (which is started at once).</summary>
     private bool _catchUpRequested;
@@ -89,6 +90,7 @@ public sealed class TrayAppContext : ApplicationContext
     public TrayAppContext()
     {
         Current = this;
+        UI.ClientMenu.MyHours = () => (_settings.MyWorkdayStartHour, _settings.MyWorkdayEndHour, _settings.MyWorkDays);
         UI.SoundVolume.Apply(_settings.SoundVolume); // Look & sound → Volume, also for previews before any notification
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _notifier = new Notifier(HandleAction) { Settings = _settings, StillNeeded = StillNeededAsync };
@@ -103,6 +105,10 @@ public sealed class TrayAppContext : ApplicationContext
         _checkNowItem.Click += (_, _) => WakeUp();
         menu.Items.Add(_catchUpItem);
         _catchUpItem.Click += (_, _) => _ = RequestCatchUp();
+        // Ctrl+Alt+Z from anywhere (fixed; skipped if another program has it). Shown next to the menu item.
+        _catchUpHotkey = new GlobalHotkey(Keys.Z, control: true, alt: true, shift: false, win: false, () => _ = RequestCatchUp());
+        if (_catchUpHotkey.Registered)
+            _catchUpItem.ShortcutKeyDisplayString = _catchUpHotkey.Text;
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
@@ -439,7 +445,7 @@ public sealed class TrayAppContext : ApplicationContext
     }
 
     /// <summary>
-    /// A choice from a notification's "Mute ▾" menu: saved right away for the client (Clients page). The checks share
+    /// A choice from a notification's "Options ▾" menu: saved right away for the client (Clients page). The checks share
     /// this settings object, so the next check already uses it. An open Settings window takes it over too.
     /// </summary>
     private void SetClientChoice(ClientChoice choice)
@@ -602,6 +608,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _loopCts?.Cancel();
         _updates.Dispose();
+        _catchUpHotkey.Dispose();
         _tray.Dispose();
         _browser?.Dispose();
         base.ExitThreadCore();

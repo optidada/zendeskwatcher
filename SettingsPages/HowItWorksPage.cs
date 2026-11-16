@@ -8,165 +8,237 @@ namespace ZendeskWatcher.SettingsPages;
 /// </summary>
 internal sealed class HowItWorksPage : SettingsPage
 {
-    private static readonly (string Title, string[] Lines)[] Sections =
+    /// <summary>A topic: what it's for (a short paragraph), where to change it, and the details as bullets.</summary>
+    private sealed record Topic(string Title, string Purpose, string? Change, string[] Details);
+
+    /// <summary>One topic per Settings page, in the sidebar's order and with its name; then what spans several pages.</summary>
+    private static readonly Topic[] Topics =
     [
-        ("New tickets",
-        [
-            "You hear about every new ticket in the groups you monitor (Groups page) that nobody has picked up yet, so it doesn't sit waiting.",
-            "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
-            "The ▾ next to Take it suggests up to 3 colleagues who could take it instead, least busy first: people in the ticket's group " +
-            "who are in their working hours and did something in Zendesk in the last 3 hours. Pick one to assign it to them (you're asked first).",
-            "If someone takes it (or it's solved) while the notification is still up, it closes by itself within a few minutes.",
-            "It shows who it's from and the start of what they wrote (off with Look & sound → Show the comment text).",
-            "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
-            "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
-            "Muted clients stay quiet and aren't counted; “only urgent” clients only for Urgent (P1) and High (P2). [[Groups → Clients|Clients]], or Mute ▾ on a notification.",
-            "No group monitored yet: none of these come, and Catch up reminds you each time the app starts."
-        ]),
-        ("Clients",
-        [
-            "Decide per client how much you hear: make key clients Important so nothing of theirs slips by, or quiet down noisy ones. " +
-            "Use Options ▾ on the Clients page, or Mute ▾ on a notification.",
-            "Important ★: always notifies, also outside your hours and for priorities you unticked, and stays until you close it.",
-            "Only urgent: new tickets and colleagues' tickets only for Urgent (P1) and High (P2). Mute: none of those, for good or for a day or a week.",
-            "A client can also have its own sound, so you know who it is before you look.",
-            "Every client starts as normal, new ones too. Your own and CC'd tickets always notify, whatever the client."
-        ]),
-        ("Your tickets and CC / following",
-        [
-            "You know when something happens on your tickets without watching Zendesk: someone else replies, adds an internal note, " +
-            "or changes the status, priority or assignee of a ticket assigned to you, or one you're CC'd on or follow " +
-            "(Notifications → Which changes).",
-            "Changes you make yourself never notify.",
-            "Only for the priorities you choose (the ticket's current priority; none counts as Normal). CC / following is Urgent (P1) " +
-            "and High (P2) by default.",
-            "Status changes leave out New → Open, Solved → Closed, and a ticket reopened by a reply (the reply says it). " +
-            "Custom statuses count too, e.g. In progress → Escalated.",
-            "Automatic updates stay quiet: the auto-reply and group move on a new ticket, and changes by Zendesk triggers or " +
-            "service accounts. Their status changes still notify (Notifications → Which changes: Automatic updates)."
-        ]),
-        ("Colleagues' tickets: Customer waiting",
-        [
-            "No customer is left waiting because a colleague is off: when a customer writes on a colleague's ticket while they're " +
-            "off work or away, you're told, so you can step in. Choose whose tickets on [[Notifications → Colleagues|Colleagues]].",
-            "Off work: outside their working hours, in their own time zone. Colleagues without a time zone in Zendesk are always skipped.",
-            "Activity in Zendesk counts too: off work but they changed or commented on a ticket in the last 30 minutes, " +
-            "they're on it (no notification). In their working hours but nothing for 3 hours: probably away, so you're " +
-            "told, with the reason on the notification. Only checked when a customer has written (a few requests, " +
-            "remembered for 15 minutes). Calls, chat and just reading tickets don't show in Zendesk.",
-            "Waiting: the customer's message is the newest public comment. An internal note isn't an answer. Any status counts " +
-            "(Pending, On-hold, Escalated, In progress, Scheduled, …): a customer who wrote needs an answer.",
-            "The customer: someone outside your company. Colleagues on the ticket, also as CC, count as you, " +
-            "except the person who opened it.",
-            "Colleagues are chosen by region: newcomers follow their region's tick, and you can tick or untick people one by " +
-            "one (› opens a region). Your own region starts unticked: they usually work when you do.",
-            "Not for muted clients, and only Urgent (P1) and High (P2) for “only urgent” ones (Groups → Clients).",
-            "Only while you're working yourself, if you chose that on the Colleagues page; Catch up brings up what was held back."
-        ]),
-        ("SLA deadlines",
-        [
-            "You see how long until a reply is due, counting down in red bold on the notification; once late, by how much. " +
-            "Switch it off under [[Notifications → SLA|SLA/On notifications]].",
-            "New tickets show when the first reply is due, counted from when they were created. A customer waiting on an " +
-            "assigned ticket shows when the next reply is due, counted from when they wrote.",
-            "Each client's SLA type comes from Zendesk (its organization's SLA Type); clients without one count as Standard.",
-            "When Zendesk runs an SLA timer on the ticket, its deadline is used. Otherwise the target for the type and priority " +
-            "(Notifications → SLA): yours if you changed it, else what Zendesk's timers on other tickets show, else the team's default.",
-            "P1, 24x7 and Urgent (15 Min) count around the clock; the others only Monday to Friday.",
-            "New SLA types in Zendesk appear there by themselves; until enough tickets show their targets, Standard's are used."
-        ]),
-        ("Experimental features",
-        [
-            "Two extra helpers, each off until you switch it on (Experimental page): a warning when a ticket looks more urgent " +
-            "than its priority, and quiet thank-yous. English only.",
-            "Priority guess: “Set as P3 · looks like P1”, with the reasons, when what the customer wrote (the first message, or the " +
-            "latest replies) sounds more urgent: the site is down, security, data loss, lost sales, everyone affected, a deadline, " +
-            "a frustrated tone, or similar earlier P1 or P2 tickets. A long wait or a demanding SLA type adds a little, never on its " +
-            "own; “that fixed it” keeps it quiet. A P1 or P2 ticket without a single sign (“no rush” counts as none): " +
-            "“Set as P1 · probably not”. Just a line of text: the order, sound and time on screen stay.",
-            "Quiet thank-yous: a customer's plain “Thanks, that worked!” notifies without sound, and Catch up skips it. It counts " +
-            "when the reply is short, thanks or says it's solved, and has no question and no “but”.",
-            "Both are worked out on this PC by rules and a small language model that comes with the app: ticket text never leaves " +
-            "it, and Zendesk is never changed. The model compares meanings (“site down” and “website down” come out close, an " +
-            "invoice question far away); it knows words, not your product, so some matches are missed."
-        ]),
-        ("Catch up",
-        [
-            "Catch up shows where to start: what still needs you since you stopped working last time (the end of your last " +
-            "working day), in one notification.",
-            "One line each, the number first: customers waiting for your reply, SLAs past or due today, tickets unassigned in " +
-            "your groups (and how many are Scheduled), customers waiting on CC'd and colleagues' tickets, Escalated ones where " +
-            "the customer hasn't had a reply for 2+ days, and Pending ones with no update for 7+ days (follow up, or solve them). " +
-            "Nothing at all: “Nothing needs you right now”.",
-            "Below that, your own open tickets by status (Open, In progress, Escalated, Scheduled, Pending, …), with how many " +
-            "are P1 or P2. Then “To work on”: up to 5 of your New, Open and In progress tickets, most urgent first, then " +
-            "the nearest SLA, then the longest untouched (click a number to open it).",
-            "It greets you when the app starts (General → Startup) and right after the guide on your first start, comes by " +
-            "itself when your working day starts (Notifications → Working hours), and from the tray menu at any time.",
-            "Up to 5 waiting customers and up to 3 unassigned tickets also come one by one: once a working day, or when you ask.",
-            "Catch up, What's new and app messages show all their text; ticket notifications show a short preview."
-        ]),
-        ("On screen",
-        [
-            "Notifications stay out of your way: they take turns, wait while you're away or presenting, and the ones that no " +
-            "longer matter are dropped before you see them.",
-            "How long a ticket notification stays: Short, Normal or Long (Behavior → On screen), then by priority; Urgent stays until you close it. Catch up and app messages follow the same choice. Hover over it to pause the countdown.",
-            "Away means the screen is locked, or no mouse or keyboard for a minute. While you present or use a full-screen app " +
-            "they wait too, silently, and nothing pops up over your screen. When you're back, ones that waited 15 minutes or " +
-            "more are checked again and dropped if they're no longer needed: taken, solved or closed, or (with Behavior → Skip " +
-            "old news) already answered by someone.",
-            "Snooze brings a notification back after the time you chose, but only if the ticket still needs you.",
-            "Peek from the edge (Look & sound): it waits as a tab and counts down only after you've slid it out. " +
-            "Urgent and important ones, app messages and Catch up come out by themselves.",
-            "A pill at the top: a small pill at the top center says what's there (\"2 new · 1 P1\"); point at it to see them. " +
-            "Like Peek, they count down only after you've seen them, and urgent ones open it by themselves. The countdown stops " +
-            "while you point at them and runs on when they close, oldest first: the bar is shorter the next time you look.",
-            "A ticker at the screen edge: they scroll along the bottom (or top) of the screen; click one to open it, right-click for " +
-            "Take it, Copy or Snooze. The mouse over it pauses it; each leaves after its normal time, in turn.",
-            "Achievement unlocked: game style at the bottom center, one at a time, with a short tune instead of its sound (none when that's Silent).",
-            "Glow at the screen edge (Look & sound): so you notice what's urgent even when you look away. Urgent tickets, SLAs " +
-            "breached or due within 15 minutes and important clients make the screen edges pulse briefly (in the priority's " +
-            "color, or the notification's color for a client); while you're away it waits until you're back. Several at once glow only once."
-        ]),
-        ("Summaries",
-        [
-            "Instead of a flood of notifications, you get one with a list:",
-            "Catch up: the greeting when the app starts (see Catch up above).",
-            "While you were away: instead of more than 5 notifications that waited.",
-            "More than 5 new tickets in a group at once: one notification instead of one each.",
-            "Group added: when you start monitoring a group, one notification lists the unassigned tickets already waiting there."
-        ]),
-        ("Your data",
-        [
-            "The app reads Zendesk with your own sign-in and changes nothing, except when you click Take it or assign a ticket to a colleague.",
-            "It checks every 3 minutes, every 10 while you're away (screen locked, or no mouse or keyboard for 10 minutes), and " +
-            "right away when you're back, so it adds little to your company's shared Zendesk limit. If Zendesk says it's busy, " +
-            "the app pauses until Zendesk says it may go on.",
-            "Insights are counted on this PC only; nothing is sent anywhere. Its Your team table reads your region's colleagues' " +
-            "tickets in your groups while the page is open (at most every 10 minutes); Solved counts the last 7 days.",
-            "Send feedback (Updates & feedback) emails what you write from your own Outlook, with the log if you tick it: " +
-            "ticket numbers and subjects, never comments. Without classic Outlook, an email opens for you to send."
-        ])
+        new("Account",
+            "Connects the app to Zendesk with your own agent account. You sign in as usual (Okta), and the app sees only what " +
+            "you can see in Zendesk.",
+            "Sign in or out on the Account page. To use another Zendesk account, sign out first.",
+            [
+                "The page shows how long you've been signed in. Zendesk asks you to sign in again after about 8 hours; the tray " +
+                "icon and a notification tell you when.",
+                "Catch up can be asked for here too: [[see Catch up|How it works/Catch up]]."
+            ]),
+        new("Groups",
+            "This is where you choose which Zendesk groups you watch for new work. When a ticket lands in one of them and " +
+            "nobody has taken it yet, a notification shows who it's from, what they wrote, and when the first reply is due. " +
+            "Take it assigns it to you and opens it.",
+            "Tick groups on the Groups page. Your own tickets notify you in any group.",
+            [
+                "Suggested groups are the ones you're a member of, or where your open tickets are. “(No group)” means tickets with " +
+                "no group and no assignee.",
+                "If a colleague took it first, you're told who has it. If someone takes it (or it's solved) while the notification " +
+                "is still up, it closes by itself within a few minutes.",
+                "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people in the ticket's group who are " +
+                "in their working hours and did something in Zendesk in the last 3 hours, least busy first. You're asked before " +
+                "it's assigned.",
+                "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
+                "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
+                "No group ticked yet: nothing comes, and Catch up reminds you each time the app starts."
+            ]),
+        new("Clients",
+            "This is where you control which clients you get notifications from. To begin with you hear about every client in " +
+            "your monitored groups, new ones too. Mute the clients you don't handle, and make sure you never miss the important ones.",
+            "On the [[Groups → Clients|Clients]] page, untick a client (or a whole group) to mute it, or use Options ▾ for more. " +
+            "Options ▾ on a notification's client line does the same.",
+            [
+                "Important ★: always notifies, also outside your hours and for priorities you unticked, and stays until you close it.",
+                "Only urgent: notifies just for Urgent (P1) and High (P2).",
+                "Mute for a while: until your shift ends, until your next shift ([[your working hours|Notifications/Working hours]]), or for a week.",
+                "A sound of its own, so you know who it is before you look.",
+                "Muting and “only urgent” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
+                "whatever the client.",
+                "The list comes from the last 90 days of tickets in your monitored groups."
+            ]),
+        new("Notifications",
+            "This is where you choose what you want to hear about: new tickets in your groups, changes on your own tickets and " +
+            "the ones you're CC'd on or follow, and when you work.",
+            "Everything is on the Notifications page: the kinds of tickets, which changes, and your working hours.",
+            [
+                "Changes on your tickets: when someone else replies, adds an internal note, or changes the status, priority or " +
+                "assignee, you get a notification with what happened. Your own changes never notify.",
+                "Which changes (Notifications → Which changes) and which priorities count: the ticket's current priority; none " +
+                "counts as Normal. CC / following starts with Urgent (P1) and High (P2).",
+                "Status changes leave out New → Open, Solved → Closed, and a ticket reopened by a reply (the reply says it). " +
+                "Custom statuses count too, e.g. In progress → Escalated.",
+                "Automatic updates stay quiet: the auto-reply and group move on a new ticket, and changes by Zendesk triggers or " +
+                "service accounts. Their status changes still notify (Notifications → Which changes).",
+                "[[Working hours|Notifications/Working hours]]: your hours and days (this PC's time). With “Only notify me during my working hours”, ticket " +
+                "notifications outside them are skipped and Catch up shows what still needs you. With “Also outside them, while " +
+                "I'm active in Zendesk”, they come as long as you changed or commented on a ticket in the last 30 minutes. " +
+                "Important clients always come."
+            ]),
+        new("Colleagues",
+            "Makes sure customers aren't left waiting when a colleague is off. If a customer writes on a colleague's ticket while " +
+            "that colleague is off work or away, you get a notification, so you can step in.",
+            "Choose whose tickets you cover on the [[Notifications → Colleagues|Colleagues]] page.",
+            [
+                "Off work: outside their working hours, in their own time zone. Colleagues without a time zone in Zendesk are skipped.",
+                "Activity in Zendesk counts too: off work but they changed or commented on a ticket in the last 30 minutes means " +
+                "they're on it (no notification). In their working hours but nothing for 3 hours means probably away, so you're " +
+                "told, with the reason on the notification. Calls, chat and just reading tickets don't show in Zendesk.",
+                "Waiting means the customer's message is the newest public comment; an internal note isn't an answer. Any status " +
+                "counts (Pending, On-hold, Escalated, …).",
+                "The customer is someone outside your company. Colleagues on the ticket, also as CC, count as you, except the " +
+                "person who opened it.",
+                "Colleagues are chosen by region: newcomers follow their region's tick, and you can tick or untick people one by " +
+                "one. Your own region starts unticked: they usually work when you do.",
+                "Not for [[muted clients|How it works/Clients]], and only Urgent (P1) and High (P2) for “only urgent” ones.",
+                "Only while you're working yourself, if you chose that; Catch up brings up what was held back."
+            ]),
+        new("Behavior",
+            "Notifications are made to stay out of your way. This page sets how long they stay, what happens to the ones that " +
+            "had to wait, and Snooze.",
+            "On the Behavior page.",
+            [
+                "How long a ticket notification stays: Short, Normal or Long, then by priority; Urgent stays until you close it. " +
+                "Pointing at one pauses its countdown.",
+                "Away means the screen is locked, or no mouse or keyboard for a minute. While you present or use a full-screen " +
+                "app, notifications wait silently, so nothing pops up over your screen.",
+                "[[Skip old news|Behavior/Skip old news]]: when you're back, notifications that waited 15 minutes or more are checked again and dropped if " +
+                "the ticket was taken, solved or closed, or (if you choose) already answered by someone.",
+                "[[Snooze|Behavior/Snooze]] brings a notification back after the time you chose, but only if the ticket still needs you.",
+                "Several at once take turns instead of piling up."
+            ]),
+        new("Look & sound",
+            "How notifications look and sound, from a classic list in the corner to a small pill at the top of the screen.",
+            "On the [[Look & sound|Look & sound]] page. [[Try it|Look & sound/Try it]] sends samples with your choices, even before saving.",
+            [
+                "Styles: a list, Peek (waits as a tab at the screen edge), a pill at the top center that sums them up, a ticker " +
+                "along the screen edge, or Achievement (one at a time, with a short tune).",
+                "Glow at the screen edge: urgent tickets, SLAs breached or due within 15 minutes and important clients make the " +
+                "screen edges pulse briefly, so you notice them even when you look away.",
+                "A sound per kind of notification, and a volume for all of them (this app only).",
+                "Show the comment text: what the customer wrote on new tickets, and replies and notes on changes. When off, " +
+                "notifications only say who wrote."
+            ]),
+        new("SLA",
+            "Shows how much time is left before a reply is due, counting down in red on the notification, so you know what to " +
+            "answer first. Once it's late, it says by how much.",
+            "Adjust the targets, or switch it off, on the [[Notifications → SLA|SLA]] page.",
+            [
+                "New tickets show when the first reply is due, counted from when they were created. A customer waiting on an " +
+                "assigned ticket shows when the next reply is due, counted from when they wrote.",
+                "Each client's SLA type comes from Zendesk (its organization's SLA Type); clients without one count as Standard.",
+                "When Zendesk runs an SLA timer on the ticket, its deadline is used. Otherwise the target for the type and " +
+                "priority: yours if you changed it, else what Zendesk's timers on other tickets show, else the team's default.",
+                "P1, 24x7 and Urgent (15 Min) count around the clock; the others only Monday to Friday.",
+                "New SLA types in Zendesk appear on the SLA page by themselves; until enough tickets show their targets, " +
+                "Standard's are used."
+            ]),
+        new("General",
+            "The look of the app itself, and how it starts.",
+            "On the General page.",
+            [
+                "[[App theme|General/App theme]]: the look of the Settings window, the tray menu, and notifications unless they have their own style " +
+                "(Look & sound). Native follows your Windows colors.",
+                "[[Startup|General/Startup]]: start Zendesk Watcher when you sign in to Windows, and Catch up when it starts."
+            ]),
+        new("Updates & feedback",
+            "Keeps the app up to date, and lets you tell its makers what you think.",
+            "On the [[Updates & feedback|Updates & feedback]] page.",
+            [
+                "New versions download automatically and install when you restart the app; “Update ready” says what's new.",
+                "[[Send feedback|Updates & feedback/Feedback]] emails what you write from your own Outlook, with the log if you tick it: ticket numbers and " +
+                "subjects, never comments. Without classic Outlook, an email opens for you to send.",
+                "[[Reset to defaults|Updates & feedback/Reset]] puts all settings back, except your account, groups and clients. Nothing changes until you save."
+            ]),
+        new("Insights",
+            "Shows what's waiting right now, how you used your notifications, and tips to get fewer of the ones you never act on.",
+            "On the Insights page. Clear statistics starts the counting over.",
+            [
+                "Counted on this PC only; nothing is sent anywhere.",
+                "[[Your team|Insights]]: your region's colleagues in your monitored groups, with their open, pending and recently solved " +
+                "tickets, read while the page is open (at most every 10 minutes)."
+            ]),
+        new("Experimental",
+            "Two optional helpers that work entirely on your PC: a warning when a ticket sounds more urgent than its priority, " +
+            "and quiet thank-yous. Both are off until you switch them on.",
+            "Switch them on on the Experimental page (English only).",
+            [
+                "Priority guess: “Set as P3 · looks like P1”, with the reasons, when what the customer wrote sounds more urgent: " +
+                "the site is down, security, data loss, lost sales, everyone affected, a deadline, a frustrated tone, or similar " +
+                "earlier P1 or P2 tickets. A P1 or P2 ticket without a single sign says “Set as P1 · probably not”. Just a line " +
+                "of text: the order, sound and time on screen stay.",
+                "Quiet thank-yous: a customer's plain “Thanks, that worked!” notifies without sound, and Catch up skips it.",
+                "Worked out by rules and a small language model that comes with the app: ticket text never leaves your PC, and " +
+                "Zendesk is never changed. It knows words, not your product, so some matches are missed."
+            ]),
+        new("Catch up",
+            "Your starting point for the day: one notification with what still needs you since you last worked, and which of " +
+            "your own tickets to start with.",
+            "It comes when the app starts (General → Startup) and when your working day starts (Notifications → Working hours). " +
+            "Ask for it any time from the tray menu, the Account page, or with Ctrl+Alt+Z.",
+            [
+                "One line each, the number first: customers waiting for your reply, SLAs past or due today, unassigned tickets in " +
+                "your groups, customers waiting on CC'd and colleagues' tickets, Escalated ones with no reply to the customer for " +
+                "2+ days, and Pending ones with no update for 7+ days. Nothing at all: “Nothing needs you right now”.",
+                "Then your own open tickets by status, with how many are P1 or P2, and “To work on”: up to 5 of your New, Open " +
+                "and In progress tickets, most urgent first, then the nearest SLA, then the longest untouched. Click a number to " +
+                "open it.",
+                "Up to 5 waiting customers and up to 3 unassigned tickets also come one by one: once a working day, or when you ask."
+            ]),
+        new("Summaries",
+            "When a lot happens at once, you get one notification with a list instead of a flood.",
+            null,
+            [
+                "While you were away: instead of more than 5 notifications that waited.",
+                "More than 5 new tickets in a group at once: one notification instead of one each.",
+                "Group added: when you start monitoring a group, the unassigned tickets already waiting there."
+            ]),
+        new("Your data",
+            "The app reads Zendesk with your own sign-in and only changes something when you click Take it or assign a ticket " +
+            "to a colleague. Nothing about your tickets is sent anywhere else.",
+            null,
+            [
+                "It checks every 3 minutes, every 10 while you're away, and right away when you're back, so it adds little to your " +
+                "company's shared Zendesk limit. If Zendesk says it's busy, the app pauses until it may go on.",
+                "Your settings, statistics and the lists Settings shows are kept in your Windows profile on this PC."
+            ])
     ];
 
     public HowItWorksPage(SettingsContext context)
-        : base(context, "How it works", "Why you get a notification, and why sometimes not. Click a topic to read it.")
+        : base(context, "How it works", "What each page is for, and how the app decides. Click a topic to read it.")
     {
-        foreach (var (title, lines) in Sections)
+        const int textWidth = Kit.CardWidth - 44;
+        foreach (var topic in Topics)
         {
+            var title = topic.Title;
             var card = new Card(title, null, Kit.CardWidth);
+            // What it's for, where to change it, then the details as bullets (smaller, for those who want to know exactly).
+            var content = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Surface,
+                Margin = Padding.Empty
+            };
+            var purpose = Theme.Label(topic.Purpose, Theme.Body, Theme.Text, textWidth);
+            purpose.Margin = new Padding(0, 4, 0, 8);
+            content.Controls.Add(purpose);
+            if (topic.Change is { } change)
+            {
+                content.Controls.Add(SectionLabel("Where to change it"));
+                var where = Theme.Label(change, Theme.Body, Theme.Text, textWidth);
+                where.Margin = new Padding(0, 0, 0, 8);
+                content.Controls.Add(where);
+            }
+            content.Controls.Add(SectionLabel("Details"));
             // Bullet and text in two columns, so wrapped lines start under the text, not under the bullet.
             var list = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
-            for (var row = 0; row < lines.Length; row++)
+            for (var row = 0; row < topic.Details.Length; row++)
             {
                 var bullet = Theme.Label("•", Theme.Body, Theme.TextMuted);
-                bullet.Margin = new Padding(0, 2, 8, 4);
-                var text = Theme.Label(lines[row], Theme.Body, Theme.Text, Kit.CardWidth - 64);
-                text.Margin = new Padding(0, 2, 0, 4);
+                bullet.Margin = new Padding(0, 1, 6, 3);
+                var text = Theme.Label(topic.Details[row], Theme.Body, Theme.TextMuted, textWidth - 20);
+                text.Margin = new Padding(0, 1, 0, 3);
                 list.Controls.Add(bullet, 0, row);
                 list.Controls.Add(text, 1, row);
             }
-            card.Body.Controls.Add(list);
+            content.Controls.Add(list);
+            card.Body.Controls.Add(content);
 
             // Collapsed to begin with, so the topics fit at a glance; a click on the card's title area opens it.
             // Opened ones stay open while the app runs (the page is rebuilt with the Settings window).
@@ -188,22 +260,44 @@ internal sealed class HowItWorksPage : SettingsPage
             card.Body.Controls.SetChildIndex(header, 0);
             void Show(bool open)
             {
-                list.Visible = open;
+                content.Visible = open;
                 chevron.Open = open;
                 if (open) Opened.Add(title); else Opened.Remove(title);
             }
             Show(Opened.Contains(title));
+            _openers[title] = () => Show(true);
             foreach (var target in new Control[] { card, card.Body, header, heading, chevron })
             {
                 target.Cursor = Cursors.Hand;
-                target.Click += (_, _) => Show(!list.Visible);
+                target.Click += (_, _) => Show(!content.Visible);
             }
             Panel.Controls.Add(card);
         }
     }
 
+    /// <summary>A small bold heading inside a topic ("Where to change it", "Details").</summary>
+    private static Label SectionLabel(string text)
+    {
+        var label = Theme.Label(text, Theme.BodyBold, Theme.Text);
+        label.Margin = new Padding(0, 2, 0, 2);
+        return label;
+    }
+
     /// <summary>Topics opened since the app started.</summary>
     private static readonly HashSet<string> Opened = [];
+
+    /// <summary>Opens each topic, by title (a link to a topic opens it).</summary>
+    private readonly Dictionary<string, Action> _openers = [];
+
+    /// <summary>Opens the topic with this title (a link like "see Catch up"), so the page can scroll to it.</summary>
+    public void OpenTopic(string title)
+    {
+        if (_openers.TryGetValue(title, out var open))
+        {
+            open();
+            Panel.PerformLayout();
+        }
+    }
 
     public override void Load(Settings settings) { }
 

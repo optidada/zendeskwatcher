@@ -27,7 +27,7 @@ public sealed class PopupManager
     /// <summary>A notification really appeared (not when it only joins the line; dropped ones never do).</summary>
     public Action<NotificationContent>? Shown { get; set; }
 
-    /// <summary>A choice from "Mute ▾" on a notification's client line.</summary>
+    /// <summary>A choice from "Options ▾" on a notification's client line.</summary>
     public Action<NotificationContent, ClientChoice>? ClientChosen { get; set; }
 
     /// <summary>Which of these notifications are still needed (bool: also read the ticket's changes). Set by the notifier.</summary>
@@ -543,6 +543,8 @@ public sealed class PopupManager
     /// </summary>
     public static bool CanShowPopups()
     {
+        if (PopupForm.AssumeUserPresent)
+            return true;
         const int QUNS_BUSY = 2, QUNS_RUNNING_D3D_FULL_SCREEN = 3, QUNS_PRESENTATION_MODE = 4, QUNS_APP = 7;
         try
         {

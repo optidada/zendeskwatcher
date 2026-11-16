@@ -130,6 +130,12 @@ public sealed class Settings
     /// <summary>New tickets and changes on my own and CC'd tickets only notify within my working hours; outside them they're skipped (colleagues' tickets: <see cref="HelpOnlyDuringMyHours"/>).</summary>
     public bool OnlyNotifyDuringMyHours { get; set; }
 
+    /// <summary>
+    /// With <see cref="OnlyNotifyDuringMyHours"/> (and the Colleagues page's "only while I'm working"): also outside my
+    /// hours while I'm active in Zendesk (a change or comment in the last 30 minutes). Off by default.
+    /// </summary>
+    public bool NotifyWhenWorkingLate { get; set; }
+
     private int? _myWorkdayStartHour, _myWorkdayEndHour;
 
     /// <summary>My own working hours (on <see cref="MyWorkDays"/>, this PC's time). Until chosen, the colleagues' hours (they were one setting before 1.3.13).</summary>
@@ -289,7 +295,7 @@ public sealed class Settings
     /// <summary>
     /// A customer reply counts as handled once an agent answered it publicly (colleagues' tickets), and changes on
     /// your own / CC'd tickets once you've acted on the ticket yourself. Used by the checks above, Snooze, and
-    /// "Customer waiting" (no notification when a colleague already answered).
+    /// "Colleague's ticket" (no notification when a colleague already answered).
     /// </summary>
     public bool DropAnswered { get; set; } = true;
 

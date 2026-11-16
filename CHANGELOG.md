@@ -3,6 +3,15 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.12
+
+- **Calmer notifications**: who it's from and how long ago on one line, the reply deadline at its right end, and what they wrote in quotes. No more "Client:" or "replied:", and a title never ends with one word alone on its line.
+- **Mute a client until your shift ends or your next shift starts** (instead of for a day), from Options ▾ on a notification or on the Clients page.
+- **Ctrl+Alt+Z opens Catch up** from anywhere.
+- **Working late?** Notifications → Working hours: "Only notify me during my working hours" can now also notify while you're active in Zendesk outside them.
+- **How it works follows the Settings pages**: one topic per page, each starting with what it's for, then where to change it and the details, with links.
+- "Customer waiting" is now "Colleague's ticket"; Options ▾ on a notification replaces "Mute ▾"; the Clients summary also counts "only urgent"; Clients start from the top after Save and open groups stay open; Catch up puts "Your tickets:" on its own line; times follow your Windows clock everywhere.
+
 ## 1.8.11
 
 - **"Update ready" lists every version you'll get**: skipping a few updates, you see the main change of each version in between, not only the newest one. Works from the next update on.

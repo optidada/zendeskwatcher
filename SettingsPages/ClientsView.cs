@@ -202,11 +202,14 @@ internal sealed class ClientsView
             .Select(c => c.Copy())
             .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
 
-    /// <summary>Sorts the list into its sections again (after Save or Discard), keeping the scroll position.</summary>
+    /// <summary>Sorts the list into its sections again (after Save or Discard), scrolled to the top.</summary>
     public void Resort()
     {
         if (_lastGroups.Count > 0)
-            Arrange(_lastGroups, _inView, keepScroll: true);
+        {
+            _list.KeepFolds(); // open groups stay open, also once they have no customized clients left
+            Arrange(_lastGroups, _inView); // from the top: the rows moved, and the changed clients now lead their group
+        }
     }
 
     /// <summary>While signed out: greyed, no ticking or client menu, still scrolls.</summary>
@@ -477,12 +480,13 @@ internal sealed class ClientsView
         var clients = _shown.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToList();
         var muted = clients.Count(c => ModeOf(c.Id) == ClientMode.Muted);
         var important = clients.Count(c => ModeOf(c.Id) == ClientMode.Important);
+        var onlyUrgent = clients.Count(c => ModeOf(c.Id) == ClientMode.OnlyUrgent);
         var matching = _filter.Length == 0 ? 0 : clients.Count(c => c.Name.Contains(_filter, StringComparison.CurrentCultureIgnoreCase));
         var text = clients.Count == 0 ? ""
             : _filter.Length > 0
                 ? (matching == 0 ? "" : $"{matching} of {clients.Count} clients match · a group's box applies to {(matching == 1 ? "this one" : $"these {matching}")}")
             : (muted == 0 ? $"All {clients.Count} clients notify" : $"{clients.Count - muted} of {clients.Count} clients notify")
-              + (important > 0 ? $" · {important} important" : "");
+              + (important > 0 ? $" · {important} important" : "") + (onlyUrgent > 0 ? $" · {onlyUrgent} only urgent" : "");
         if (_failed > 0)
             text += $" · could not load {_failed} group(s)";
         SetHint(text);

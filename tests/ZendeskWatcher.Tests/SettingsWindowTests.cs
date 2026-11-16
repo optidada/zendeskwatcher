@@ -18,6 +18,7 @@ public class SettingsWindowTests
         NotifyPriorityChanges = false,
         NotifyAutomaticChanges = true,
         SoundVolume = 75,
+        NotifyWhenWorkingLate = true,
         HelpColleagues = false,
         HelpRegionDefaultDone = true,
         HelpSameAsMonitored = false,

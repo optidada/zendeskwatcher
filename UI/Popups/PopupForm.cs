@@ -189,13 +189,13 @@ public sealed class PopupForm : Form
     public event Action<PopupForm>? CopyClicked;
 
 
-    /// <summary>A choice from "Mute ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
+    /// <summary>A choice from "Options ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
     public event Action<PopupForm, ClientChoice>? ClientChosen;
 
-    /// <summary>The "Mute ▾" menu is open: the countdown waits, as when hovering.</summary>
+    /// <summary>The "Options ▾" menu is open: the countdown waits, as when hovering.</summary>
     private bool _menuOpen;
 
-    /// <summary>Its Mute ▾ or Who could take it ▾ menu is open (the pill stays open meanwhile).</summary>
+    /// <summary>Its Options ▾ or Who could take it ▾ menu is open (the pill stays open meanwhile).</summary>
     internal bool MenuOpen => _menuOpen;
 
     private double _copiedUntil;
@@ -607,14 +607,14 @@ public sealed class PopupForm : Form
         _headingRect = new Rectangle(left, y, (_copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
         y += headingHeight + Px(6);
 
-        // "Client: Contoso", large: the first thing to see.
+        // The client's name, large: the first thing to see.
         if (!string.IsNullOrWhiteSpace(_content.Client))
         {
             var clientHeight = TextRenderer.MeasureText("Ag", _clientFont).Height;
             _clientRect = new Rectangle(left, y, width, clientHeight);
             y += clientHeight + Px(2);
 
-            // "Mute" at the right end of the client line: no more notifications from this client (Groups → Clients).
+            // "Options ▾" at the right end of the client line: this client's choices (mute, only urgent, important, sound; Groups → Clients).
             if (_content.MuteTarget is not null)
             {
                 var muteSize = TextRenderer.MeasureText(MuteLabel, _smallFont, Size.Empty, TextFormatFlags.NoPadding);
@@ -852,22 +852,14 @@ public sealed class PopupForm : Form
         g.DrawRectangle(border, 0, 0, bounds.Width - 1, bounds.Height - 1);
     }
 
-    /// <summary>"Client:" small and muted, the name large in the text color (bottoms aligned, so they share a baseline).</summary>
+    /// <summary>The client's name, large in the text color, without a "Client:" label (less crowded; the name speaks for itself).</summary>
     private void PaintClient(Graphics g)
     {
-        var label = _palette.Terminal ? "client:" : "Client:";
-        var labelSize = TextRenderer.MeasureText(g, label, _bodyFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-        var nameHeight = _clientRect.Height;
-        var baselineShift = nameHeight - labelSize.Height - Px(2);
-        DrawText(g, label, _bodyFont, new Rectangle(_clientRect.Left, _clientRect.Top + baselineShift, labelSize.Width, labelSize.Height),
-            _palette.Muted, TextFormatFlags.SingleLine);
-        var nameLeft = _clientRect.Left + labelSize.Width + Px(6);
-        DrawText(g, _content.Client!, _clientFont, new Rectangle(nameLeft, _clientRect.Top, _clientRect.Right - nameLeft, nameHeight),
-            _palette.Text, TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        DrawText(g, _content.Client!, _clientFont, _clientRect, _palette.Text, TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
 
         if (!_muteRect.IsEmpty)
         {
-            // On the name's baseline, like the "Client:" label; brighter on hover.
+            // On the name's baseline; brighter on hover.
             var muteHeight = TextRenderer.MeasureText(g, MuteLabel, _smallFont, Size.Empty, TextFormatFlags.NoPadding).Height;
             var muteRect = new Rectangle(_muteRect.Left, _muteRect.Bottom - muteHeight - Px(3), _muteRect.Width, muteHeight);
             DrawText(g, MuteLabel, _smallFont, muteRect, _hoverButton == _muteRect ? _palette.Text : _palette.Muted,
@@ -875,7 +867,7 @@ public sealed class PopupForm : Form
         }
     }
 
-    private string MuteLabel => _palette.Terminal ? "[mute ▾]" : "Mute ▾";
+    private string MuteLabel => _palette.Terminal ? "[options ▾]" : "Options ▾"; // the client's choices, not only mute
 
     private void PaintCursorAt(Graphics g, Point at, int lineHeight)
     {
@@ -1188,9 +1180,14 @@ public sealed class PopupForm : Form
     /// </summary>
     internal static bool UserAway() => UserAwayFor(AwayAfter);
 
+    /// <summary>For the tests: the user counts as at the PC and not presenting, whatever the real mouse and screen do.</summary>
+    internal static bool AssumeUserPresent { get; set; }
+
     /// <summary>The screen is locked, or there's been no mouse or keyboard input for <paramref name="idle"/>.</summary>
     internal static bool UserAwayFor(TimeSpan idle)
     {
+        if (AssumeUserPresent)
+            return false;
         if (_sessionLocked)
             return true; // locked: away right away, not only after a minute
         var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };

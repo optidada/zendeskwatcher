@@ -50,8 +50,8 @@ public static class StatsInsights
             .OrderByDescending(c => c.Shown)
             .Take(2)
             .Select(c => new Insight(Tone.Hint, c.Acted == 0
-                ? $"{c.Name}: {c.Shown} notifications and you opened none. Mute them, or hear only urgent ones (Groups → Clients, or Mute ▾ on a notification)."
-                : $"{c.Name}: {c.Shown} notifications and you opened only {c.Acted}. Mute them, or hear only urgent ones (Groups → Clients, or Mute ▾ on a notification)."));
+                ? $"{c.Name}: {c.Shown} notifications and you opened none. Mute them, or hear only urgent ones (Groups → Clients, or Options ▾ on a notification)."
+                : $"{c.Name}: {c.Shown} notifications and you opened only {c.Acted}. Mute them, or hear only urgent ones (Groups → Clients, or Options ▾ on a notification)."));
     }
 
     private static List<Insight> AnalyzeKinds(IReadOnlyDictionary<(NotificationKind Kind, StatOutcome Outcome), int> totals, int activeDays, Settings settings)

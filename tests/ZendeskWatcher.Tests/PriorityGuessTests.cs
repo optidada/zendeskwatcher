@@ -143,13 +143,13 @@ public class PriorityGuessTests
     [Fact]
     public void The_notification_shows_the_guess_under_the_SLA_line()
     {
-        var content = new NotificationContent(NotificationKind.NewTicket, "New ticket", "#1 Site down", "Jane · Created 10:00")
+        var content = new NotificationContent(NotificationKind.NewTicket, "New ticket", "#1 Site down", "Jane\n“It's down”")
             { PriorityHint = new PriorityHint("urgent", ["site down", "frustrated tone"], "normal"), SlaDue = DateTimeOffset.UtcNow.AddMinutes(30) };
 
         var lines = content.DisplayBody(DateTimeOffset.UtcNow).Split('\n');
 
-        Assert.StartsWith("!!", lines[0]);
+        Assert.StartsWith("Jane\t!!", lines[0]); // who, with the deadline at the right end
         Assert.Equal($"**Set as {Markdown.Tag("P3")} · looks like {Markdown.Tag("P1")}:** site down · frustrated tone", lines[1]);
-        Assert.Equal("Jane · Created 10:00", lines[2]);
+        Assert.Equal("“It's down”", lines[2]);
     }
 }

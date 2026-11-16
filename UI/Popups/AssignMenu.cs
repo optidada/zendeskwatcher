@@ -46,7 +46,7 @@ internal static class AssignMenu
         }
     }
 
-    /// <summary>The heading and a "looking…" line, in the app theme's colors (like Mute ▾).</summary>
+    /// <summary>The heading and a "looking…" line, in the app theme's colors (like Options ▾).</summary>
     private static (ContextMenuStrip Menu, ToolStripItem Waiting) Start(string waitingText)
     {
         var menu = new ContextMenuStrip { ShowImageMargin = false };

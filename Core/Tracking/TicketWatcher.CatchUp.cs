@@ -86,7 +86,7 @@ public sealed partial class TicketWatcher
                 continue;
             var (customer, comment, at) = waiting;
             var isMine = ticket.AssigneeId == me;
-            var said = settings.ShowCommentText ? $"**{Markdown.Escape(customer)}** wrote: {Markdown.Escape(Snippet(comment))}" : $"**{Markdown.Escape(customer)}** wrote";
+            var said = Said(customer, comment, verb: "wrote");
             var content = new NotificationContent(isMine ? NotificationKind.MyTicket : NotificationKind.CcTicket,
                 isMine ? "Catch up · Waiting for you" : "Catch up · CC / following",
                 $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
@@ -116,8 +116,8 @@ public sealed partial class TicketWatcher
                 if (away is not true)
                     continue;
                 var (customer, comment, at) = waiting;
-                var said = settings.ShowCommentText ? $"**{Markdown.Escape(customer)}** wrote: {Markdown.Escape(Snippet(comment))}" : $"**{Markdown.Escape(customer)}** wrote";
-                result.Colleagues.Add(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Catch up · Customer waiting",
+                var said = Said(customer, comment, verb: "wrote");
+                result.Colleagues.Add(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Catch up · Colleague's ticket",
                     $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
                     $"{said}\n{why}{StatusSuffix(ticket)}",
                     ticket.Id, ticket.Priority, GroupLabel(group))

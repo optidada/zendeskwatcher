@@ -149,8 +149,9 @@ public class CatchUpTests
         Assert.StartsWith("Catch up · since ", greeting.Heading);
         var lines = greeting.Body!.Replace('\u00a0', ' ').Split('\n');
         // The priorities are tags: as plain text "P1".
-        Assert.Contains("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines.Select(l => ZendeskWatcher.UI.Markdown.Strip(l)));
-        Assert.DoesNotContain("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines);
+        Assert.Contains("Your tickets:", lines);                // the heading on its own line, the counts below
+        Assert.Contains("2 Open (1 P1) · 2 Escalated · 1 Pending", lines.Select(l => ZendeskWatcher.UI.Markdown.Strip(l)));
+        Assert.DoesNotContain("2 Open (1 P1) · 2 Escalated · 1 Pending", lines);
         // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets, then what to work on.
         Assert.Contains("**1** waiting for your reply", lines);
         Assert.Contains("**1** past SLA", lines);
@@ -159,7 +160,8 @@ public class CatchUpTests
         var work = Array.IndexOf(lines, "To work on:");
         Assert.True(work > 0);
         Assert.Equal("", lines[work - 1]);                      // an empty line before it
-        Assert.StartsWith("Your tickets:", lines[work - 2]);
+        Assert.Equal("Your tickets:", lines[work - 3]);
+        Assert.Contains("Open", lines[work - 2]);
         Assert.All(lines[(work + 1)..], l => Assert.StartsWith("#", l));
         Assert.False(greeting.RequestedByUser);
     }

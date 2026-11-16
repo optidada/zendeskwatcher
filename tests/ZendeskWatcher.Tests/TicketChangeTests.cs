@@ -66,7 +66,7 @@ public class TicketChangeTests
         Assert.Equal(NotificationKind.MyTicket, shown.Kind);
         Assert.True(shown.IsTicketNotification); // counted in the statistics
         Assert.Equal("#500 Login broken", shown.Title);
-        Assert.Equal("**Jane Customer** replied: Still broken for us", shown.Body);
+        Assert.Equal("**Jane Customer**\n“Still broken for us”", shown.Body);
         Assert.Null(shown.Context);
     }
 
@@ -84,7 +84,7 @@ public class TicketChangeTests
 
         var shown = Assert.Single(TakeShown());
         Assert.Equal("Acme Corp", shown.Client);
-        Assert.Equal("**Jane Customer** replied: Still broken for us", shown.Body); // already named: no extra line
+        Assert.Equal("**Jane Customer**\n“Still broken for us”", shown.Body); // already named: no extra line
 
         _zendesk.Change(510, Colleague, "status", "open", "pending");
         await watcher.PollAsync(CancellationToken.None);
@@ -133,7 +133,7 @@ public class TicketChangeTests
         var wrote = _zendesk.Audits[540][^1].CreatedAt;
         Assert.Equal(wrote.AddHours(1), shown.SlaDue);
         Assert.False(shown.SlaFirstReply);
-        Assert.StartsWith("!!Reply due in ", shown.DisplayBody(wrote.AddMinutes(10)));
+        Assert.Contains("\t!!Reply due in ", shown.DisplayBody(wrote.AddMinutes(10))); // at the right end of the first line
 
         // A colleague answered: nobody is waiting, no deadline.
         _zendesk.Reply(540, Colleague, "Looking into it");
@@ -176,12 +176,12 @@ public class TicketChangeTests
         // The customer replies on a Pending ticket: Zendesk reopens it in the same update.
         _zendesk.ReplyAndChange(530, Customer, "Still broken", ("status", "pending", "open"));
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("**Jane Customer** replied: Still broken", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Jane Customer**\n“Still broken”", Assert.Single(TakeShown()).Body);
 
         // An agent replying and setting Pending: worth saying.
         _zendesk.ReplyAndChange(530, Colleague, "Can you try again?", ("status", "open", "pending"));
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("**Sam Colleague** replied: Can you try again?\nStatus Open → Pending (Sam Colleague)", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Sam Colleague**\n“Can you try again?”\nStatus Open → Pending (Sam Colleague)", Assert.Single(TakeShown()).Body);
 
         // Reopened without a reply: shown.
         _zendesk.Change(530, Colleague, "status", "pending", "open");
@@ -199,8 +199,8 @@ public class TicketChangeTests
         await watcher.PollAsync(CancellationToken.None);
 
         var body = Assert.Single(TakeShown()).Body;
-        Assert.Equal("Jane Customer replied: This is **really** urgent", Markdown.Strip(body));
-        Assert.Equal([new Markdown.Run("Jane Customer", true), new Markdown.Run(" replied: This is **really** urgent", false)], Markdown.Parse(body));
+        Assert.Equal("Jane Customer\n“This is **really** urgent”", Markdown.Strip(body));
+        Assert.Equal([new Markdown.Run("Jane Customer", true), new Markdown.Run("\n“This is **really** urgent”", false)], Markdown.Parse(body));
     }
 
     [Fact]
@@ -246,7 +246,7 @@ public class TicketChangeTests
 
         _zendesk.Reply(504, Customer, "Another one");
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("**Jane Customer** replied: Another one", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Jane Customer**\n“Another one”", Assert.Single(TakeShown()).Body);
     }
 
     // ---------------------------------------------------------------- CC / following
@@ -334,7 +334,7 @@ public class TicketChangeTests
         _zendesk.Reply(561, ServiceAccount, "Your request has reached Premium Support");
         await watcher.PollAsync(CancellationToken.None);
 
-        Assert.Equal("**Service User** replied: Your request has reached Premium Support", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Service User**\n“Your request has reached Premium Support”", Assert.Single(TakeShown()).Body);
     }
 
     [Fact]

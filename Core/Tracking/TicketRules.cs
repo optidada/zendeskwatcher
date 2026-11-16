@@ -44,7 +44,7 @@ public static class TicketRules
     public static ClientMode ClientMode(Ticket ticket, Settings settings, DateTimeOffset now) =>
         settings.ClientChoiceFor(ticket.OrganizationId)?.ModeAt(now) ?? ZendeskWatcher.ClientMode.Normal;
 
-    /// <summary>The confirmation after a choice from a notification's "Mute ▾" menu: a title and what it means.</summary>
+    /// <summary>The confirmation after a choice from a notification's "Options ▾" menu: a title and what it means.</summary>
     public static (string Title, string Body) ClientChoiceConfirmation(ClientChoice choice, DateTimeOffset now)
     {
         const string where = "Change it under Settings → Groups → Clients.";
@@ -214,7 +214,7 @@ public static class TicketRules
                 // No break inside "1 Escalated (1 P1)": the line wraps between statuses.
                 return $"{g.Count()}{Nbsp}{Markdown.Escape(g.Key).Replace(' ', Nbsp)}" + (urgent.Count > 0 ? $"{Nbsp}({string.Join($",{Nbsp}", urgent)})" : "");
             });
-        return $"Your tickets: {string.Join(" · ", parts)}";
+        return $"Your tickets:\n{string.Join(" · ", parts)}"; // the counts below the heading, like "To work on:"
     }
 
     /// <summary>Catch up lists at most this many of the tickets you're working on.</summary>
@@ -308,6 +308,19 @@ public static class TicketRules
     public static bool IsOutsideHours(DateTime local, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays = null) =>
         !(workDays ?? Weekdays).Contains(local.DayOfWeek) ||
         local.Hour < startHour || local.Hour >= endHour;
+
+    /// <summary>When the working shift you're in ends (local time), or null outside your working hours.</summary>
+    public static DateTime? ShiftEnd(DateTime local, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays = null) =>
+        IsOutsideHours(local, startHour, endHour, workDays) ? null : local.Date.AddHours(endHour);
+
+    /// <summary>When your next working shift starts (local time): later today if it hasn't started yet, else the next working day.</summary>
+    public static DateTime NextShiftStart(DateTime local, int startHour, IReadOnlyCollection<DayOfWeek>? workDays = null)
+    {
+        var days = workDays is { Count: > 0 } chosen ? chosen : Weekdays;
+        for (var day = local.Date; ; day = day.AddDays(1))
+            if (days.Contains(day.DayOfWeek) && day.AddHours(startHour) > local)
+                return day.AddHours(startHour);
+    }
 
     /// <summary>Whether a ticket's priority is one of the chosen ones. No priority counts as normal.</summary>
     public static bool MatchesPriority(string? priority, ICollection<string> chosen) =>

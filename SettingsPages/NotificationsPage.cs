@@ -14,7 +14,8 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly CheckBox _assignment = Kit.Check("Reassignment and group moves");
     private readonly CheckBox _priority = Kit.Check("Priority changes");
     private readonly CheckBox _automatic = Kit.Check("Automatic updates (bots)");
-    private readonly ToggleSwitch _onlyMyHours = new("Only notify me while I'm working");
+    private readonly ToggleSwitch _onlyMyHours = new("Only notify me during my working hours");
+    private readonly CheckBox _workingLate = Kit.Check("Also outside them, while I'm active in Zendesk");
     private readonly ToggleSwitch _catchUpAtStart = new("Catch up when my working day starts");
     private readonly DayChecks _myDays = new("", new Padding(0));
     private readonly HourRange _myHours = new() { Margin = new Padding(0, 4, 0, 6) };
@@ -59,6 +60,8 @@ internal sealed class NotificationsPage : SettingsPage
         working.Body.Controls.Add(grid);
         _onlyMyHours.Margin = new Padding(0, 6, 0, 0);
         working.Body.Controls.Add(_onlyMyHours);
+        _workingLate.Margin = new Padding(50, 0, 0, 6); // under the switch, like the priorities under theirs
+        working.Body.Controls.Add(_workingLate);
         working.Body.Controls.Add(_catchUpAtStart);
         Panel.Controls.Add(working);
 
@@ -68,7 +71,8 @@ internal sealed class NotificationsPage : SettingsPage
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
         _myDays.Changed += Changed;
-        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _automatic, _onlyMyHours, _catchUpAtStart);
+        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _automatic, _onlyMyHours, _workingLate, _catchUpAtStart);
+        _onlyMyHours.CheckedChanged += (_, _) => _workingLate.Enabled = _onlyMyHours.Checked;
         _myHours.RangeChanged += (_, _) => Changed();
     }
 
@@ -87,6 +91,8 @@ internal sealed class NotificationsPage : SettingsPage
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
         _onlyMyHours.Checked = settings.OnlyNotifyDuringMyHours;
+        _workingLate.Checked = settings.NotifyWhenWorkingLate;
+        _workingLate.Enabled = _onlyMyHours.Checked;
         _catchUpAtStart.Checked = settings.CatchUpAtDayStart;
         _myHours.SetRange(settings.MyWorkdayStartHour, settings.MyWorkdayEndHour);
         _myDays.Selected = settings.MyWorkDays;
@@ -107,6 +113,7 @@ internal sealed class NotificationsPage : SettingsPage
         s.MyTicketPriorities = _myPriorities.Selected;
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.OnlyNotifyDuringMyHours = _onlyMyHours.Checked;
+        s.NotifyWhenWorkingLate = _workingLate.Checked;
         s.CatchUpAtDayStart = _catchUpAtStart.Checked;
         s.MyWorkdayStartHour = _myHours.Start;
         s.MyWorkdayEndHour = _myHours.End;

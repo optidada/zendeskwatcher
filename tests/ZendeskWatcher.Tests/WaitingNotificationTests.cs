@@ -156,7 +156,7 @@ public class WaitingNotificationTests
         _zendesk.Reply(500, Customer, "Anyone?");
         await watcher.PollAsync(CancellationToken.None);
         var shown = Assert.Single(notifier.Shown);
-        Assert.Equal("**Jane Customer** replied: Anyone?", shown.Body);
+        Assert.Equal("**Jane Customer**\n“Anyone?”", shown.Body);
         Assert.NotNull(shown.ChangedAt);
     }
 }

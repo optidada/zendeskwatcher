@@ -65,6 +65,16 @@ internal sealed class AssigneeList : Control
 
     private readonly Dictionary<string, bool> _openWhileFiltering = [];
 
+    /// <summary>
+    /// The groups open or folded right now stay so when the list is built again (e.g. re-sorted after Save, or after
+    /// clearing customizations: a group that was open because it had some mustn't fold under the user's eyes).
+    /// </summary>
+    public void KeepFolds()
+    {
+        foreach (var group in _groups.Where(g => g.Title is not null))
+            Folds[group.Title!] = IsOpen(group);
+    }
+
     /// <summary>Folds made while filtering are forgotten (the filter text changed).</summary>
     public void ForgetFilteredFolds() => _openWhileFiltering.Clear();
 
