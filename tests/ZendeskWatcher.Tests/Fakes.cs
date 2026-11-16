@@ -28,7 +28,12 @@ internal static class TestSetup
     /// them wait in line, and tests that show them failed now and then when run while nobody touched the PC.
     /// </summary>
     [ModuleInitializer]
-    internal static void AssumeUserAtThePc() => ZendeskWatcher.UI.Popups.PopupForm.AssumeUserPresent = true;
+    internal static void AssumeUserAtThePc()
+    {
+        ZendeskWatcher.UI.Popups.PopupForm.AssumeUserPresent = true;
+        // Off the visible screen: a click or hover on a test's notification (by whoever uses the PC) would change the result.
+        ZendeskWatcher.UI.Popups.PopupForm.TestWorkArea = new Rectangle(-8000, -8000, 1920, 1040);
+    }
 }
 
 /// <summary>Records what would have been shown.</summary>

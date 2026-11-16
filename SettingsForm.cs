@@ -778,6 +778,8 @@ public sealed class SettingsForm : Form
             form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)
             {
+                Application.DoEvents();
+                form._context.SetSignedOut(false); // as if signed in (the background sign-in check would show the strip)
                 form.SelectPage(page);
                 Application.DoEvents();
                 using var bitmap = new Bitmap(form.Width, form.Height);

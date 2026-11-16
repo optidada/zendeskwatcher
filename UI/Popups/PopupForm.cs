@@ -516,7 +516,7 @@ public sealed class PopupForm : Form
     /// </summary>
     private void ClipToScreen(Point location)
     {
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea; // not over the taskbar
+        var area = WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]); // not over the taskbar
         var visible = Rectangle.Intersect(new Rectangle(location, Size), area);
         visible.Offset(-location.X, -location.Y);
         if (visible == _clip)
@@ -1092,7 +1092,7 @@ public sealed class PopupForm : Form
     {
         var ticketId = _content.TicketId!.Value;
         // In the lower half of the screen it opens upwards (it grows when the colleagues are in), else downwards.
-        var screen = Screen.FromControl(this).WorkingArea;
+        var screen = WorkArea(Screen.FromControl(this));
         var up = PointToScreen(new Point(0, _whoRect.Bottom)).Y > screen.Top + screen.Height / 2;
         ContextMenuStrip? menu = null;
         menu = AssignMenu.Build(ticketId, _content.IsSample, candidate =>
@@ -1182,6 +1182,12 @@ public sealed class PopupForm : Form
 
     /// <summary>For the tests: the user counts as at the PC and not presenting, whatever the real mouse and screen do.</summary>
     internal static bool AssumeUserPresent { get; set; }
+
+    /// <summary>For the tests: an area off the visible screen, so notifications they show can't be clicked or hovered by chance.</summary>
+    internal static Rectangle? TestWorkArea { get; set; }
+
+    /// <summary>Where notifications may go on this screen: its working area (not over the taskbar), or <see cref="TestWorkArea"/>.</summary>
+    internal static Rectangle WorkArea(Screen screen) => TestWorkArea ?? screen.WorkingArea;
 
     /// <summary>The screen is locked, or there's been no mouse or keyboard input for <paramref name="idle"/>.</summary>
     internal static bool UserAwayFor(TimeSpan idle)

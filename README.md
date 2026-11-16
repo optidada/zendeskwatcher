@@ -8,9 +8,11 @@ A Windows tray app that watches Zendesk with **your own agent permissions**:
 - **Help colleagues** (on by default): a notification when a customer is waiting for an answer on a colleague's ticket while that colleague is off work or away (no activity in Zendesk for 3 hours)
 - **Catch up**: what still needs you since you stopped working last time, one line each (customers waiting, SLAs past or due today, still unassigned, CC'd and colleagues' tickets, Escalated tickets without a reply for 2+ days, Pending ones without an update for 7+ days), then your own open tickets by status; as a greeting when the app starts, by itself when your working day starts, and from the tray menu
 
-Clicking a notification opens the ticket in the browser. New-ticket notifications show who wrote and the start of their message, and have **Take it**, which assigns the ticket to you and opens it. If a colleague was faster, you're told who has it and the ticket opens anyway. When someone takes the ticket (or it's solved) while its notification is still up, the notification closes by itself within a minute. The **▾** next to Take it lists up to 3 colleagues in the ticket's group who could take it (in their working hours, active in Zendesk lately, least busy first); pick one to assign it to them, after a confirmation. Assigning an unassigned ticket (to you or a colleague you pick) is the only thing the app ever changes in Zendesk.
+Clicking a notification opens the ticket in the browser. New-ticket notifications show who wrote and the start of their message, and have **Take it**, which assigns the ticket to you and opens it. If a colleague was faster, you're told who has it and the ticket opens anyway. When someone takes the ticket (or it's solved) while its notification is still up, the notification closes by itself within a few minutes. The **▾** next to Take it lists up to 3 colleagues in the ticket's group who could take it (in their working hours, active in Zendesk lately, least busy first); pick one to assign it to them, after a confirmation. Assigning an unassigned ticket (to you or a colleague you pick) is the only thing the app ever changes in Zendesk.
 
 Priorities are shown with their P-level: Urgent (P1), High (P2), Normal (P3), Low (P4).
+
+**[See the guide with screenshots](GUIDE.md)** for what each notification and Settings page looks like.
 
 ## Sign-in
 

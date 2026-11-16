@@ -1,5 +1,7 @@
 # Installing Zendesk Watcher
 
+Once installed, the [guide](GUIDE.md) shows what the notifications and Settings pages look like.
+
 Zendesk Watcher sits in the Windows tray and notifies you about new unassigned tickets in the groups you pick, about
 changes on your own tickets, and about customers waiting on colleagues' tickets while those colleagues are off work or away.
 

@@ -112,7 +112,7 @@ public sealed class PopupManager
         _awayWatch.Start();
         UpdateTurns();
 
-        var area = screen.WorkingArea;
+        var area = PopupForm.WorkArea(screen);
         var margin = (int)(16 * scale);
         var position = EffectivePosition(settings);
         _peek = PeekEdgeFor(settings);
@@ -406,7 +406,7 @@ public sealed class PopupManager
     /// </summary>
     private void Layout(PopupPosition position, float scale)
     {
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        var area = PopupForm.WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]);
         var margin = (int)(16 * scale);
         var gap = (int)(10 * scale);
 

@@ -209,7 +209,7 @@ internal sealed class PillHost : Form
         if (_palette is null)
             return;
         using var bitmap = Draw(_text, _palette, _accent, _s, _expanded, _hover);
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        var area = PopupForm.WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]);
         var location = new Point(area.Left + (area.Width - bitmap.Width) / 2, area.Top + PillMargin(_s));
         Bounds = new Rectangle(location, bitmap.Size);
         SetBitmap(bitmap, location);

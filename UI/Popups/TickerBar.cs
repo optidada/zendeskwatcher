@@ -180,7 +180,7 @@ internal sealed class TickerBar : Form
                 Hide();
             return;
         }
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        var area = PopupForm.WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]);
         Bounds = new Rectangle(area.Left, _top ? area.Top : area.Bottom - BarHeight, area.Width, BarHeight);
         if (!Visible)
             Show();
