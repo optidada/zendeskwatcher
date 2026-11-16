@@ -24,23 +24,53 @@ public sealed class AppUpdater
 
     public string? PendingVersion => Pending?.TargetFullRelease.Version.ToString();
 
-    /// <summary>The first few bullet points of the pending release's notes (from CHANGELOG.md), one per line.</summary>
+    /// <summary>
+    /// What the update brings, from the release notes of every version between this one and the pending one (the
+    /// update's delta packages carry each version's notes): see <see cref="Highlights"/>.
+    /// </summary>
     public string? PendingHighlights
     {
         get
         {
-            var notes = Pending?.TargetFullRelease.NotesMarkdown;
-            if (string.IsNullOrWhiteSpace(notes))
+            if (Pending is not { } pending)
                 return null;
-            var bullets = notes.Split('\n')
-                .Select(l => l.Trim())
-                .Where(l => l.StartsWith("- ") || l.StartsWith("* "))
-                .Select(l => "• " + Headline(l[2..]))
-                .Take(3)
-                .ToList();
-            return bullets.Count > 0 ? string.Join("\n", bullets) : null;
+            var releases = pending.DeltasToTarget.Select(d => (d.Version.ToString(), (string?)d.NotesMarkdown))
+                .Append((pending.TargetFullRelease.Version.ToString(), pending.TargetFullRelease.NotesMarkdown));
+            return Highlights(releases, CurrentVersion);
         }
     }
+
+    /// <summary>At most this many lines in "Update ready".</summary>
+    private const int MaxHighlightLines = 4;
+
+    /// <summary>
+    /// The versions newer than <paramref name="current"/>: one version, its first 3 points; several, the first point of
+    /// each, newest first ("• 1.8.10: Catch up is easier to read"), then "… and N more versions" when they don't all fit.
+    /// </summary>
+    internal static string? Highlights(IEnumerable<(string Version, string? Notes)> releases, string current)
+    {
+        Version.TryParse(current, out var since);
+        var versions = releases
+            .Select(r => (Version: Version.TryParse(r.Version, out var v) ? v : null, Bullets: Bullets(r.Notes)))
+            .Where(r => r.Version is not null && (since is null || r.Version > since) && r.Bullets.Count > 0)
+            .DistinctBy(r => r.Version)
+            .OrderByDescending(r => r.Version)
+            .ToList();
+        if (versions.Count == 0)
+            return null;
+        if (versions.Count == 1)
+            return string.Join("\n", versions[0].Bullets.Take(3).Select(b => "• " + b));
+        var lines = versions.Take(MaxHighlightLines).Select(r => $"• {r.Version!.ToString(3)}: {r.Bullets[0]}").ToList();
+        if (versions.Count > MaxHighlightLines)
+            lines[^1] = $"… and {versions.Count - MaxHighlightLines + 1} more versions";
+        return string.Join("\n", lines);
+    }
+
+    private static List<string> Bullets(string? notes) => (notes ?? "").Split('\n')
+        .Select(l => l.Trim())
+        .Where(l => l.StartsWith("- ") || l.StartsWith("* "))
+        .Select(l => Headline(l[2..]))
+        .ToList();
 
     /// <summary>"**Take it**: long explanation" → "Take it"; other bullets are shortened to fit a notification.</summary>
     internal static string Headline(string bullet)

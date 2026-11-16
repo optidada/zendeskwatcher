@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.11
+
+- **"Update ready" lists every version you'll get**: skipping a few updates, you see the main change of each version in between, not only the newest one. Works from the next update on.
+
 ## 1.8.10
 
 - **Catch up is easier to read**: an empty line before "To work on", so the tickets to start with stand apart.
