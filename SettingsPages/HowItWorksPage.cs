@@ -18,6 +18,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "It shows who it's from and the start of what they wrote (off with Look & sound → Show the comment text).",
             "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
             "Take it assigns the ticket to you and opens it. If a colleague was faster, you're told who has it.",
+            "Someone took it (or it was solved) while the notification is still up: it closes by itself within a minute.",
             "The ▾ next to Take it: up to 3 colleagues in the ticket's group who could take it, least busy first. Only those in their working hours who did something in Zendesk in the last 3 hours. Pick one to assign it to them (you're asked first).",
             "Muted clients stay quiet and aren't counted; \u201conly urgent\u201d clients only for Urgent (P1) and High (P2). [[Groups → Clients|Clients]], or Mute \u25be on a notification."
         ]),

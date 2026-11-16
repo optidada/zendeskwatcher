@@ -199,6 +199,34 @@ public class UnassignedTicketTests
     }
 
     [Fact]
+    public async Task Notification_of_a_new_ticket_closes_once_someone_takes_it()
+    {
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None);
+        var taken = _zendesk.AddUnassigned(106);
+        var moved = _zendesk.AddUnassigned(107);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal(2, TakeShown().Count);
+
+        // Still unassigned: stays, also when it left the monitored group (no longer in the search, but nobody took it).
+        moved.GroupId = 99;
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(_notifier.ClosedTaken);
+
+        taken.AssigneeId = 42;
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal([106L], _notifier.ClosedTaken);
+
+        moved.Status = "solved";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal([106L, 107L], _notifier.ClosedTaken);
+
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal(2, _notifier.ClosedTaken.Count); // once each
+        Assert.Empty(TakeShown());
+    }
+
+    [Fact]
     public async Task Stale_search_hit_that_is_really_assigned_does_not_notify()
     {
         var watcher = await StartAsync();

@@ -29,9 +29,11 @@ internal sealed class RecordingNotifier : INotificationSink
 {
     public List<NotificationContent> Shown { get; } = [];
     public List<string> MissingGroups { get; } = [];
+    public List<long> ClosedTaken { get; } = [];
 
     public void Show(NotificationContent content) => Shown.Add(content);
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => MissingGroups.AddRange(names);
+    public void CloseTaken(long ticketId) => ClosedTaken.Add(ticketId);
 }
 
 /// <summary>

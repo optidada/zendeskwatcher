@@ -187,9 +187,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var found = (await Task.WhenAll(settings.WatchedGroups.Select(async group =>
             (Group: group, Tickets: await zendesk.GetUnassignedTicketsAsync(group.Id, ct))))).ToList();
 
-        var allIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).Distinct().ToList();
+        // Plus the new tickets whose notification may still be up, to close it once someone took the ticket.
+        var foundIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).ToHashSet();
+        var allIds = foundIds.Concat(_announcedNew.Keys).Distinct().ToList();
         var live = allIds.Count > 0 ? (await zendesk.GetTicketsAsync(allIds, ct)).ToDictionary(t => t.Id) : [];
-        await LearnSlaAsync(live.Values, ct);
+        CloseTakenTickets(live, now);
+        await LearnSlaAsync(live.Values.Where(t => foundIds.Contains(t.Id)), ct);
 
         foreach (var (group, candidates) in found)
         {
@@ -261,8 +264,35 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         _unassigned = byGroup;
     }
 
-    private async Task ShowNewTicketAsync(Ticket ticket, WatchedGroup group, CancellationToken ct, string heading = "New ticket") =>
+    private async Task ShowNewTicketAsync(Ticket ticket, WatchedGroup group, CancellationToken ct, string heading = "New ticket")
+    {
         Show(await UnassignedTicketAsync(ticket, group, heading, ct));
+        _announcedNew[ticket.Id] = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>New tickets with a notification of their own, and when: once taken, the notification closes.</summary>
+    private readonly Dictionary<long, DateTimeOffset> _announcedNew = [];
+
+    /// <summary>
+    /// Closes the notifications of new tickets that someone took (or solved) since. Read exactly (the same request as
+    /// the candidates, so no extra one), never from the search alone: its index lags and could close one too early.
+    /// </summary>
+    private void CloseTakenTickets(IReadOnlyDictionary<long, Ticket> live, DateTimeOffset now)
+    {
+        foreach (var (id, at) in _announcedNew.ToList())
+        {
+            var taken = live.GetValueOrDefault(id) is { } t && TicketRules.IsTaken(t);
+            if (taken)
+            {
+                Log.Info($"Ticket #{id} was taken: its notification closes");
+                notifier.CloseTaken(id);
+            }
+            if (taken || now - at > ForgetAnnouncedAfter)
+                _announcedNew.Remove(id);
+        }
+    }
+
+    private static readonly TimeSpan ForgetAnnouncedAfter = TimeSpan.FromHours(12);
 
     /// <summary>One unassigned ticket; "· Scheduled" in the heading when a time is booked and nobody owns it.</summary>
     private async Task<NotificationContent> UnassignedTicketAsync(Ticket ticket, WatchedGroup group, string heading, CancellationToken ct)

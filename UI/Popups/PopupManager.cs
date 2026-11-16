@@ -56,14 +56,21 @@ public sealed class PopupManager
     public void Show(NotificationContent content, Settings settings) => Show(content, settings, overLimit: false);
 
     /// <summary>Closes (uncounted) notifications that say the same as <paramref name="content"/>, on screen or waiting.</summary>
-    public void CloseSame(NotificationContent content)
+    public void CloseSame(NotificationContent content) => CloseWhere(other =>
+        other.Kind == content.Kind && other.TicketId == content.TicketId && other.Title == content.Title && other.Body == content.Body);
+
+    /// <summary>Closes (uncounted) the new-ticket notifications of a ticket someone took, on screen or waiting.</summary>
+    public void CloseNewTicket(long ticketId) => CloseWhere(c => c.Kind == NotificationKind.NewTicket && c.TicketId == ticketId && !c.IsSample);
+
+    /// <summary>Notifications on screen, waiting in line or in the ticker (for tests).</summary>
+    internal int OpenCount => _visible.Count + _pending.Count + (_ticker?.Count ?? 0);
+
+    private void CloseWhere(Func<NotificationContent, bool> match)
     {
-        bool Same(NotificationContent other) =>
-            other.Kind == content.Kind && other.TicketId == content.TicketId && other.Title == content.Title && other.Body == content.Body;
-        _pending.RemoveAll(w => Same(w.Content));
-        foreach (var popup in _visible.Where(p => Same(p.Content)).ToList())
+        _pending.RemoveAll(w => match(w.Content));
+        foreach (var popup in _visible.Where(p => match(p.Content)).ToList())
             popup.Dismiss(PopupForm.Result.None);
-        _ticker?.RemoveWhere(Same);
+        _ticker?.RemoveWhere(match);
         SyncPill();
     }
 

@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.6
+
+- **Taken tickets close by themselves**: when a colleague takes a new ticket (or it's solved) while its notification is still up, the notification closes within a minute.
+
 ## 1.8.5
 
 - **New tickets show what the customer wrote**: the start of their first message, under their name. Turn off Look & sound → Show the comment text and it isn't even read.

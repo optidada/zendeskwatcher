@@ -30,7 +30,7 @@ Checks run every 60 seconds (fixed; not configurable). Per check:
 
 | What | Requests |
 |---|---|
-| New unassigned tickets | 1 search per monitored group + 1 ticket lookup (`show_many`, which also brings the SLA timers) |
+| New unassigned tickets | 1 search per monitored group + 1 ticket lookup (`show_many`, which also brings the SLA timers, and re-reads new tickets whose notification may still be up, to close it once someone takes the ticket) |
 | The agent's own tickets | 2 (30 most recently updated assigned tickets + `show_many`) |
 | CC / follower tickets (optional, off by default) | 3 (30 most recent CC'd and followed tickets + `show_many`) |
 | Help colleagues (on by default) | 1 search per chosen group, only tickets updated since the last check |
@@ -44,17 +44,18 @@ Checks run every 60 seconds (fixed; not configurable). Per check:
 | Once at start | the custom ticket statuses (`/api/v2/custom_statuses.json`), to show them by name |
 | Experimental features (off by default) | when switched on: 90 days of tickets per monitored group (1 search, up to 5 pages each), every 6 hours |
 
-**Measured** on an agent's PC with 2 groups, CC tracking and Help colleagues all switched on: **3–11 requests per
-minute** (11-minute averages; the higher one includes opening the Settings window). With default settings it's about
-5. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
+**Measured** on an agent's PC with CC tracking and Help colleagues switched on (the app's own log, 10-minute
+averages, November 2026): usually **8–13 requests per minute**, briefly 20–30 while the agent has the Settings window
+or Insights open or runs Catch up. Fewer groups and default settings mean fewer. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
 Settings window shows (the group list, the agent's group memberships and open tickets for group suggestions, the
 members of the covered groups, and the clients of the monitored groups from 90 days of tickets) are loaded when needed
 and reused for 24 hours. Insights → Your team reads the members, open tickets and tickets solved in the last 7 days of the monitored
 groups, at most every 10 minutes while that page is open. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected
 (on HTTP 429 the app waits as instructed by `Retry-After`), and the app logs its own request count every 10 minutes.
 
-For comparison, an open Agent Workspace tab also polls continuously (views, ticket counts, notifications, plus
-internal APIs and live-update connections), so the Watcher adds about the load of one more agent tab, or less.
+For comparison, an idle Agent Workspace tab makes about 3 API requests per minute by itself (more while the agent
+works in it, plus internal APIs and live-update connections), so the Watcher adds about the load of a few open agent
+tabs. All its requests are small, read-only reads, apart from the assign on an explicit click.
 
 ## Data handling
 

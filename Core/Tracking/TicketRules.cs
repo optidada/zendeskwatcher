@@ -278,6 +278,9 @@ public static class TicketRules
     public static bool IsReallyUnassigned(Ticket ticket, WatchedGroup group) =>
         ticket.AssigneeId is null && ticket.IsOpen && ticket.GroupId == (group.IsNoGroup ? null : group.Id);
 
+    /// <summary>Someone took the ticket, or it was solved: its new-ticket notification is no longer needed.</summary>
+    public static bool IsTaken(Ticket ticket) => ticket.AssigneeId is not null || !ticket.IsOpen;
+
     /// <summary>Monday to Friday: the working days unless chosen otherwise.</summary>
     public static readonly DayOfWeek[] Weekdays =
         [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];
