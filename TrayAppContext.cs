@@ -27,6 +27,37 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _checkNowItem = new("Check now");
     private readonly ToolStripMenuItem _openZendeskItem = new("Open Zendesk");
 
+    /// <summary>
+    /// Waits until the next check: <see cref="Settings.CheckInterval"/> (3 minutes), or <see cref="Settings.AwayCheckInterval"/>
+    /// (10) while you're away. Back at the PC after being away: right away, so what came meanwhile shows at once.
+    /// "Check now", Catch up and taking a ticket start it early (<see cref="WakeUp"/>).
+    /// </summary>
+    private async Task WaitForNextCheckAsync(CancellationToken ct)
+    {
+        var started = DateTime.UtcNow;
+        var wasAway = false;
+        while (true)
+        {
+            var away = UI.Popups.PopupForm.UserAwayFor(Settings.AwayForChecks);
+            var waited = DateTime.UtcNow - started;
+            if (waited >= (away ? Settings.AwayCheckInterval : Settings.CheckInterval))
+                return;
+            if (wasAway && !away)
+            {
+                Log.Info("Back at the PC: checking now");
+                return;
+            }
+            wasAway |= away;
+            // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
+            using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var woken = await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(15), waiting.Token), _wakeUp.WaitAsync(waiting.Token));
+            waiting.Cancel();
+            ct.ThrowIfCancellationRequested();
+            if (woken is Task<bool> { IsCompletedSuccessfully: true, Result: true })
+                return;
+        }
+    }
+
     /// <summary>Starts the next check now ("Check now", Catch up, after taking a ticket); at most one waits.</summary>
     private void WakeUp()
     {
@@ -58,6 +89,7 @@ public sealed class TrayAppContext : ApplicationContext
     public TrayAppContext()
     {
         Current = this;
+        UI.SoundVolume.Apply(_settings.SoundVolume); // Look & sound → Volume, also for previews before any notification
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _notifier = new Notifier(HandleAction) { Settings = _settings, StillNeeded = StillNeededAsync };
         _notifier.ClientChoiceRequested += SetClientChoice;
@@ -367,11 +399,7 @@ public sealed class TrayAppContext : ApplicationContext
 
             try
             {
-                // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
-                using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                await Task.WhenAny(Task.Delay(Settings.CheckInterval, waiting.Token), _wakeUp.WaitAsync(waiting.Token));
-                waiting.Cancel();
-                ct.ThrowIfCancellationRequested();
+                await WaitForNextCheckAsync(ct);
             }
             catch (OperationCanceledException)
             {
@@ -458,6 +486,7 @@ public sealed class TrayAppContext : ApplicationContext
         form.Saved += saved =>
         {
             _settings = saved;
+            UI.SoundVolume.Apply(saved.SoundVolume);
             Start(openSettingsIfNeeded: false);
         };
         form.SessionChanging += () => PauseChecking("Paused while signing in or out");
@@ -476,6 +505,7 @@ public sealed class TrayAppContext : ApplicationContext
             }
             _settingsForm = null;
             _settings = form.Result; // the last saved settings
+            UI.SoundVolume.Apply(_settings.SoundVolume); // not what ▶ tried, if that wasn't saved
             MemoryTrim.Soon();       // the window and its controls are gone (closed forms dispose themselves)
             if (_loopCts is null)
                 Start(openSettingsIfNeeded: false); // was paused (or never started): resume

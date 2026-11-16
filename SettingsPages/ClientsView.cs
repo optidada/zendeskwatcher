@@ -27,8 +27,8 @@ internal sealed class ClientsView
     /// <summary>Clients with a choice (id -> choice): the only ones stored.</summary>
     private readonly Dictionary<long, ClientChoice> _choices = [];
 
-    /// <summary>The last "find": the text and which match it's on (Enter goes to the next).</summary>
-    private (string Text, int Index) _find = ("", -1);
+    /// <summary>The filter box's text: only clients whose name contains it are shown ("" for all).</summary>
+    private string _filter = "";
 
     /// <summary>Clients per group loaded from Zendesk, remembered like the group list.</summary>
     private static (string Subdomain, DateTime At, Dictionary<long, List<Client>> Groups)? _cache;
@@ -366,41 +366,22 @@ internal sealed class ClientsView
     }
 
     /// <summary>
-    /// Goes to the first client whose name contains <paramref name="text"/> (the next one when <paramref name="next"/>,
-    /// e.g. Enter) and highlights it; the whole list stays. False when nothing matches.
+    /// Shows only the clients whose name contains <paramref name="text"/> (all when empty), with their groups open. A
+    /// group's tick box then applies to the clients shown. Choices made meanwhile don't move or hide rows.
     /// </summary>
-    public bool Find(string text, bool next = false)
+    public void Filter(string text)
     {
         text = text.Trim();
-        if (text.Length == 0)
-        {
-            _find = ("", -1);
-            _list.Highlighted = Rectangle.Empty;
-            return true;
-        }
-        // Every client, also in folded groups: the one found opens its group.
-        var matches = _list.Groups.SelectMany(g => g.People.Select(p => (Group: g, Person: p)))
-            .Where(m => m.Person.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        if (matches.Count == 0)
-        {
-            _list.Highlighted = Rectangle.Empty;
-            return false;
-        }
-        var index = next && _find.Text == text ? (_find.Index + 1) % matches.Count : 0;
-        _find = (text, index);
-        _list.Open(matches[index].Group);
-        var rect = _list.PersonRows().FirstOrDefault(r => ReferenceEquals(r.Person, matches[index].Person)).Rect;
-        _list.Highlighted = rect;
-        if (!rect.IsEmpty)
-            CenterOn(rect);
-        return true;
+        if (text == _filter)
+            return;
+        _filter = text;
+        _list.ForgetFilteredFolds();
+        if (_lastGroups.Count > 0)
+            Arrange(_lastGroups, _inView);
     }
 
     /// <summary>The groups last shown, for re-sorting after a choice.</summary>
     private IReadOnlyList<WatchedGroup> _lastGroups = [];
-
-    /// <summary>Scrolls so the row is in the middle of the list (as far as the list allows).</summary>
-    private void CenterOn(Rectangle row) => ScrollTo(row.Top + row.Height / 2 - Host.Height / 2);
 
     private void Arrange(IReadOnlyList<WatchedGroup> groups, Dictionary<long, List<Client>>? loaded, bool keepScroll = false)
     {
@@ -410,8 +391,8 @@ internal sealed class ClientsView
             foreach (var c in clients.Where(c => _choices.ContainsKey(c.Id) && c.Tickets > 0))
                 _choices[c.Id].Name = c.Name; // keep the stored name current
 
-        var visible = Layout(_shown, _choices.Values.ToList());
-        _find = ("", -1);
+        var visible = Layout(_shown, _choices.Values.ToList(), _filter);
+        _list.Filtering = _filter.Length > 0;
         _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
             s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, c.Tickets > 0
                 ? $"{c.Name} · {c.Tickets} ticket{(c.Tickets == 1 ? "" : "s")} in the last {ZendeskClient.ClientLookBackDays} days"
@@ -423,6 +404,8 @@ internal sealed class ClientsView
 
         if (groups.Count == 0)
             ShowMessage("Tick groups on the Groups page first: their clients show here.");
+        else if (visible.Count == 0 && _filter.Length > 0 && _shown.Any(s => s.Clients.Count > 0))
+            ShowMessage($"No client matches \"{_filter}\".");
         else if (visible.Count == 0)
             ShowMessage(_loaded ? "No tickets in these groups in the last 90 days." : "Sign in on the Account page to see the clients of your groups.");
         else
@@ -433,15 +416,19 @@ internal sealed class ClientsView
     /// <summary>
     /// The list as shown: one foldable section per group (customized clients first, muted last, as sorted by
     /// <see cref="Sections"/>). <c>Changed</c>: it has muted or customized clients, so it starts open. A client in two
-    /// groups shows in both; empty groups are left out.
+    /// groups shows in both; empty groups are left out. With a <paramref name="filter"/>, only clients whose name
+    /// contains it (and groups with any).
     /// </summary>
     internal static List<(string Title, List<Client> Clients, bool Changed)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
-        IReadOnlyList<ClientChoice> choices)
+        IReadOnlyList<ClientChoice> choices, string filter = "")
     {
         var now = DateTimeOffset.UtcNow;
         var byId = choices.ToDictionary(c => c.Id);
         bool Changed(Client c) => byId.GetValueOrDefault(c.Id) is { } choice && !choice.IsDefaultAt(now);
-        return sections.Where(s => s.Clients.Count > 0)
+        return sections
+            .Select(s => (s.Group, Clients: filter.Length == 0 ? s.Clients
+                : s.Clients.Where(c => c.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList()))
+            .Where(s => s.Clients.Count > 0)
             .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed)))
             .ToList();
     }
@@ -490,7 +477,10 @@ internal sealed class ClientsView
         var clients = _shown.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToList();
         var muted = clients.Count(c => ModeOf(c.Id) == ClientMode.Muted);
         var important = clients.Count(c => ModeOf(c.Id) == ClientMode.Important);
+        var matching = _filter.Length == 0 ? 0 : clients.Count(c => c.Name.Contains(_filter, StringComparison.CurrentCultureIgnoreCase));
         var text = clients.Count == 0 ? ""
+            : _filter.Length > 0
+                ? (matching == 0 ? "" : $"{matching} of {clients.Count} clients match · a group's box applies to {(matching == 1 ? "this one" : $"these {matching}")}")
             : (muted == 0 ? $"All {clients.Count} clients notify" : $"{clients.Count - muted} of {clients.Count} clients notify")
               + (important > 0 ? $" · {important} important" : "");
         if (_failed > 0)

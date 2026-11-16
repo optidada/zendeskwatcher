@@ -12,8 +12,17 @@ public sealed class Settings
     // What to watch
     public List<WatchedGroup> WatchedGroups { get; set; } = [];
 
-    /// <summary>How often Zendesk is checked (fixed: Zendesk search lags 1–3 minutes anyway).</summary>
-    public static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(60);
+    /// <summary>
+    /// How often Zendesk is checked (fixed). Every 3 minutes keeps the app's share of the account's API limit small
+    /// (it's shared with everyone and every integration); Zendesk's search lags 1–3 minutes anyway.
+    /// </summary>
+    public static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(3);
+
+    /// <summary>How often while you're away (<see cref="AwayForChecks"/>); a check runs as soon as you're back.</summary>
+    public static readonly TimeSpan AwayCheckInterval = TimeSpan.FromMinutes(10);
+
+    /// <summary>Screen locked, or no mouse or keyboard this long: away, for how often to check.</summary>
+    public static readonly TimeSpan AwayForChecks = TimeSpan.FromMinutes(10);
     public bool TrackMyTickets { get; set; } = true;
 
     /// <summary>Also notify about changes on tickets where I'm CC'd or a follower (same change types as my tickets).</summary>
@@ -256,6 +265,12 @@ public sealed class Settings
     /// <summary>Size of Zendesk Watcher's own notifications in percent (text, buttons and spacing together).</summary>
     public int NotificationSize { get; set; } = 100;
 
+    /// <summary>
+    /// The app's sound volume in percent (Look &amp; sound): half by default, so a notification doesn't startle someone
+    /// with headphones on loud; it only affects this app.
+    /// </summary>
+    public int SoundVolume { get; set; } = 50;
+
     /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
     public bool PausePopupsWhenAway { get; set; } = true;
 
@@ -365,6 +380,7 @@ public sealed class Settings
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
         if (!Enum.IsDefined(Stacking)) Stacking = PopupStacking.List;
         NotificationSize = Math.Clamp(NotificationSize, 100, 200);
+        SoundVolume = Math.Clamp(SoundVolume, 0, 100);
         if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Silent;
         if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Silent;
         if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Silent;

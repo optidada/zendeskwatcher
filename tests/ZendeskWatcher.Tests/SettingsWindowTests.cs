@@ -17,6 +17,7 @@ public class SettingsWindowTests
         NotifyAssignmentChanges = false,
         NotifyPriorityChanges = false,
         NotifyAutomaticChanges = true,
+        SoundVolume = 75,
         HelpColleagues = false,
         HelpRegionDefaultDone = true,
         HelpSameAsMonitored = false,
@@ -105,6 +106,25 @@ public class SettingsWindowTests
 
         var expected = new Settings { Subdomain = saved.Subdomain, WatchedGroups = saved.WatchedGroups, Clients = saved.Clients };
         Assert.Equal(expected.ToJson(), shown.ToJson());
+    }
+
+    [Fact]
+    public void Only_pages_with_unsaved_changes_get_a_dot()
+    {
+        var saved = NonDefaultSettings();
+
+        var (opened, afterReset) = OnUiThread(() =>
+        {
+            using var form = new SettingsForm(saved, _ => new FakeZendesk(), new Notifier((_, _) => { }));
+            form.PagesAsSettings(); // builds every page
+            var opened = form.UnsavedPages();
+            form.ResetToDefaults();
+            return (opened, form.UnsavedPages());
+        });
+
+        Assert.All(opened, dirty => Assert.False(dirty));              // just opened: nothing unsaved anywhere
+        Assert.False(afterReset[0] || afterReset[1] || afterReset[2]); // Reset keeps the account, groups and clients
+        Assert.True(afterReset[3]);                                     // Notifications went back to the defaults
     }
 
     [Fact]

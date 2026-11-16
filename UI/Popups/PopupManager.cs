@@ -147,6 +147,7 @@ public sealed class PopupManager
         Shown?.Invoke(content);
 
         var sound = settings.SoundFor(content);
+        SoundVolume.Apply(settings.SoundVolume);
         if (settings.Stacking == PopupStacking.Achievement && sound != ToastSound.Silent)
             ChipSounds.PlayAchievement(); // the game-style tune instead of its own sound, not both
         else
@@ -554,6 +555,40 @@ public sealed class PopupManager
         }
     }
 
+    /// <summary>A Windows sound playing (they play on their own): to stop it, and until when it plays.</summary>
+    private static SoundPlayer? _windowsSound;
+    private static DateTime _windowsSoundEnds;
+
+    /// <summary>A notification sound is playing (the ▶ buttons in Settings show ■ meanwhile).</summary>
+    public static bool IsSoundPlaying => WavePlayer.IsPlaying || DateTime.UtcNow < _windowsSoundEnds;
+
+    /// <summary>Stops the sound that's playing (a song fades out quickly).</summary>
+    public static void StopSound()
+    {
+        ChipSounds.Stop();
+        try { _windowsSound?.Stop(); } catch (Exception) { /* already over */ }
+        _windowsSound = null;
+        _windowsSoundEnds = DateTime.MinValue;
+    }
+
+    /// <summary>How long a WAV file plays: its data size divided by its bytes per second (from the header).</summary>
+    private static TimeSpan WavLength(string path)
+    {
+        try
+        {
+            using var file = File.OpenRead(path);
+            var header = new byte[32];
+            if (file.Read(header, 0, 32) < 32)
+                return TimeSpan.FromSeconds(1);
+            var bytesPerSecond = BitConverter.ToInt32(header, 28);
+            return bytesPerSecond > 0 ? TimeSpan.FromSeconds(Math.Min(10, (file.Length - 44) / (double)bytesPerSecond)) : TimeSpan.FromSeconds(1);
+        }
+        catch (Exception)
+        {
+            return TimeSpan.FromSeconds(1);
+        }
+    }
+
     /// <summary>Plays a notification sound (also used by the ▶ preview buttons in Settings).</summary>
     public static void PlaySound(ToastSound sound)
     {
@@ -578,7 +613,12 @@ public sealed class PopupManager
         {
             var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media", file);
             if (File.Exists(path))
-                new SoundPlayer(path).Play();
+            {
+                try { _windowsSound?.Stop(); } catch (Exception) { /* already over */ }
+                _windowsSound = new SoundPlayer(path);
+                _windowsSound.Play();
+                _windowsSoundEnds = DateTime.UtcNow + WavLength(path);
+            }
             else
                 SystemSounds.Asterisk.Play();
         }

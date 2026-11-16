@@ -3,6 +3,15 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.8
+
+- **Sounds are quieter**: a new Volume on Look & sound, 50% to start with, so a notification doesn't startle you with headphones on. It only affects this app; ▶ plays at the chosen volume, and shows ■ while playing (click it to stop).
+- **Filter Groups and Clients**: type to show only the matching groups or clients; ✕ or Esc clears it. While filtering, a group's box applies to the clients shown.
+- **Settings can be maximized**: the Groups and Clients lists grow with the window.
+- **Lighter on Zendesk**: the app checks every 3 minutes (every 10 while you're away, and right away when you're back) and combines its requests, about a third of before. If Zendesk ever says it's busy, the whole app pauses until it may go on.
+- **See where you changed something**: pages with unsaved changes get a dot in the sidebar.
+- How it works now starts each topic with what it does for you. Notifications → Colleagues says "Change my work hours".
+
 ## 1.8.7
 
 - **Clients are easier to customize**: one client per line, each with "Options ▾" (important, only urgent, its own sound, mute for a while). Groups → Clients.

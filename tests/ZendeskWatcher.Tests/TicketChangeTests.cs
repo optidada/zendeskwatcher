@@ -364,4 +364,27 @@ public class TicketChangeTests
         Assert.Contains("Still broken", shown.Body);
         Assert.DoesNotContain("Urgent", shown.Body);
     }
+
+    // ---------------------------------------------------------------- fewer requests
+
+    [Fact]
+    public async Task One_check_reads_new_my_and_CCd_tickets_in_one_request()
+    {
+        _settings.WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }];
+        _zendesk.AddAssigned(570, "high", subject: "Mine");
+        AddCc(571, "urgent");
+        var watcher = await StartAsync();
+        _zendesk.Reply(570, Customer, "Any news?");
+        _zendesk.Reply(571, Customer, "Still down");
+        _zendesk.Requested.Clear();
+
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal(2, TakeShown().Count);                                                    // both changes still notify
+        // One re-read for all parts (the fake has no SLA timers, so each notification asks for its own afterwards).
+        var reads = _zendesk.Requested.Where(url => url.Contains("/tickets/show_many.json") && !url.Contains("ids=570&") && !url.Contains("ids=571&")).ToList();
+        var read = Assert.Single(reads);
+        Assert.Contains("570", read);
+        Assert.Contains("571", read);
+    }
 }

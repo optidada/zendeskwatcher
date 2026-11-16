@@ -218,8 +218,10 @@ public sealed class SettingsForm : Form
         Font = Theme.Body;
         BackColor = Theme.Window;
         ClientSize = new Size(840, 680); // tall enough for the Account page with Catch up, without a scrollbar
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
+        // Resizable (e.g. maximized for a long list of clients): the lists on Groups and Clients grow with the height,
+        // and the pages stay centered in a wider window. Never smaller than it opens.
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
         Icon = AppIcon.CreateIcon(AppIcon.NeonGreen, 32);
 
@@ -259,6 +261,10 @@ public sealed class SettingsForm : Form
             var area = Screen.FromControl(this).WorkingArea;
             if (Height > area.Height)
                 Height = area.Height;
+            MinimumSize = Size;
+            _contentWidth = _content.ClientSize.Width;
+            _contentLeft = _content.Padding.Left;
+            _content.SizeChanged += (_, _) => FitToWindow();
             foreach (var page in BuiltPages) CreateHandles(page.Panel);
             Theme.ApplyWindowChrome(this, Theme.Current.Dark); // again, now for the scroll bars and lists too
         };
@@ -385,6 +391,22 @@ public sealed class SettingsForm : Form
         }
     }
 
+    /// <summary>The content area's width and left padding as the window opened (the pages are made for that width).</summary>
+    private int _contentWidth, _contentLeft;
+
+    private SettingsPage? _shownPage;
+
+    /// <summary>Resized or maximized: the page centered in the extra width, and lists that fill the height fit again.</summary>
+    private void FitToWindow()
+    {
+        if (_contentWidth == 0)
+            return;
+        var left = _contentLeft + Math.Max(0, (_content.ClientSize.Width - _contentWidth) / 2);
+        if (_content.Padding.Left != left)
+            _content.Padding = _content.Padding with { Left = left };
+        _shownPage?.OnWindowResized();
+    }
+
     private void SelectPage(int index)
     {
         // Swap pages with drawing turned off, then repaint once, so a page never appears piece by piece.
@@ -399,6 +421,7 @@ public sealed class SettingsForm : Form
             if (_pages[i] is { } page)
                 page.Panel.Visible = page == shown;
         }
+        _shownPage = shown;
         shown.OnShowing();
 
         if (redraw)
@@ -521,12 +544,39 @@ public sealed class SettingsForm : Form
 
     private bool HasUnsavedChanges => Snapshot() != _savedSnapshot;
 
+    /// <summary>
+    /// Which built pages differ from what's saved: each page's values written over the saved settings, compared with
+    /// them ("Start with Windows" too, on General). For the dots in the sidebar.
+    /// </summary>
+    internal bool[] UnsavedPages()
+    {
+        var dirty = new bool[_pages.Length];
+        var bar = _savedSnapshot.LastIndexOf('|');
+        if (bar < 0)
+            return dirty;
+        var saved = Settings.FromJson(_savedSnapshot[..bar]);
+        var savedJson = saved.ToJson();
+        for (var i = 0; i < _pages.Length; i++)
+        {
+            if (_pages[i] is not { } page)
+                continue; // not built: shows the saved values
+            var settings = saved.Clone();
+            page.Apply(settings);
+            dirty[i] = settings.ToJson() != savedJson ||
+                       (page is GeneralPage general && $"startup={general.StartWithWindows}" != _savedSnapshot[(bar + 1)..]);
+        }
+        return dirty;
+    }
+
     private void UpdateSaveState()
     {
         if (_loading)
             return;
 
         var dirty = HasUnsavedChanges;
+        var pages = dirty ? UnsavedPages() : new bool[_pages.Length];
+        for (var i = 0; i < _nav.Count && i < pages.Length; i++)
+            _nav[i].Unsaved = pages[i];
         _save.Enabled = dirty;
         _save.Visible = _saveAndClose.Visible = _discard.Visible = dirty; // only offered when there's something to save
         _close.Visible = !dirty;

@@ -134,8 +134,17 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     public bool MightBeSignedIn => true;
 
+    /// <summary>Answers to give before the normal ones, e.g. a 429 "too many requests".</summary>
+    public Queue<ApiResponse> NextAnswers { get; } = new();
+
+    /// <summary>Every URL requested, in order.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> Requested { get; } = new(); // requests may run side by side
+
     public Task<ApiResponse> GetAsync(string url, CancellationToken ct)
     {
+        Requested.Enqueue(url);
+        if (NextAnswers.TryDequeue(out var answer))
+            return Task.FromResult(answer);
         var uri = new Uri(url);
         var path = uri.AbsolutePath;
         var query = Uri.UnescapeDataString(uri.Query);

@@ -3,13 +3,28 @@ using System.Drawing.Drawing2D;
 namespace ZendeskWatcher.UI;
 
 /// <summary>
-/// A round play button: a soft accent-tinted circle with the accent triangle, filled with the accent on hover and
-/// pressed in slightly on click. Always as tall as the control it plays for (<see cref="MatchHeight"/>), so a row lines up
+/// A round play button: a soft accent-tinted circle with the accent triangle (a square while <see cref="Playing"/>, as a
+/// stop button), filled with the accent on hover and pressed in slightly on click. Always as tall as the control it plays for (<see cref="MatchHeight"/>), so a row lines up
 /// at any display scaling.
 /// </summary>
 public sealed class PlayButton : Control
 {
-    private bool _hover, _pressed;
+    private bool _hover, _pressed, _playing;
+
+    /// <summary>Its sound is playing: shows ■ (stop) instead of ▶.</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool Playing
+    {
+        get => _playing;
+        set
+        {
+            if (_playing == value)
+                return;
+            _playing = value;
+            AccessibleName = value ? "Stop" : "Play";
+            Invalidate();
+        }
+    }
 
     public PlayButton()
     {
@@ -52,13 +67,21 @@ public sealed class PlayButton : Control
             g.DrawEllipse(ring, circle);
         }
 
-        // The triangle, nudged right so it looks centered (its weight sits left of its middle).
         var h = circle.Height * 0.2f;
+        using var mark = new SolidBrush(!Enabled ? Theme.TextMuted : active ? Theme.OnAccent : Theme.Accent);
+        if (_playing)
+        {
+            // A rounded square: stop.
+            float sx = circle.X + circle.Width / 2f, sy = circle.Y + circle.Height / 2f, half = h * 0.8f;
+            using var square = Theme.RoundedRect(new RectangleF(sx - half, sy - half, 2 * half, 2 * half), 1.5f * s);
+            g.FillPath(mark, square);
+            return;
+        }
+        // The triangle, nudged right so it looks centered (its weight sits left of its middle).
         float cx = circle.X + circle.Width / 2f + h * 0.2f, cy = circle.Y + circle.Height / 2f;
-        using var triangle = new SolidBrush(!Enabled ? Theme.TextMuted : active ? Theme.OnAccent : Theme.Accent);
         using var path = new GraphicsPath();
         path.AddPolygon(new[] { new PointF(cx - h * 0.85f, cy - h), new PointF(cx - h * 0.85f, cy + h), new PointF(cx + h, cy) });
-        g.FillPath(triangle, path);
+        g.FillPath(mark, path);
     }
 
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; Invalidate(); }

@@ -1186,7 +1186,10 @@ public sealed class PopupForm : Form
     /// True when the screen is locked, or there's been no input for <see cref="AwayAfter"/>: countdowns pause, so notifications are still
     /// there when the user comes back. Cheap (one Windows call), checked on each animation tick.
     /// </summary>
-    internal static bool UserAway()
+    internal static bool UserAway() => UserAwayFor(AwayAfter);
+
+    /// <summary>The screen is locked, or there's been no mouse or keyboard input for <paramref name="idle"/>.</summary>
+    internal static bool UserAwayFor(TimeSpan idle)
     {
         if (_sessionLocked)
             return true; // locked: away right away, not only after a minute
@@ -1194,7 +1197,7 @@ public sealed class PopupForm : Form
         if (!GetLastInputInfo(ref info))
             return false;
         var idleMs = unchecked((uint)Environment.TickCount - info.dwTime);
-        return idleMs >= AwayAfter.TotalMilliseconds;
+        return idleMs >= idle.TotalMilliseconds;
     }
 
     [StructLayout(LayoutKind.Sequential)]

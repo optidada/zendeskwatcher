@@ -133,10 +133,25 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 parts.Add($"{name} {own.Elapsed.TotalSeconds:0.0}s");
         }
         KeepHistoryFresh(ct); // Experimental features: 90 days of tickets, read in the background
-        var checks = new List<Task> { Timed("unassigned", () => CheckUnassignedAsync(ct)) };
+        // New, my and CC'd tickets each re-read some tickets: one request for all of them (fewer requests to Zendesk).
+        // Every part joins before any starts, and leaves when done, so one that never asks doesn't hold the others up.
+        var batch = new TicketBatch(ids => zendesk.GetTicketsAsync(ids, ct));
+        Func<Task> InBatch(Func<TicketBatch.Part, Task> check)
+        {
+            var part = batch.Join();
+            return async () =>
+            {
+                using (part)
+                    await check(part);
+            };
+        }
+        var unassigned = InBatch(part => CheckUnassignedAsync(ct, part));
+        var mine = settings.TrackMyTickets ? InBatch(part => CheckMyTicketsAsync(ct, part)) : null;
+        var cc = settings.TrackCcTickets ? InBatch(part => CheckCcTicketsAsync(ct, part)) : null;
+        var checks = new List<Task> { Timed("unassigned", unassigned) };
 
-        if (settings.TrackMyTickets)
-            checks.Add(Timed("my tickets", () => CheckMyTicketsAsync(ct)));
+        if (mine is not null)
+            checks.Add(Timed("my tickets", mine));
         else if (_state.MyTicketsBaselined)
         {
             // Rebuild the baseline when tracking is switched on again, instead of reporting stale changes.
@@ -156,8 +171,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             }
         }));
 
-        if (settings.TrackCcTickets)
-            checks.Add(Timed("cc", () => CheckCcTicketsAsync(ct)));
+        if (cc is not null)
+            checks.Add(Timed("cc", cc));
         else if (_state.CcTicketsBaselined)
         {
             _state.CcTickets.Clear();
@@ -174,7 +189,11 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             Log.Info($"Slow check ({total:0.0}s, parts side by side): {string.Join(", ", parts)}");
     }
 
-    private async Task CheckUnassignedAsync(CancellationToken ct)
+    /// <summary>Tickets as they are now: through the check's shared request when there is one.</summary>
+    private Task<List<Ticket>> ReadTicketsAsync(TicketBatch.Part? part, List<long> ids, CancellationToken ct) =>
+        part is not null ? part.ReadAsync(ids) : zendesk.GetTicketsAsync(ids, ct);
+
+    private async Task CheckUnassignedAsync(CancellationToken ct, TicketBatch.Part? part = null)
     {
         var now = DateTimeOffset.UtcNow;
         var total = 0;
@@ -190,7 +209,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         // Plus the new tickets whose notification may still be up, to close it once someone took the ticket.
         var foundIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).ToHashSet();
         var allIds = foundIds.Concat(_announcedNew.Keys).Distinct().ToList();
-        var live = allIds.Count > 0 ? (await zendesk.GetTicketsAsync(allIds, ct)).ToDictionary(t => t.Id) : [];
+        var live = allIds.Count > 0 ? (await ReadTicketsAsync(part, allIds, ct)).ToDictionary(t => t.Id) : [];
         CloseTakenTickets(live, now);
         await LearnSlaAsync(live.Values.Where(t => foundIds.Contains(t.Id)), ct);
 
@@ -342,7 +361,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             settings.TrackCcTickets ? _state.CcTickets.Count : null, settings.TrackCcTickets && _state.CcBaselineFull);
     }
 
-    private async Task CheckMyTicketsAsync(CancellationToken ct)
+    private async Task CheckMyTicketsAsync(CancellationToken ct, TicketBatch.Part? part = null)
     {
         var me = Me!.Id;
 
@@ -364,7 +383,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var previousWatermark = _state.MyTicketsWatermark;
         // Both lists at once: what's newly assigned, and the tracked tickets as they are now.
         var recentTask = zendesk.GetRecentlyUpdatedAssignedAsync(me, ct);
-        var currentTask = _state.MyTickets.Count > 0 ? zendesk.GetTicketsAsync(_state.MyTickets.Keys.ToList(), ct) : Task.FromResult(new List<Ticket>());
+        var currentTask = _state.MyTickets.Count > 0 ? ReadTicketsAsync(part, _state.MyTickets.Keys.ToList(), ct) : Task.FromResult(new List<Ticket>());
         var recent = await recentTask;
         var newlyAssigned = recent
             .Where(t => t.IsOpen && !_state.MyTickets.ContainsKey(t.Id) && t.UpdatedAt > previousWatermark)
@@ -406,7 +425,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// Tickets where I'm CC'd or follow, but am not the assignee (those are covered by my tickets).
     /// Same approach as my tickets: a silent baseline, then the CC'd/followed lists for new ones and audits for changes.
     /// </summary>
-    private async Task CheckCcTicketsAsync(CancellationToken ct)
+    private async Task CheckCcTicketsAsync(CancellationToken ct, TicketBatch.Part? part = null)
     {
         var me = Me!.Id;
         bool Relevant(Ticket t) => t.IsOpen && t.AssigneeId != me;
@@ -425,7 +444,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         // 1. Newly CC'd/followed: updated since the last poll and not tracked yet.
         var previousWatermark = _state.CcTicketsWatermark;
         var recentTask = zendesk.GetRecentlyUpdatedInvolvedAsync(me, ct);
-        var currentTask = _state.CcTickets.Count > 0 ? zendesk.GetTicketsAsync(_state.CcTickets.Keys.ToList(), ct) : Task.FromResult(new List<Ticket>());
+        var currentTask = _state.CcTickets.Count > 0 ? ReadTicketsAsync(part, _state.CcTickets.Keys.ToList(), ct) : Task.FromResult(new List<Ticket>());
         var recent = await recentTask;
         var added = recent
             .Where(t => Relevant(t) && !_state.CcTickets.ContainsKey(t.Id) && t.UpdatedAt > previousWatermark)

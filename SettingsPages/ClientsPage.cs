@@ -13,7 +13,7 @@ internal sealed class ClientsPage : SettingsPage
 
     private readonly GroupsPage _groups;
     private readonly ClientsView _clients = new(ListWidth);
-    private readonly InputBox _filter = new(ListWidth, "Find a client…  (Enter: next)", searchIcon: true);
+    private readonly InputBox _filter = new(ListWidth, "Filter clients…", searchIcon: true);
     private readonly Label _hint = Theme.Label("", Theme.Small, Theme.TextMuted);
     private readonly Button _reload = Theme.SecondaryButton("Reload");
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
@@ -53,14 +53,7 @@ internal sealed class ClientsPage : SettingsPage
         card.Body.Controls.Add(footer);
         Panel.Controls.Add(card);
 
-        _filter.TextChanged += (_, _) => Find(next: false);
-        _filter.Box.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter)
-                return;
-            e.SuppressKeyPress = true; // no beep
-            Find(next: true);
-        };
+        _filter.TextChanged += (_, _) => _clients.Filter(_filter.Text);
         _clients.Changed += Changed;
         _clients.HintChanged += () =>
         {
@@ -112,6 +105,15 @@ internal sealed class ClientsPage : SettingsPage
     /// <summary>Monitored groups may have changed on the Groups page; the list fills the window, only it scrolls.</summary>
     public override void OnShowing()
     {
+        FitList();
+        Refresh();
+    }
+
+    public override void OnWindowResized() => FitList();
+
+    /// <summary>The list as tall as the window allows (at least 120 px), so the page itself doesn't scroll.</summary>
+    private void FitList()
+    {
         var content = Context.Content;
         Panel.PerformLayout();
         var available = content.ClientSize.Height - content.Padding.Vertical;
@@ -122,7 +124,6 @@ internal sealed class ClientsPage : SettingsPage
             _clients.Host.Height = height;
             Panel.PerformLayout();
         }
-        Refresh();
     }
 
     private async void Refresh()
@@ -132,8 +133,6 @@ internal sealed class ClientsPage : SettingsPage
             _reload.Enabled = Context.Client is not null;
             _reload.SetBusy(true, "Loading\u2026");
             await _clients.ShowAsync(_groups.MonitoredGroups(), Context.Client, Context.Current().Subdomain);
-            if (_filter.Text.Trim().Length > 0)
-                Find(next: false);
         }
         catch (Exception ex)
         {
@@ -145,13 +144,10 @@ internal sealed class ClientsPage : SettingsPage
         }
     }
 
-    /// <summary>Goes to a matching client and highlights it; the text turns orange when nothing matches.</summary>
-    private void Find(bool next) => _filter.Box.ForeColor = _clients.Find(_filter.Text, next) ? Theme.Text : Theme.Warning;
-
     /// <summary>After Save or Discard: clients move to their sections (Customized, groups, Muted).</summary>
     public void Resort() => _clients.Resort();
 
-    /// <summary>After Save or Discard: the find box starts empty again (the rows it found may have moved).</summary>
+    /// <summary>After Save or Discard: the filter starts empty again (all clients, in their new sections).</summary>
     public void ClearFind() => _filter.Text = "";
 
     /// <summary>A choice made from a notification while Settings is open.</summary>

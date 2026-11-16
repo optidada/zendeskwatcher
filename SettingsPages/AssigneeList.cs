@@ -56,20 +56,24 @@ internal sealed class AssigneeList : Control
     /// <summary>Groups opened or folded (by title) since the window opened; the others use their StartOpen.</summary>
     private readonly Dictionary<string, bool> _open = [];
 
-    /// <summary>Opens a folded group (e.g. to show a client found by search).</summary>
-    public void Open(Group group)
-    {
-        if (group.Title is not { } title || IsOpen(group))
-            return;
-        _open[title] = true;
-        LayoutItems();
-        Invalidate();
-    }
+    /// <summary>
+    /// While a filter is on (Clients): every group starts open, and folding one lasts until the filter changes
+    /// (<see cref="ForgetFilteredFolds"/>); the folds from before the filter come back after.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool Filtering { get; set; }
+
+    private readonly Dictionary<string, bool> _openWhileFiltering = [];
+
+    /// <summary>Folds made while filtering are forgotten (the filter text changed).</summary>
+    public void ForgetFilteredFolds() => _openWhileFiltering.Clear();
+
+    private Dictionary<string, bool> Folds => Filtering ? _openWhileFiltering : _open;
 
     /// <summary>The groups as shown, with all their people (also in folded groups).</summary>
     public IReadOnlyList<Group> Groups => _groups;
 
-    private bool IsOpen(Group group) => GroupTick is null || group.Title is null || _open.GetValueOrDefault(group.Title, group.StartOpen);
+    private bool IsOpen(Group group) => GroupTick is null || group.Title is null || Folds.GetValueOrDefault(group.Title, Filtering || group.StartOpen);
 
     /// <summary>
     /// Optional: a short label at the right end of a row ("★ Important"), in the accent color when Accent. Used by the
@@ -87,27 +91,6 @@ internal sealed class AssigneeList : Control
     /// <summary>One person per line instead of two columns (Clients: room for "Options ▾" on every row).</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool SingleColumn { get; set; }
-
-    /// <summary>The people's rows in display order (a person in two groups has two), for "find".</summary>
-    public List<(Person Person, Rectangle Rect)> PersonRows() =>
-        _items.Where(i => i.Kind == ItemKind.Person).Select(i => (i.Person!, Rectangle.Round(i.Rect))).ToList();
-
-    /// <summary>A row drawn highlighted (the one "find" went to); empty for none.</summary>
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public Rectangle Highlighted
-    {
-        get => _highlighted;
-        set
-        {
-            if (value == _highlighted)
-                return;
-            Invalidate(_highlighted);
-            _highlighted = value;
-            Invalidate(_highlighted);
-        }
-    }
-
-    private Rectangle _highlighted;
 
     /// <param name="isCovered">Whether a person is ticked.</param>
     /// <param name="setCovered">Ticks or unticks a person.</param>
@@ -128,7 +111,6 @@ internal sealed class AssigneeList : Control
     public void SetGroups(List<Group> groups)
     {
         _groups = groups;
-        _highlighted = Rectangle.Empty;
         _clock.Enabled = groups.Any(g => g.People.Any(p => p.Zone is not null));
         _hover = null;
         _tips.SetToolTip(this, null);
@@ -238,17 +220,11 @@ internal sealed class AssigneeList : Control
                     // mouse is shaded and its ▾ text turns to the accent color.
                     var offersMenu = MenuRequested is not null && Active;
                     var hovered = offersMenu && item == _hover;
-                    if (hovered && rect != _highlighted)
+                    if (hovered)
                     {
                         using var row = new SolidBrush(Theme.Window);
                         using var rowPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
                         g.FillPath(row, rowPath);
-                    }
-                    if (rect == _highlighted)
-                    {
-                        using var mark = new SolidBrush(Theme.AccentSoft);
-                        using var markPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
-                        g.FillPath(mark, markPath);
                     }
                     var box = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s);
                     DrawBox(g, box, _isCovered(item.Person!.Id), item == _hover, s);
@@ -504,7 +480,7 @@ internal sealed class AssigneeList : Control
     {
         if (group.Title is not { } title)
             return;
-        _open[title] = !IsOpen(group);
+        Folds[title] = !IsOpen(group);
         _hover = null;
         LayoutItems();
         Invalidate();

@@ -133,7 +133,7 @@ internal sealed class HelpColleaguesCard
         options.Controls.Add(_workDays.Row);
         options.Controls.Add(Note("In each colleague's own time zone (from Zendesk). Colleagues without a time zone are skipped."));
 
-        var myHoursLink = Theme.Linked("[[Set my hours|Notifications/Working hours]]", Theme.Body);
+        var myHoursLink = Theme.Linked("[[Change my work hours|Notifications/Working hours]]", Theme.Body);
         myHoursLink.Margin = new Padding(6, 4, 0, 0);
         var myHoursRow = Kit.Row(_myHours, myHoursLink);
         myHoursRow.Margin = new Padding(0, 18, 0, 0);

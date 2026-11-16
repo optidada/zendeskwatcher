@@ -414,6 +414,16 @@ public sealed class NavItem : Control
 
     private bool _sub;
 
+    /// <summary>The page has unsaved changes: a small dot after its name.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Unsaved
+    {
+        get => _unsaved;
+        set { if (_unsaved == value) return; _unsaved = value; Invalidate(); }
+    }
+
+    private bool _unsaved;
+
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
 
@@ -428,13 +438,26 @@ public sealed class NavItem : Control
         }
 
         var indent = _sub ? 40 : 24;
-        TextRenderer.DrawText(g, Text, _selected ? Theme.BodyBold : Font, new Rectangle(indent, 0, Width - indent, Height),
+        var font = _selected ? Theme.BodyBold : Font;
+        TextRenderer.DrawText(g, Text, font, new Rectangle(indent, 0, Width - indent, Height),
             _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
+        if (_unsaved)
+        {
+            // In the "Unsaved changes" color, just after the name.
+            var s = DeviceDpi / 96f;
+            var textWidth = TextRenderer.MeasureText(g, Text, font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width;
+            var r = 3.5f * s;
+            var x = indent + textWidth + 8 * s;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using var dot = new SolidBrush(Theme.Warning);
+            g.FillEllipse(dot, x, Height / 2f - r, 2 * r, 2 * r);
+        }
     }
 }
 
 /// <summary>
-/// A text input with inner padding, a rounded border that turns blue on focus, and an optional search icon.
+/// A text input with inner padding, a rounded border that turns blue on focus, and an optional search icon. A search
+/// box also gets an ✕ that empties it while it has text (Esc does the same).
 /// <see cref="Text"/> and <see cref="Control.TextChanged"/> forward to the inner TextBox.
 /// </summary>
 public sealed class InputBox : Panel
@@ -442,6 +465,7 @@ public sealed class InputBox : Panel
     private const int PadX = 10;
     private const int PadY = 7;
     private const int IconSpace = 22;
+    private const int ClearSpace = 22;
 
     private readonly bool _searchIcon;
     private bool _focused;
@@ -469,10 +493,53 @@ public sealed class InputBox : Panel
         Size = new Size(width, Box.PreferredHeight + PadY * 2);
         LayoutBox();
 
-        Box.TextChanged += (_, _) => OnTextChanged(EventArgs.Empty);
+        Box.TextChanged += (_, _) =>
+        {
+            OnTextChanged(EventArgs.Empty);
+            if (_searchIcon)
+                Invalidate(); // the ✕ comes and goes
+        };
+
         Box.GotFocus += (_, _) => { _focused = true; Invalidate(); };
         Box.LostFocus += (_, _) => { _focused = false; Invalidate(); };
         Click += (_, _) => Box.Focus();
+    }
+
+    /// <summary>Esc empties a search box with text, before the window sees it (Esc closes Settings).</summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.Escape && _searchIcon && Box.TextLength > 0)
+        {
+            Box.Text = "";
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    /// <summary>Where the ✕ sits (search boxes with text only).</summary>
+    private Rectangle ClearArea
+    {
+        get
+        {
+            var s = DeviceDpi / 96f;
+            var size = (int)(ClearSpace * s);
+            return _searchIcon && Box.TextLength > 0 ? new Rectangle(Width - size - (int)(4 * s), 0, size, Height) : Rectangle.Empty;
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        Cursor = ClearArea.Contains(e.Location) ? Cursors.Hand : Cursors.IBeam;
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        if (!ClearArea.Contains(e.Location))
+            return;
+        Box.Text = "";
+        Box.Focus();
     }
 
     [AllowNull]
@@ -503,7 +570,7 @@ public sealed class InputBox : Panel
             return;
         var s = DeviceDpi / 96f;
         var left = (int)((PadX + (_searchIcon ? IconSpace : 0)) * s);
-        var right = (int)(PadX * s);
+        var right = (int)((_searchIcon ? ClearSpace + 4 : PadX) * s);
         var bounds = new Rectangle(left, (Height - Box.PreferredHeight) / 2, Math.Max(10, Width - left - right), Box.PreferredHeight);
         if (Box.Bounds != bounds)
             Box.Bounds = bounds;
@@ -530,6 +597,18 @@ public sealed class InputBox : Panel
             var cy = Height / 2f;
             g.DrawEllipse(pen, PadX, cy - 6, 10, 10);
             g.DrawLine(pen, PadX + 8.5f, cy + 2.5f, PadX + 13, cy + 7);
+        }
+
+        if (ClearArea is { IsEmpty: false } clear)
+        {
+            // ✕: empties the box.
+            var s = DeviceDpi / 96f;
+            using var pen = new Pen(Theme.TextMuted, 1.6f * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            var cx = clear.X + clear.Width / 2f;
+            var cy = Height / 2f;
+            var r = 4.5f * s;
+            g.DrawLine(pen, cx - r, cy - r, cx + r, cy + r);
+            g.DrawLine(pen, cx - r, cy + r, cx + r, cy - r);
         }
     }
 }

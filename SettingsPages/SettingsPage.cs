@@ -93,6 +93,9 @@ internal abstract class SettingsPage(SettingsContext context, string title, stri
     /// <summary>The page is about to be shown (e.g. to refresh what depends on other pages).</summary>
     public virtual void OnShowing() { }
 
+    /// <summary>The window was resized or maximized while this page shows (e.g. a list that fills the height).</summary>
+    public virtual void OnWindowResized() { }
+
     protected void Changed() => Context.Changed();
 
     /// <summary>

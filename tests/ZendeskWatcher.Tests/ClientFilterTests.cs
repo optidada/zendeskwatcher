@@ -167,6 +167,26 @@ public class ClientFilterTests
     }
 
     [Fact]
+    public void The_filter_shows_only_matching_clients_and_their_groups()
+    {
+        var sections = new List<(WatchedGroup Group, List<ClientsView.Client> Clients)>
+        {
+            (new WatchedGroup { Id = 1, Name = "Premium" }, [new(21, "Contoso", 3), new(22, "Beta", 1)]),
+            (new WatchedGroup { Id = 2, Name = "Tier 2" }, [new(24, "Delta", 1), new(25, "Contoso Labs", 1)])
+        };
+
+        var contoso = ClientsView.Layout(sections, [], "conTOSO");
+        Assert.Equal(["Premium", "Tier 2"], contoso.Select(s => s.Title));
+        Assert.Equal(["Contoso"], contoso[0].Clients.Select(c => c.Name));
+        Assert.Equal(["Contoso Labs"], contoso[1].Clients.Select(c => c.Name));
+
+        var beta = ClientsView.Layout(sections, [], "bet");
+        Assert.Equal(["Premium"], beta.Select(s => s.Title));                    // a group without a match is left out
+
+        Assert.Empty(ClientsView.Layout(sections, [], "zzz"));
+    }
+
+    [Fact]
     public void Muting_keeps_the_clients_choice_and_unmuting_brings_it_back()
     {
         var now = DateTimeOffset.UtcNow;

@@ -20,6 +20,28 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     private const int MaxPages = 10;
     private const int MaxRateLimitRetries = 3;
 
+    /// <summary>
+    /// Until when every request waits (UTC ticks): Zendesk answered "too many requests". Shared by all clients in the
+    /// app, so the whole app pauses (the checks, Settings, the menus), not just the request that was limited.
+    /// </summary>
+    private static long _pausedUntilTicks;
+
+    /// <summary>When the pause after Zendesk's last "too many requests" ends (in the past when there's none).</summary>
+    public static DateTimeOffset PausedUntil => new(Interlocked.Read(ref _pausedUntilTicks), TimeSpan.Zero);
+
+    /// <summary>Makes every request wait until <paramref name="until"/> (a later pause already set stays).</summary>
+    internal static void PauseUntil(DateTimeOffset until)
+    {
+        var ticks = until.UtcTicks;
+        for (var seen = Interlocked.Read(ref _pausedUntilTicks); ticks > seen;)
+        {
+            var was = Interlocked.CompareExchange(ref _pausedUntilTicks, ticks, seen);
+            if (was == seen)
+                return;
+            seen = was;
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -417,6 +439,9 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
         for (var attempt = 0; ; attempt++)
         {
+            // Zendesk said it's busy (here or in another request): nothing is sent until its wait time is over.
+            if (PausedUntil - DateTimeOffset.UtcNow is { Ticks: > 0 } pause)
+                await Task.Delay(pause, ct);
             Interlocked.Increment(ref _requestCount);
             RequestsByPurpose.AddOrUpdate(caller, 1, (_, n) => n + 1);
             var response = method is null
@@ -436,9 +461,9 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             if (response.Status == (int)HttpStatusCode.TooManyRequests && attempt < MaxRateLimitRetries)
             {
                 var wait = TimeSpan.FromSeconds(Math.Clamp((response.RetryAfter ?? TimeSpan.FromSeconds(30)).TotalSeconds, 1, 120));
-                Log.Info($"Rate limited, waiting {wait.TotalSeconds:0}s");
-                await Task.Delay(wait, ct);
-                continue;
+                Log.Info($"Zendesk is busy (rate limited, {caller}): all requests pause for {wait.TotalSeconds:0} s");
+                PauseUntil(DateTimeOffset.UtcNow + wait);
+                continue; // waits at the top of the loop, like every other request
             }
 
             if (!response.IsSuccess)
