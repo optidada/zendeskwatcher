@@ -13,6 +13,7 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly CheckBox _status = Kit.Check("Status changes");
     private readonly CheckBox _assignment = Kit.Check("Reassignment and group moves");
     private readonly CheckBox _priority = Kit.Check("Priority changes");
+    private readonly CheckBox _automatic = Kit.Check("Automatic updates (bots)");
     private readonly ToggleSwitch _onlyMyHours = new("Only notify me while I'm working");
     private readonly ToggleSwitch _catchUpAtStart = new("Catch up when my working day starts");
     private readonly DayChecks _myDays = new("", new Padding(0));
@@ -39,7 +40,7 @@ internal sealed class NotificationsPage : SettingsPage
         var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
         options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (Kit.CardWidth - 44) / 2));
         options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment];
+        CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment, _automatic];
         for (var i = 0; i < changeTypes.Length; i++)
             options.Controls.Add(changeTypes[i], i % 2, i / 2);
         which.Body.Controls.Add(options);
@@ -67,7 +68,7 @@ internal sealed class NotificationsPage : SettingsPage
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
         _myDays.Changed += Changed;
-        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _onlyMyHours, _catchUpAtStart);
+        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _automatic, _onlyMyHours, _catchUpAtStart);
         _myHours.RangeChanged += (_, _) => Changed();
     }
 
@@ -82,6 +83,7 @@ internal sealed class NotificationsPage : SettingsPage
         _status.Checked = settings.NotifyStatusChanges;
         _assignment.Checked = settings.NotifyAssignmentChanges;
         _priority.Checked = settings.NotifyPriorityChanges;
+        _automatic.Checked = settings.NotifyAutomaticChanges;
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
         _onlyMyHours.Checked = settings.OnlyNotifyDuringMyHours;
@@ -101,6 +103,7 @@ internal sealed class NotificationsPage : SettingsPage
         s.NotifyStatusChanges = _status.Checked;
         s.NotifyAssignmentChanges = _assignment.Checked;
         s.NotifyPriorityChanges = _priority.Checked;
+        s.NotifyAutomaticChanges = _automatic.Checked;
         s.MyTicketPriorities = _myPriorities.Selected;
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.OnlyNotifyDuringMyHours = _onlyMyHours.Checked;
@@ -113,7 +116,7 @@ internal sealed class NotificationsPage : SettingsPage
 
     private void UpdateChangeTypes()
     {
-        foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority })
+        foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority, _automatic })
             box.Enabled = _trackMine.Checked || _trackCc.Checked;
         _myPriorities.Enabled = _trackMine.Checked;
         _ccPriorities.Enabled = _trackCc.Checked;

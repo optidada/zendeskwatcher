@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.7
+
+- **Clients are easier to customize**: one client per line, each with "Options ▾" (important, only urgent, its own sound, mute for a while). Groups → Clients.
+- **Bot updates stay quiet**: the automatic "your request has reached Premium Support" reply and group move no longer notify on your own or CC'd tickets, nor do other changes by Zendesk triggers or service accounts. Status changes still do. Turn them back on in Notifications → Which changes: Automatic updates (bots).
+
 ## 1.8.6
 
 - **Taken tickets close by themselves**: when a colleague takes a new ticket (or it's solved) while its notification is still up, the notification closes within a minute.

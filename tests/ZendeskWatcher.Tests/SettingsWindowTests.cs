@@ -16,6 +16,7 @@ public class SettingsWindowTests
         NotifyStatusChanges = false,
         NotifyAssignmentChanges = false,
         NotifyPriorityChanges = false,
+        NotifyAutomaticChanges = true,
         HelpColleagues = false,
         HelpRegionDefaultDone = true,
         HelpSameAsMonitored = false,

@@ -9,6 +9,9 @@ public sealed class User
     public string? Email { get; set; }
     public string? Role { get; set; }
 
+    /// <summary>The user's Zendesk tags, e.g. "serviceaccountuser" on an integration account.</summary>
+    public List<string> Tags { get; set; } = [];
+
     /// <summary>Time zone as set on the profile, e.g. "Europe/Stockholm" (IANA) and "Stockholm" (Zendesk name).</summary>
     public string? IanaTimeZone { get; set; }
     public string? TimeZone { get; set; }
@@ -67,6 +70,15 @@ public sealed class Audit
     public long AuthorId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public List<AuditEvent> Events { get; set; } = [];
+
+    /// <summary>How the change was made: channel "rule" for a Zendesk trigger or automation.</summary>
+    public AuditVia? Via { get; set; }
+}
+
+public sealed class AuditVia
+{
+    public string? Channel { get; set; }
+    public JsonElement? Source { get; set; }
 }
 
 public sealed class AuditEvent
@@ -76,6 +88,9 @@ public sealed class AuditEvent
     public JsonElement? Value { get; set; }
     public JsonElement? PreviousValue { get; set; }
     public bool? Public { get; set; }
+
+    /// <summary>Set on events a trigger added to someone's update (channel "rule").</summary>
+    public AuditVia? Via { get; set; }
 
     // Text for comments; some events (chat, calls) send an object here instead, which is ignored rather than failing the read.
     [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]

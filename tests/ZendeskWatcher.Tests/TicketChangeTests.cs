@@ -303,4 +303,65 @@ public class TicketChangeTests
         Assert.Equal(["urgent", "high"], settings.CcTicketPriorities);
         await Task.CompletedTask;
     }
+    // ---------------------------------------------------------------- automatic changes
+
+    private const long ServiceAccount = 70;
+
+    private void AddServiceAccount() =>
+        _zendesk.Users[ServiceAccount] = new User { Id = ServiceAccount, Name = "Service User", Role = "admin", Tags = ["serviceaccountuser"] };
+
+    [Fact]
+    public async Task Auto_reply_and_routing_by_a_service_account_stay_quiet()
+    {
+        AddServiceAccount();
+        _zendesk.AddAssigned(560, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.ReplyAndChange(560, ServiceAccount, "Your request has reached Premium Support", ("group_id", "1", "10"));
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Empty(TakeShown());
+    }
+
+    [Fact]
+    public async Task Automatic_changes_notify_when_ticked()
+    {
+        AddServiceAccount();
+        _settings.NotifyAutomaticChanges = true;
+        _zendesk.AddAssigned(561, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(561, ServiceAccount, "Your request has reached Premium Support");
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal("**Service User** replied: Your request has reached Premium Support", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
+    public async Task A_status_change_by_a_service_account_still_notifies()
+    {
+        AddServiceAccount();
+        _zendesk.AddAssigned(562, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.Change(562, ServiceAccount, "status", "pending", "solved");
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Single(TakeShown());
+    }
+
+    [Fact]
+    public async Task A_trigger_added_to_a_customer_reply_is_left_out()
+    {
+        _zendesk.AddAssigned(563, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.ReplyAndChange(563, Customer, "Still broken", ("priority", "high", "urgent"));
+        _zendesk.Audits[563][^1].Events[1].Via = new AuditVia { Channel = "rule" }; // a trigger raised the priority
+        await watcher.PollAsync(CancellationToken.None);
+
+        var shown = Assert.Single(TakeShown());
+        Assert.Contains("Still broken", shown.Body);
+        Assert.DoesNotContain("Urgent", shown.Body);
+    }
 }

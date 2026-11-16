@@ -82,6 +82,22 @@ public static class TicketRules
     public static bool IsCustomer(User? author, Ticket ticket, string? myEmail) =>
         author?.Role == "end-user" && (author.Id == ticket.RequesterId || !SameDomain(author.Email, myEmail));
 
+    /// <summary>
+    /// An integration account rather than a person: tagged "serviceaccountuser" in Zendesk (e.g. the "Service User"
+    /// that greets new tickets and routes them, through the API, so its changes aren't marked as a trigger's).
+    /// </summary>
+    public static bool IsServiceAccount(User? user) =>
+        user?.Tags?.Any(t => string.Equals(t, "serviceaccountuser", StringComparison.OrdinalIgnoreCase)) == true;
+
+    /// <summary>
+    /// A change nobody made by hand: by a service account (<see cref="IsServiceAccount"/>), or by a Zendesk trigger or
+    /// automation (via "rule", on the update or on the event a trigger added to someone's update). Status changes never
+    /// count as automatic: a ticket reopened or closed as "No response" matters whoever did it.
+    /// </summary>
+    public static bool IsAutomaticChange(AuditEvent ev, Audit audit, bool byServiceAccount) =>
+        ev is not { Type: "Change", FieldName: "status" or "custom_status_id" } &&
+        (byServiceAccount || audit.Via?.Channel == "rule" || ev.Via?.Channel == "rule");
+
     private static bool SameDomain(string? a, string? b)
     {
         static string? Domain(string? email) => email?.LastIndexOf('@') is > 0 and var at ? email[(at + 1)..].Trim().ToLowerInvariant() : null;

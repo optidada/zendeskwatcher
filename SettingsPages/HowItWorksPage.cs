@@ -35,6 +35,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "status, priority or reassignment (Notifications → Which changes).",
             "Changes you make yourself never notify. Status changes leave out New → Open, Solved → Closed, " +
             "and a ticket reopened by a reply (the reply says it).",
+            "Automatic updates stay quiet: the auto-reply and group move on a new ticket, and changes by Zendesk triggers or " +
+            "service accounts. Their status changes still notify (Notifications → Which changes: Automatic updates).",
             "Each for the priorities you choose (the ticket's current priority; none counts as Normal). CC / following is Urgent (P1) " +
             "and High (P2) by default. Custom statuses count too, e.g. In progress → Escalated."
         ]),

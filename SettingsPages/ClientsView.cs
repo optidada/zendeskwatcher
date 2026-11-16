@@ -71,7 +71,8 @@ internal sealed class ClientsView
             // Each group: a tick box for all its clients (mixed when some are muted) and a count; folded until opened.
             GroupTick = group => group.People.All(p => ModeOf(p.Id) != ClientMode.Muted) ? true
                 : group.People.All(p => ModeOf(p.Id) == ClientMode.Muted) ? false : null,
-            GroupNote = GroupNote
+            GroupNote = GroupNote,
+            SingleColumn = true // one client per line, each with "Options ▾"
         };
         _list.GroupToggled += group =>
         {
@@ -491,7 +492,7 @@ internal sealed class ClientsView
         var important = clients.Count(c => ModeOf(c.Id) == ClientMode.Important);
         var text = clients.Count == 0 ? ""
             : (muted == 0 ? $"All {clients.Count} clients notify" : $"{clients.Count - muted} of {clients.Count} clients notify")
-              + (important > 0 ? $" · {important} important" : "") + " · click a name for more";
+              + (important > 0 ? $" · {important} important" : "");
         if (_failed > 0)
             text += $" · could not load {_failed} group(s)";
         SetHint(text);

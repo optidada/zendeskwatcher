@@ -28,6 +28,11 @@ public sealed class Settings
     public bool NotifyStatusChanges { get; set; } = true;
     public bool NotifyAssignmentChanges { get; set; } = true;
     public bool NotifyPriorityChanges { get; set; } = true;
+    /// <summary>
+    /// Also changes made automatically (Zendesk triggers/automations, service accounts like the auto-reply on new
+    /// tickets): off by default. Status changes notify either way (<see cref="Tracking.TicketRules.IsAutomaticChange"/>).
+    /// </summary>
+    public bool NotifyAutomaticChanges { get; set; }
 
     /// <summary>
     /// "Help colleagues": notify when a customer replies on a colleague's open ticket while the colleague is outside

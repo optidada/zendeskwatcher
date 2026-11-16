@@ -19,7 +19,7 @@ internal sealed class ClientsPage : SettingsPage
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
 
     public ClientsPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Click a name for more: important, only urgent, or its own sound.")
+        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Options: important, only urgent, its own sound or mute for a while.")
     {
         _groups = groups;
         var card = new Card("Clients of your monitored groups",

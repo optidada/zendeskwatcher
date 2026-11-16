@@ -84,6 +84,10 @@ internal sealed class AssigneeList : Control
     /// </summary>
     public event Action<Person, Point>? MenuRequested;
 
+    /// <summary>One person per line instead of two columns (Clients: room for "Options ▾" on every row).</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool SingleColumn { get; set; }
+
     /// <summary>The people's rows in display order (a person in two groups has two), for "find".</summary>
     public List<(Person Person, Rectangle Rect)> PersonRows() =>
         _items.Where(i => i.Kind == ItemKind.Person).Select(i => (i.Person!, Rectangle.Round(i.Rect))).ToList();
@@ -170,13 +174,14 @@ internal sealed class AssigneeList : Control
                 items.Add(new Item(ItemKind.None, new RectangleF(titleWidth + allWidth, y, noneWidth, height), "None", group));
                 y += height;
             }
-            var width = (Width - indent - 8 * s) / 2;
+            var columns = SingleColumn ? 1 : 2;
+            var width = (Width - indent - 8 * s * (columns - 1)) / columns;
             for (var i = 0; i < group.People.Count; i++)
             {
                 var rowHeight = 26 * s;
-                var x = indent + (i % 2 == 0 ? 0 : width + 8 * s);
+                var x = indent + i % columns * (width + 8 * s);
                 items.Add(new Item(ItemKind.Person, new RectangleF(x, y, width, rowHeight), group.People[i].Name, group, group.People[i]));
-                if (i % 2 == 1 || i == group.People.Count - 1)
+                if (i % columns == columns - 1 || i == group.People.Count - 1)
                     y += rowHeight;
             }
             first = false;
@@ -229,6 +234,16 @@ internal sealed class AssigneeList : Control
                     break;
 
                 case ItemKind.Person:
+                    // With a menu (Clients): every row ends in "Options ▾" (or its choice with ▾); the row under the
+                    // mouse is shaded and its ▾ text turns to the accent color.
+                    var offersMenu = MenuRequested is not null && Active;
+                    var hovered = offersMenu && item == _hover;
+                    if (hovered && rect != _highlighted)
+                    {
+                        using var row = new SolidBrush(Theme.Window);
+                        using var rowPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
+                        g.FillPath(row, rowPath);
+                    }
                     if (rect == _highlighted)
                     {
                         using var mark = new SolidBrush(Theme.AccentSoft);
@@ -238,12 +253,15 @@ internal sealed class AssigneeList : Control
                     var box = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s);
                     DrawBox(g, box, _isCovered(item.Person!.Id), item == _hover, s);
                     var text = new Rectangle((int)(box.Right + 8 * s), rect.Y, rect.Width - (int)(24 * s), rect.Height);
-                    if (Badge?.Invoke(item.Person.Id) is { } badge)
+                    var badge = Badge?.Invoke(item.Person.Id);
+                    if (offersMenu)
+                        badge = badge is { } b ? (b.Text + "  ▾", b.Accent || hovered) : ("Options  ▾", hovered);
+                    if (badge is { } shownBadge)
                     {
-                        var badgeWidth = TextRenderer.MeasureText(badge.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+                        var badgeWidth = TextRenderer.MeasureText(shownBadge.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
                         var badgeRight = rect.Right - (int)(10 * s);
-                        TextRenderer.DrawText(g, badge.Text, Theme.Small, new Rectangle(badgeRight - badgeWidth, rect.Y, badgeWidth, rect.Height),
-                            !Active ? Theme.TextMuted : badge.Accent ? Theme.Accent : Theme.TextMuted,
+                        TextRenderer.DrawText(g, shownBadge.Text, Theme.Small, new Rectangle(badgeRight - badgeWidth, rect.Y, badgeWidth, rect.Height),
+                            !Active ? Theme.TextMuted : shownBadge.Accent ? Theme.Accent : Theme.TextMuted,
                             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
                         text.Width = badgeRight - badgeWidth - (int)(8 * s) - text.X;
                     }

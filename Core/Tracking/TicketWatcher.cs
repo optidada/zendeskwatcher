@@ -749,13 +749,19 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         foreach (var audit in audits)
         {
             var author = audit.AuthorId == SystemUserId ? "Zendesk" : await zendesk.GetUserNameAsync(audit.AuthorId, ct);
+            // Automatic changes (Notifications → Which changes): the auto-reply and routing on a new ticket, triggers.
+            var byServiceAccount = !settings.NotifyAutomaticChanges && audit.AuthorId > 0 &&
+                                   TicketRules.IsServiceAccount(await zendesk.GetUserAsync(audit.AuthorId, ct)); // cached by the name above
+            bool Shown(AuditEvent e) => settings.NotifyAutomaticChanges || !TicketRules.IsAutomaticChange(e, audit, byServiceAccount);
             // A custom status change ("In progress → Escalated") says more than the basic one recorded with it.
             var hasCustomStatus = audit.Events.Any(e => e.Type == "Change" && e.FieldName == "custom_status_id");
             // A reply shown in the same update: a reopen with it goes without saying (TicketRules.IsImpliedReopen).
-            var withReply = settings.NotifyPublicReplies && audit.Events.Any(e => e.Type == "Comment" && e.Public == true);
+            var withReply = settings.NotifyPublicReplies && audit.Events.Any(e => e.Type == "Comment" && e.Public == true && Shown(e));
             foreach (var ev in audit.Events)
             {
                 if (hasCustomStatus && ev is { Type: "Change", FieldName: "status" })
+                    continue;
+                if (!Shown(ev))
                     continue;
                 if (await DescribeAsync(ev, author, settings.ShowCommentText, ct) is not { } line)
                     continue;
