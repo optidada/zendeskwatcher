@@ -270,15 +270,13 @@ internal sealed class GroupsPage : SettingsPage
     /// <summary>After Save or Discard: the filter starts empty again (all groups, in their new sections).</summary>
     public void ClearFind() => _filter.Text = "";
 
-    /// <summary>After Save or Discard: rows move to their sections, keeping the scroll position as far as possible.</summary>
+    /// <summary>After Save or Discard: rows move to their sections, shown from the top (like Clients): the monitored groups lead.</summary>
     public void Resort()
     {
         if (!_needsSort)
             return;
-        var position = _list.VerticalScrollState()?.Pos;
         ShowList();
-        if (position is { } pos)
-            _list.ScrollToPosition(pos);
+        _list.ScrollToPosition(0);
         _scrollBar.Invalidate();
     }
 

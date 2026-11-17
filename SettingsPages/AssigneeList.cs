@@ -98,6 +98,26 @@ internal sealed class AssigneeList : Control
     /// </summary>
     public event Action<Person, Point>? MenuRequested;
 
+    /// <summary>
+    /// Optional: "Options ▾" on each group's row (or a right-click on it) asks for a menu for the whole group, at that
+    /// point (screen coordinates). Used by the Clients page: one choice for all the group's clients.
+    /// </summary>
+    public event Action<Group, Point>? GroupMenuRequested;
+
+    private const string GroupOptionsText = "Options  ▾";
+
+    /// <summary>Where a group row's "Options ▾" is.</summary>
+    private Rectangle GroupOptionsRect(Item fold)
+    {
+        var rect = Rectangle.Round(fold.Rect);
+        var width = TextRenderer.MeasureText(GroupOptionsText, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+        var right = rect.Right - (int)(10 * DpiScale);
+        return new Rectangle(right - width, rect.Y, width, rect.Height);
+    }
+
+    /// <summary>The mouse is on the hovered group row's "Options ▾" (it turns to the accent color).</summary>
+    private bool _hoverOnGroupOptions;
+
     /// <summary>One person per line instead of two columns (Clients: room for "Options ▾" on every row).</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool SingleColumn { get; set; }
@@ -286,9 +306,18 @@ internal sealed class AssigneeList : Control
                     var titleWidth = TextRenderer.MeasureText(item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
                     TextRenderer.DrawText(g, item.Text, Font, new Rectangle(titleX, rect.Y, titleWidth + 2, rect.Height), Active ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    var noteRight = rect.Right;
+                    if (GroupMenuRequested is not null && Active)
+                    {
+                        // "Options ▾" at the right end: choices for all the group's clients (Clients page).
+                        var options = GroupOptionsRect(item);
+                        TextRenderer.DrawText(g, GroupOptionsText, Theme.Small, options, item == _hover && _hoverOnGroupOptions ? Theme.Accent : Theme.TextMuted,
+                            TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                        noteRight = options.Left - (int)(8 * s);
+                    }
                     if (GroupNote?.Invoke(item.Group) is { Length: > 0 } note)
-                        TextRenderer.DrawText(g, note, Theme.Small, new Rectangle(titleX + titleWidth + 4, rect.Y, Math.Max(0, rect.Right - titleX - titleWidth - 4), rect.Height),
-                            Theme.TextMuted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                        TextRenderer.DrawText(g, note, Theme.Small, new Rectangle(titleX + titleWidth + 4, rect.Y, Math.Max(0, noteRight - titleX - titleWidth - 4), rect.Height),
+                            Theme.TextMuted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
                     break;
                 }
 
@@ -354,8 +383,10 @@ internal sealed class AssigneeList : Control
     {
         base.OnMouseMove(e);
         var hit = HitTest(e.Location);
-        if (hit == _hover)
+        var onOptions = hit is { Kind: ItemKind.Fold } && GroupMenuRequested is not null && GroupOptionsRect(hit).Contains(e.Location);
+        if (hit == _hover && onOptions == _hoverOnGroupOptions)
             return;
+        _hoverOnGroupOptions = onOptions;
         _hover = hit;
         Cursor = hit is not null && Active ? Cursors.Hand : Cursors.Default;
         _tips.SetToolTip(this, hit?.Person?.Tip);
@@ -522,6 +553,13 @@ internal sealed class AssigneeList : Control
             return; // read-only (signed out): groups still open and fold
         if (IsInteractive(hit))
             _focusKey = KeyOf(hit); // the keyboard continues from the clicked row
+        // A group's "Options ▾" (or a right-click on its row): the menu for all its clients.
+        if (hit.Kind == ItemKind.Fold && GroupMenuRequested is not null && Active &&
+            (e.Button == MouseButtons.Right || GroupOptionsRect(hit).Contains(e.Location)))
+        {
+            GroupMenuRequested(hit.Group, PointToScreen(new Point(GroupOptionsRect(hit).Left, Rectangle.Round(hit.Rect).Bottom)));
+            return;
+        }
         // With a menu: the name (or a right-click) opens it, the check box toggles.
         if (hit.Kind == ItemKind.Person && MenuRequested is not null &&
             (e.Button == MouseButtons.Right || e.X > hit.Rect.X + 24 * DpiScale))

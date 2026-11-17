@@ -89,7 +89,8 @@ tickets are. Your own tickets notify you in any group.
 
 Control which clients you get notifications from. You hear about every client in your groups to begin with. Untick a
 client to mute it, or use **Options ▾** to make one Important (always notifies, stays until you close it), only urgent,
-muted until your shift ends or your next shift, or give it its own sound.
+muted until your shift ends or your next shift, or give it its own sound. **Options ▾** on a group's row sets it
+for all its clients at once.
 
 ![Clients](docs/images/settings-clients.png)
 

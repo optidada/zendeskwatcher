@@ -44,7 +44,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "This is where you control which clients you get notifications from. To begin with you hear about every client in " +
             "your monitored groups, new ones too. Mute the clients you don't handle, and make sure you never miss the important ones.",
             "On the [[Groups → Clients|Clients]] page, untick a client (or a whole group) to mute it, or use Options ▾ for more. " +
-            "Options ▾ on a notification's client line does the same.",
+            "Options ▾ on a group's row sets it for all its clients at once, and Options ▾ on a notification's client line " +
+            "does the same for one client.",
             [
                 "Important ★: always notifies, also outside your hours and for priorities you unticked, and stays until you close it.",
                 "Only urgent: notifies just for Urgent (P1) and High (P2).",
@@ -250,6 +251,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(Kit.CardWidth - 40, 0)
             };
             heading.Anchor = AnchorStyles.Left;
+            // The title centered when the topic is folded: as much space below it as above.
+            heading.Margin = Padding.Empty;
+            card.Padding = card.Padding with { Bottom = card.Padding.Top };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var chevron = new Chevron { Anchor = AnchorStyles.Right, Margin = Padding.Empty };

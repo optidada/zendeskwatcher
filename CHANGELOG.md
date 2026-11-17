@@ -3,6 +3,12 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.13
+
+- **Options for a whole group of clients**: Options ▾ on a group's row on the Clients page sets Only urgent, Important, a mute or a sound for all its clients at once.
+- **A guide with screenshots** on GitHub shows every notification and Settings page (linked from the install guide).
+- The Groups list starts from the top after Save, like Clients; How it works topics have their titles centered.
+
 ## 1.8.12
 
 - **Calmer notifications**: who it's from and how long ago on one line, the reply deadline at its right end, and what they wrote in quotes. No more "Client:" or "replied:", and a title never ends with one word alone on its line.

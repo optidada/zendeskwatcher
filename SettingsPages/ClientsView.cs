@@ -106,6 +106,39 @@ internal sealed class ClientsView
                 Changed?.Invoke();
             }, AppearancePage.SoundOptions.Where(o => o.Value != ToastSound.Silent).Select(o => (o.Value, o.Label)).Prepend((ToastSound.Silent, "Silent")).ToList())
             .Show(at);
+        // A group's Options ▾: one choice for all its clients (those shown, while filtering). Only what was changed is
+        // applied: picking a sound keeps each client's Important or Only urgent, and the other way round.
+        _list.GroupMenuRequested += (group, at) =>
+        {
+            var choices = group.People.Select(ChoiceFor).ToList();
+            var first = choices.FirstOrDefault();
+            bool Same(Func<ClientChoice, object?> part) => first is not null && choices.All(c => Equals(part(c), part(first)));
+            var all = new ClientChoice
+            {
+                Name = $"all {group.People.Count} clients in {group.Title}",
+                Mode = Same(c => c.Mode) ? first!.Mode : ClientMode.Normal,
+                IsMuted = Same(c => (c.IsMuted, c.MutedUntil)) && first!.IsMuted,
+                MutedUntil = Same(c => (c.IsMuted, c.MutedUntil)) ? first!.MutedUntil : null,
+                Sound = Same(c => c.Sound) ? first!.Sound : null
+            };
+            ClientMenu.Build(all, chosen =>
+            {
+                var modeChanged = chosen.Mode != all.Mode || chosen.IsMuted != all.IsMuted || chosen.MutedUntil != all.MutedUntil;
+                var soundChanged = chosen.Sound != all.Sound;
+                foreach (var choice in choices)
+                {
+                    if (modeChanged)
+                        (choice.Mode, choice.IsMuted, choice.MutedUntil) = (chosen.Mode, chosen.IsMuted, chosen.MutedUntil);
+                    if (soundChanged)
+                        choice.Sound = chosen.Sound;
+                    Store(choice);
+                }
+                _list.Invalidate();
+                UpdateHint();
+                Changed?.Invoke();
+            }, AppearancePage.SoundOptions.Where(o => o.Value != ToastSound.Silent).Select(o => (o.Value, o.Label)).Prepend((ToastSound.Silent, "Silent")).ToList())
+            .Show(at);
+        };
         Host.Controls.Add(_message);
         Host.Controls.Add(_scrollBar);
         Host.Controls.Add(_list);
