@@ -689,7 +689,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// </summary>
     private async Task<(string Customer, AuditEvent Comment, DateTimeOffset At)?> LatestCustomerReplyAsync(Ticket ticket, DateTimeOffset since, CancellationToken ct)
     {
-        var audits = await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct);
+        // Only the comments (who wrote what): much less than the full history, and all this needs.
+        var audits = await zendesk.GetCommentsSinceAsync(ticket.Id, since, ct);
         foreach (var audit in audits.OrderByDescending(a => a.CreatedAt))
         {
             var comment = audit.Events.FirstOrDefault(e => e.Type == "Comment" && e.Public == true);
@@ -749,7 +750,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 try
                 {
                     var after = new List<(Audit, string?)>();
-                    foreach (var audit in await zendesk.GetAuditsSinceAsync(id, changedAt, ct))
+                    // A colleague's ticket is handled by an agent's public reply: the comments are enough. My own or a
+                    // CC'd one by any change of mine (a status, a field): the full history.
+                    var changes = content.Kind == NotificationKind.HelpColleague
+                        ? await zendesk.GetCommentsSinceAsync(id, changedAt, ct)
+                        : await zendesk.GetAuditsSinceAsync(id, changedAt, ct);
+                    foreach (var audit in changes)
                         after.Add((audit, audit.AuthorId > 0 ? (await zendesk.GetUserAsync(audit.AuthorId, ct))?.Role : null));
                     if (TicketRules.HandledSince(content.Kind, after, me))
                     {
@@ -824,7 +830,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             }
             else
                 foreach (var ticket in (await zendesk.GetAssigneeTicketsUpdatedSinceAsync(userId, since, ct)).Take(5))
-                    foreach (var audit in await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
+                    foreach (var audit in await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct, ticket.UpdatedAt))
                         if (audit.AuthorId == userId && (last is null || audit.CreatedAt > last))
                             last = audit.CreatedAt;
             _activity[userId] = (now, last, true);
@@ -914,7 +920,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             return;
 
         var me = Me!.Id;
-        var all = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct)).OrderBy(a => a.CreatedAt).ToList();
+        var all = (await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct, ticket.UpdatedAt)).OrderBy(a => a.CreatedAt).ToList();
         var audits = all.Where(a => a.AuthorId != me);
         // The customer wrote last (no public answer since, also not mine): the follow-up SLA clock runs from then.
         DateTimeOffset? customerWroteAt = null;

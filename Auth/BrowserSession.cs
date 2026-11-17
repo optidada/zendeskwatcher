@@ -492,11 +492,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
                        "limits: r.ok ? null : [...r.headers].filter(h => /rate-?limit/i.test(h[0])).map(h => h[0] + ': ' + h[1]).join('; ') }; })";
         var script = method is null
             ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + toResult
-            : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
-              ".then(r => r.json()).then(me => " +
-              $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
-              "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': (me.user && me.user.authenticity_token) || '' }, " +
-              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + toResult;
+            : ChangeScript(MeUrl, url, method, jsonBody ?? "") + toResult;
 
         var parameters = JsonSerializer.Serialize(new { expression = script, awaitPromise = true, returnByValue = true });
         var resultJson = await _web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters);
@@ -519,6 +515,24 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
         var limits = value.TryGetProperty("limits", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() : null;
         return new ApiResponse(status, body, retryAfter, string.IsNullOrEmpty(limits) ? null : limits);
+    }
+
+    /// <summary>
+    /// The JavaScript for a change (PUT/POST), up to the response: it needs Zendesk's CSRF token, which users/me returns.
+    /// The token is kept in the page (window.__zwCsrf) after the first one, so Take it is one round trip, not two. A
+    /// reload (sign-in, recovery) forgets it; refused (401/403/422): a fresh token, and the change is tried once more.
+    /// </summary>
+    internal static string ChangeScript(string meUrl, string url, string method, string jsonBody)
+    {
+        var token = "(fresh => (!fresh && window.__zwCsrf) ? Promise.resolve(window.__zwCsrf) : " +
+                    $"fetch({JsonSerializer.Serialize(meUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
+                    ".then(r => r.json()).then(me => (window.__zwCsrf = (me.user && me.user.authenticity_token) || ''))) ";
+        var change = $"(t => fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
+                     "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': t }, " +
+                     $"body: {JsonSerializer.Serialize(jsonBody)} }})) ";
+        return $"(() => {{ const token = {token}; const change = {change}; " +
+               "return token(false).then(change).then(r => (r.status === 401 || r.status === 403 || r.status === 422) " +
+               "? token(true).then(change) : r); })()";
     }
 
     private static bool IsAgent(string meJson)

@@ -70,6 +70,15 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// <summary>Zendesk API requests made since the last call (all clients); for the request statistics in the log.</summary>
     public static int TakeRequestCount() => Interlocked.Exchange(ref _requestCount, 0);
 
+    /// <summary>Since the app started: time spent waiting for answers, time converting them, and the text received (for measuring one job).</summary>
+    public static (TimeSpan Waiting, TimeSpan Reading, long Chars) Timings =>
+        (TimeSpan.FromTicks(Interlocked.Read(ref _waitTicks)), TimeSpan.FromTicks(Interlocked.Read(ref _parseTicks)), Interlocked.Read(ref _bodyChars));
+    private static long _waitTicks, _parseTicks, _bodyChars;
+
+    /// <summary>All requests since the app started (never reset): for measuring one job, e.g. Catch up.</summary>
+    public static long RequestCount => Interlocked.Read(ref _requestTotal);
+    private static long _requestTotal;
+
     /// <summary>Requests per purpose (the method that made them, e.g. "UnassignedTickets"), for the log.</summary>
     private static readonly ConcurrentDictionary<string, int> RequestsByPurpose = new();
 
@@ -240,13 +249,41 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// first page that reaches already-seen changes, instead of downloading the whole history (with every comment)
     /// for each change. If Zendesk returns oldest first anyway, it reads all pages like before.
     /// </summary>
-    public async Task<List<Audit>> GetAuditsSinceAsync(long ticketId, DateTimeOffset since, CancellationToken ct)
+    /// <param name="ticketUpdatedAt">
+    /// The ticket's "updated at" as just read, if known: then a history read earlier is reused while the ticket hasn't
+    /// changed since (any comment or change moves it), so it's never out of date. In memory, for this connection.
+    /// </param>
+    public async Task<List<Audit>> GetAuditsSinceAsync(long ticketId, DateTimeOffset since, CancellationToken ct, DateTimeOffset? ticketUpdatedAt = null)
+    {
+        if (ticketUpdatedAt == default(DateTimeOffset))
+            ticketUpdatedAt = null; // not sent: can't tell whether it changed
+        if (ticketUpdatedAt is { } updated)
+        {
+            lock (AuditCache)
+                if (AuditCache.TryGetValue(ticketId, out var known) && known.UpdatedAt == updated && known.Since <= since)
+                    return [.. known.Audits.Where(a => a.CreatedAt > since)];
+        }
+        var result = await ReadAuditsSinceAsync(ticketId, since, ct);
+        if (ticketUpdatedAt is { } read)
+            lock (AuditCache)
+            {
+                if (AuditCache.Count > 2000)
+                    AuditCache.Clear(); // a long-running app: old ones are long stale anyway
+                AuditCache[ticketId] = (read, since, result);
+            }
+        return result;
+    }
+
+    /// <summary>Ticket id → its history as read: for which "updated at" and from when.</summary>
+    private readonly Dictionary<long, (DateTimeOffset UpdatedAt, DateTimeOffset Since, List<Audit> Audits)> AuditCache = [];
+
+    private async Task<List<Audit>> ReadAuditsSinceAsync(long ticketId, DateTimeOffset since, CancellationToken ct)
     {
         var result = new List<Audit>();
         string? next = $"/api/v2/tickets/{ticketId}/audits.json?sort_order=desc&include=users";
         for (var page = 0; next is not null && page < MaxPages; page++)
         {
-            var response = await GetAsync<AuditsResponse>(next, ct);
+            var response = await GetAsync<AuditsResponse>(next, ct, "GetAuditsSinceAsync"); // counted as before
             foreach (var author in response.Users ?? [])
                 RememberUser(author); // the authors came along: looking them up later costs nothing
             var audits = response.Audits;
@@ -254,6 +291,35 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
             var newestFirst = audits.Count < 2 || audits[0].CreatedAt >= audits[^1].CreatedAt;
             if (newestFirst && audits.Count > 0 && audits[^1].CreatedAt <= since)
+                break;
+            next = response.Next;
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// A ticket's comments (public replies and notes) after <paramref name="since"/>, as audits with one Comment event
+    /// each, so the same rules read them. Much less than the full history (no status changes, trigger actions or
+    /// metadata): for Catch up, which only asks who wrote last. Newest first, 20 per page, stopping once past
+    /// <paramref name="since"/>.
+    /// </summary>
+    public async Task<List<Audit>> GetCommentsSinceAsync(long ticketId, DateTimeOffset since, CancellationToken ct)
+    {
+        var result = new List<Audit>();
+        string? next = $"/api/v2/tickets/{ticketId}/comments.json?sort_order=desc&include=users&per_page=20";
+        for (var page = 0; next is not null && page < MaxPages; page++)
+        {
+            var response = await GetAsync<CommentsResponse>(next, ct);
+            foreach (var author in response.Users ?? [])
+                RememberUser(author);
+            var comments = response.Comments;
+            result.AddRange(comments.Where(c => c.CreatedAt > since).Select(c => new Audit
+            {
+                Id = c.Id, AuthorId = c.AuthorId, CreatedAt = c.CreatedAt,
+                Events = [new AuditEvent { Type = "Comment", Public = c.Public, PlainBody = c.PlainBody, Body = c.Body }]
+            }));
+            var newestFirst = comments.Count < 2 || comments[0].CreatedAt >= comments[^1].CreatedAt;
+            if (newestFirst && comments.Count > 0 && comments[^1].CreatedAt <= since)
                 break;
             next = response.Next;
         }
@@ -354,14 +420,14 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// <summary>
     /// The clients (organizations) of a group's tickets created in the last <see cref="ClientLookBackDays"/> days, with
     /// how many tickets each had, most first. Zendesk doesn't tie organizations to groups, so the tickets tell.
-    /// <see cref="ClientChoice.NoClientId"/> stands for tickets without one. Reads up to 500 tickets (5 searches). With
-    /// each client's products (<see cref="Organization.Products"/>, from the same request as the names).
+    /// <see cref="ClientChoice.NoClientId"/> stands for tickets without one. Reads them all with search export (1,000 per
+    /// request; the normal search stopped at 500, so busy groups' lists were incomplete). With each client's products
+    /// (<see cref="Organization.Products"/>, from the same request as the names).
     /// </summary>
     public async Task<List<(long Id, string Name, int Tickets, List<string> Products)>> GetGroupClientsAsync(long groupId, CancellationToken ct)
     {
         var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
-        var query = $"type:ticket group:{group} created>{DateTime.UtcNow.AddDays(-ClientLookBackDays):yyyy-MM-dd}";
-        var tickets = await GetAllPagesAsync<SearchResponse, Ticket>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&per_page=100", r => r.Results, ct, maxPages: 5);
+        var tickets = await ExportTicketsAsync($"group:{group} created>{DateTime.UtcNow.AddDays(-ClientLookBackDays):yyyy-MM-dd}", ct);
         var counts = tickets.GroupBy(t => t.OrganizationId ?? ClientChoice.NoClientId).ToDictionary(g => g.Key, g => g.Count());
 
         // Names in batches of 100 (show_many); cached with the ones notifications use.
@@ -544,14 +610,18 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             if (PausedUntil - DateTimeOffset.UtcNow is { Ticks: > 0 } pause)
                 await Task.Delay(pause, ct);
             Interlocked.Increment(ref _requestCount);
+            Interlocked.Increment(ref _requestTotal);
             lock (RecentRequests)
                 RecentRequests.Enqueue(DateTimeOffset.UtcNow);
             RequestsInLastMinute(); // drops the older ones
             RequestsByPurpose.AddOrUpdate(caller, 1, (_, n) => n + 1);
             RequestsByReason.AddOrUpdate(Reason.Value ?? "other", 1, (_, n) => n + 1);
+            var waited = System.Diagnostics.Stopwatch.StartNew();
             var response = method is null
                 ? await session.GetAsync(url, ct)
                 : await session.SendAsync(method, url, jsonBody ?? "", ct);
+            Interlocked.Add(ref _waitTicks, waited.Elapsed.Ticks);
+            Interlocked.Add(ref _bodyChars, response.Body.Length);
 
             if (response.Status == (int)HttpStatusCode.Unauthorized)
             {
@@ -577,8 +647,11 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
                 throw new HttpRequestException($"{method ?? "GET"} {url} failed: {response.Status} {Truncate(response.Body, 300)}", null, (HttpStatusCode)response.Status);
             }
 
-            return JsonSerializer.Deserialize<T>(response.Body, JsonOptions)
+            var parsing = System.Diagnostics.Stopwatch.StartNew();
+            var parsed = JsonSerializer.Deserialize<T>(response.Body, JsonOptions)
                 ?? throw new InvalidOperationException($"Empty response from {url}");
+            Interlocked.Add(ref _parseTicks, parsing.Elapsed.Ticks);
+            return parsed;
         }
     }
 

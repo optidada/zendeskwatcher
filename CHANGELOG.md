@@ -3,6 +3,13 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.20
+
+- **Catch up in seconds**: about 5 seconds instead of 2–3 minutes. It checks first whether a colleague is away before reading their tickets, reads only the messages instead of each ticket's full history, and does several things at once.
+- **Complete Clients page**: the client list now comes from all of a group's tickets in the last 90 days, not just the first 500, so busy groups no longer miss clients.
+- **Take it is quicker**: assigning a ticket (to yourself or a colleague) takes one round trip to Zendesk instead of two.
+- **Lighter on Zendesk**: the colleague check reads only the messages, and a ticket's history isn't read again while the ticket hasn't changed.
+
 ## 1.8.19
 
 - **Team workload on Insights**: pick a group to see who's busy right now, as a bar per person with their open, urgent, escalated and waiting tickets. Click "Workload ▼" to see the least busy first. People who are off work aren't shown.

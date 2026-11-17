@@ -36,12 +36,12 @@ input for 10 minutes), with one check right away when they're back. Fixed; not c
 | The agent's own tickets | 1 (30 most recently updated assigned tickets) |
 | CC / follower tickets (optional, off by default) | 2 (30 most recent CC'd and followed tickets) |
 | Help colleagues (on by default) | 1 search per chosen group, only tickets updated since the last check |
-| Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes) |
+| Only when a ticket changed | 1 audit request per changed ticket (newest first, stops at already-seen changes); for colleagues' tickets only the comments (`/tickets/{id}/comments`, 20 per page), which is all that check needs |
 | Only when a customer wrote on a colleague's ticket | the colleague's recent activity: 1 search (their tickets updated in the last 3 hours) + up to 5 audit requests; remembered for 15 minutes per colleague. Skipped for colleagues without a time zone |
 | Only for a notification that shows a client or an SLA deadline | the client's organization (once per session), and for a ticket found by search 1 `show_many` for its SLA timer (tickets read with `show_many` already carry it) |
 | Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned), plus 1 audit request to see whether it was answered since |
-| Only for notifications that waited long (15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change |
-| Catch up (when the app starts, when the working day starts, and on request) | 1 `show_many` for the agent's own and CC'd tickets, 1 search per covered group, 1 audit request per ticket updated since the agent last worked, 1 per own Escalated ticket, and the activity lookup above when a colleague's customer is waiting. Unassigned tickets come from the check that just ran; when there are more than 3, they're only counted, not looked up one by one |
+| Only for notifications that waited long (15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change (comments only for colleagues' tickets) |
+| Catch up (when the app starts, when the working day starts, and on request) | 1 `show_many` for the agent's own and CC'd tickets, 1 search per covered group, the activity lookup above once per colleague, then 1 comments request per ticket updated since the agent last worked (own and CC'd tickets, and colleagues' tickets only when that colleague is away), 1 per own Escalated ticket; up to 3 at a time. Comments instead of the full history: who wrote what is all Catch up needs (measured: about 5 s instead of 7 for the same result). Unassigned tickets come from the check that just ran; when there are more than 3, they're only counted, not looked up one by one |
 | Only when the agent opens "Who could take it" (▾ next to Take it) | 1 ticket lookup, the group's members and 1 search export for its assigned open tickets (up to 1,000 per request; shared with Insights and reused for 5 minutes), and the activity lookup above for up to 8 colleagues (least busy first, remembered 15 minutes) |
 | Once at start | the custom ticket statuses (`/api/v2/custom_statuses.json`), to show them by name |
 | Experimental features (off by default) | when switched on: 90 days of tickets per monitored group (1 search, up to 5 pages each), every 6 hours |
@@ -50,7 +50,7 @@ input for 10 minutes), with one check right away when they're back. Fixed; not c
 averages, November 2026): about **3 requests per minute** while working, fewer while away; more for a moment while
 the agent has the Settings window or Insights open or runs Catch up. Fewer groups and default settings mean fewer. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
 Settings window shows (the group list, the agent's group memberships and open tickets for group suggestions, the
-members of the covered groups, and the clients of the monitored groups from 90 days of tickets) are loaded when needed
+members of the covered groups, and the clients of the monitored groups from 90 days of tickets, read with search export: up to 1,000 per request) are loaded when needed
 and reused for 24 hours. Insights → Team workload reads the members and open tickets of the chosen monitored group (or all of them), at most
 every 10 minutes while that page is open: 1 members request and 1 search export per group (Zendesk's export endpoint
 for bigger result sets: up to 1,000 tickets per request instead of 100), plus the custom statuses; a group read for "Who could take it" in the last 5 minutes isn't read again. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected:

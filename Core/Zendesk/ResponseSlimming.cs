@@ -19,8 +19,8 @@ public static class ResponseSlimming
         .ToList();
 
     /// <summary>
-    /// A JavaScript function <c>text =&gt; text</c>: tickets (in "tickets", "results" or "ticket") and audits ("audits",
-    /// with their events) keep only the fields the models have. A ticket's description (the customer's first message)
+    /// A JavaScript function <c>text =&gt; text</c>: tickets (in "tickets", "results" or "ticket"), audits ("audits",
+    /// with their events) and comments ("comments") keep only the fields the models have. A ticket's description (the customer's first message)
     /// is dropped from search results (often hundreds of tickets); tickets read by id keep its first
     /// <see cref="DescriptionChars"/> characters for a new ticket's preview. Anything else, or text that isn't JSON,
     /// is returned as it is.
@@ -40,7 +40,7 @@ public static class ResponseSlimming
         static string Names(IEnumerable<string> names) => JsonSerializer.Serialize(names);
         return "(text => { try { " +
                "const keep = (o, keys) => { if (!o || typeof o !== 'object') return o; const r = {}; for (const k of keys) if (k in o) r[k] = o[k]; return r; }; " +
-               $"const T = {Names(FieldsOf<Ticket>())}, A = {Names(FieldsOf<Audit>())}, E = {Names(FieldsOf<AuditEvent>())}; " +
+               $"const T = {Names(FieldsOf<Ticket>())}, A = {Names(FieldsOf<Audit>())}, E = {Names(FieldsOf<AuditEvent>())}, C = {Names(FieldsOf<TicketComment>())}; " +
                "const brief = t => { const r = keep(t, T); delete r.description; return r; }; " +
                (descriptions
                    ? "const ticket = t => { const r = keep(t, T); " +
@@ -52,6 +52,7 @@ public static class ResponseSlimming
                "if (Array.isArray(d.results)) d.results = d.results.map(brief); " +
                "if (d.ticket && typeof d.ticket === 'object') d.ticket = ticket(d.ticket); " +
                "if (Array.isArray(d.audits)) d.audits = d.audits.map(audit); " +
+               "if (Array.isArray(d.comments)) d.comments = d.comments.map(c => keep(c, C)); " +
                "return JSON.stringify(d); " +
                "} catch (e) { return text; } })";
     }

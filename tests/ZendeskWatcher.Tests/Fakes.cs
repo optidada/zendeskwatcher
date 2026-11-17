@@ -211,6 +211,15 @@ internal sealed partial class FakeZendesk : IZendeskSession
             _ when path == $"/api/v2/users/{me}/tickets/followed.json" => new { tickets = Recent(t => t.FollowerIds.Contains(me)) },
             _ when AuditsPath().Match(path) is { Success: true } m =>
                 new { audits = Audits.GetValueOrDefault(long.Parse(m.Groups[1].Value), []).OrderByDescending(a => a.CreatedAt).ToList() },
+            _ when CommentsPath().Match(path) is { Success: true } m => new // the comments list: the Comment events of the audits
+            {
+                comments = Audits.GetValueOrDefault(long.Parse(m.Groups[1].Value), []).OrderByDescending(a => a.CreatedAt)
+                    .SelectMany(a => a.Events.Where(e => e.Type == "Comment").Select(e => new
+                    {
+                        id = a.Id, type = "Comment", author_id = a.AuthorId, created_at = a.CreatedAt, @public = e.Public,
+                        plain_body = e.PlainBody, body = e.Body
+                    })).ToList()
+            },
             _ when UserPath().Match(path) is { Success: true } m && Users.TryGetValue(long.Parse(m.Groups[1].Value), out var user) => new { user },
             _ when OrgPath().Match(path) is { Success: true } m && Organizations.TryGetValue(long.Parse(m.Groups[1].Value), out var org) =>
                 new { organization = new { id = long.Parse(m.Groups[1].Value), name = org, organization_fields = OrganizationFieldValues.GetValueOrDefault(long.Parse(m.Groups[1].Value)) } },
@@ -270,6 +279,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     [GeneratedRegex(@"^/api/v2/tickets/(\d+)/audits\.json$")]
     private static partial Regex AuditsPath();
+
+    [GeneratedRegex(@"^/api/v2/tickets/(\d+)/comments\.json$")]
+    private static partial Regex CommentsPath();
 
     [GeneratedRegex(@"^/api/v2/groups/(\d+)/users\.json$")]
     private static partial Regex GroupUsersPath();

@@ -99,6 +99,29 @@ public sealed class AuditEvent
     public string? Body { get; set; }
 }
 
+/// <summary>
+/// One message on a ticket (public reply or internal note), from the comments list: just who wrote what and when,
+/// without the status changes, trigger actions and metadata a full history (<see cref="Audit"/>) carries.
+/// </summary>
+public sealed class TicketComment
+{
+    public long Id { get; set; }
+    public string? Type { get; set; }
+    public long AuthorId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public bool? Public { get; set; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
+    public string? PlainBody { get; set; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
+    public string? Body { get; set; }
+}
+
+internal sealed class CommentsResponse : PagedResponse
+{
+    public List<TicketComment> Comments { get; set; } = [];
+    public List<User>? Users { get; set; }
+}
+
 /// <summary>Reads a string; any other JSON value (object, array, number) becomes null instead of an error.</summary>
 public sealed class TextOnlyConverter : System.Text.Json.Serialization.JsonConverter<string?>
 {
