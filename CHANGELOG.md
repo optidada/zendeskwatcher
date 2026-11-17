@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.17
+
+- **Don't miss a P1, even when it was taken within a minute**: Notifications → New tickets → "Also when someone took it before I saw it" (Off · P1 · P1, P2 · All, off by default). Tickets someone took between two checks come as "Already taken", saying who took it and how fast, and whether it's already solved.
+
 ## 1.8.16
 
 - **Copy just the ticket number**: a new icon at the top right of ticket notifications (the copy icon with a #) copies only the number, e.g. 123456. Pointing at either copy icon says what it copies.

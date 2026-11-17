@@ -297,6 +297,53 @@ public static class TicketRules
     /// <summary>Someone took the ticket, or it was solved: its new-ticket notification is no longer needed.</summary>
     public static bool IsTaken(Ticket ticket) => ticket.AssigneeId is not null || !ticket.IsOpen;
 
+    /// <summary>
+    /// When a ticket that came in unassigned got its first assignee, by whom (the audit's author), and to whom, from its
+    /// audits. Null when it was created with an assignee already (an agent's own ticket, an assignment rule at creation)
+    /// or never assigned: then nobody "took" it.
+    /// </summary>
+    public static (DateTimeOffset At, long AuthorId, long AssigneeId, bool ByRule)? FirstAssignment(IEnumerable<Audit> audits)
+    {
+        var ordered = audits.OrderBy(a => a.CreatedAt).ToList();
+        foreach (var audit in ordered)
+            foreach (var ev in audit.Events.Where(e => e.FieldName == "assignee_id"))
+            {
+                var assignee = UserIdOf(ev.Value);
+                if (ev.Type == "Create")
+                {
+                    if (assignee is not null)
+                        return null; // created assigned
+                    continue;
+                }
+                if (ev.Type == "Change" && assignee is { } id)
+                    return (audit.CreatedAt, audit.AuthorId, id, audit.Via?.Channel == "rule" || ev.Via?.Channel == "rule");
+            }
+        return null;
+    }
+
+    /// <summary>A user id in an audit value: a number, or a number as text; null for none.</summary>
+    private static long? UserIdOf(System.Text.Json.JsonElement? value) => value switch
+    {
+        { ValueKind: System.Text.Json.JsonValueKind.Number } v when v.TryGetInt64(out var n) => n,
+        { ValueKind: System.Text.Json.JsonValueKind.String } v when long.TryParse(v.GetString(), out var n) => n,
+        _ => null
+    };
+
+    /// <summary>
+    /// "**Anna** took it after 2 min", "**Bob** assigned it to **Anna** after 2 min", or "Assigned to **Anna** by a rule
+    /// after 2 min": the line under a ticket someone took before the app saw it unassigned. Names are escaped here.
+    /// </summary>
+    public static string TakenLine(string assignee, string? assigner, bool byRule, TimeSpan after)
+    {
+        var when = after < TimeSpan.FromMinutes(1) ? "within a minute"
+            : after < TimeSpan.FromHours(1) ? $"after {(int)after.TotalMinutes} min"
+            : $"after {(int)after.TotalHours} h {after.Minutes} min";
+        var to = $"**{Markdown.Escape(assignee)}**";
+        return byRule ? $"Assigned to {to} by a rule {when}"
+            : assigner is null || assigner == assignee ? $"{to} took it {when}"
+            : $"**{Markdown.Escape(assigner)}** assigned it to {to} {when}";
+    }
+
     /// <summary>Monday to Friday: the working days unless chosen otherwise.</summary>
     public static readonly DayOfWeek[] Weekdays =
         [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];

@@ -198,6 +198,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var now = DateTimeOffset.UtcNow;
         var total = 0;
         var byGroup = new List<(WatchedGroup Group, List<Ticket> Tickets)>();
+        var justBaselined = new HashSet<long>();
         ShowedAlreadyWaiting = false;
 
         // Search finds the candidates, but its index can be stale for hours: a ticket assigned long ago may still
@@ -227,6 +228,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             // All are recorded as seen (so ticking a client again later doesn't report its old tickets as new), but
             // muted clients (and "only urgent" ones below High) neither notify nor count (Clients page).
             var isBaseline = _state.BaselinedGroups.Add(group.Id);
+            if (isBaseline)
+                justBaselined.Add(group.Id);
             var fresh = tickets.Where(t => !_state.SeenUnassigned.ContainsKey(t.Id)).OrderBy(t => t.CreatedAt).ToList();
             foreach (var ticket in tickets)
                 _state.SeenUnassigned[ticket.Id] = now;
@@ -296,14 +299,73 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 await ShowNewTicketAsync(ticket, group, ct);
         }
 
+        await CheckTakenQuicklyAsync(justBaselined, now, ct);
+
         // Forget tickets that have not been unassigned for a while, so they notify again if they come back.
         foreach (var id in _state.SeenUnassigned.Where(kv => now - kv.Value > ForgetUnassignedAfter).Select(kv => kv.Key).ToList())
             _state.SeenUnassigned.Remove(id);
+        foreach (var id in _state.TakenQuickly.Where(kv => now - kv.Value > ForgetUnassignedAfter).Select(kv => kv.Key).ToList())
+            _state.TakenQuickly.Remove(id);
         foreach (var id in _state.QuietPriority.Keys.Where(id => !_state.SeenUnassigned.ContainsKey(id)).ToList())
             _state.QuietPriority.Remove(id);
 
         UnassignedCount = total;
         _unassigned = byGroup;
+    }
+
+    /// <summary>How far back to look for tickets someone took between two checks (the search index lags a few minutes).</summary>
+    private static readonly TimeSpan TakenQuicklyWindow = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// New tickets someone took between two checks, before they were ever seen unassigned: for the priorities chosen under
+    /// Notifications → New tickets, an "Already taken" notification anyway, saying who took it and how fast (for managers
+    /// who don't want to miss a P1). One search per group, plus each candidate's history, only while it's switched on.
+    /// Muted clients stay quiet, important ones always come; my working hours count as for new tickets.
+    /// </summary>
+    private async Task CheckTakenQuicklyAsync(IReadOnlySet<long> justBaselined, DateTimeOffset now, CancellationToken ct)
+    {
+        if (settings.TakenQuicklyPriorities.Count == 0 || !settings.NotifyUnassigned)
+            return;
+        var since = now - TakenQuicklyWindow;
+        bool? offWork = null;
+        foreach (var group in settings.WatchedGroups.Where(g => !g.IsNoGroup && !justBaselined.Contains(g.Id)))
+        {
+            List<Ticket> found;
+            try
+            {
+                found = await zendesk.GetAssignedTicketsCreatedSinceAsync(group.Id, since, ct);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Error($"Could not look for quickly taken tickets {group.Describe()}", ex);
+                continue;
+            }
+            foreach (var ticket in found.Where(t => t.CreatedAt > since && t.AssigneeId is not null && t.GroupId == group.Id &&
+                                                    !_state.SeenUnassigned.ContainsKey(t.Id) && !_state.TakenQuickly.ContainsKey(t.Id)))
+            {
+                _state.TakenQuickly[ticket.Id] = now; // looked at once, whatever comes of it
+                var important = IsImportant(ticket);
+                if (!important && (!TicketRules.MatchesPriority(ticket.Priority, settings.TakenQuicklyPriorities) ||
+                                   !TicketRules.IsWantedClient(ticket, ClientMode(ticket))))
+                    continue;
+                if (!important && settings.OnlyNotifyDuringMyHours && (offWork ??= await IAmOffWorkAsync(ct)))
+                    continue;
+
+                // Its history: when it got its first assignee, and from whom. Created assigned: nobody took it.
+                var audits = await zendesk.GetAuditsSinceAsync(ticket.Id, ticket.CreatedAt.AddSeconds(-1), ct);
+                if (TicketRules.FirstAssignment(audits) is not { } taken)
+                    continue;
+                var assignee = await zendesk.GetUserNameAsync(taken.AssigneeId, ct);
+                var assigner = taken.ByRule || taken.AuthorId == taken.AssigneeId ? null : await zendesk.GetUserNameAsync(taken.AuthorId, ct);
+                Log.Info($"Ticket #{ticket.Id} {group.Describe()} was taken before it was seen unassigned ({ticket.Priority}, after {(taken.At - ticket.CreatedAt).TotalMinutes:0} min)");
+                // Solving needs an assignee, so a ticket solved or closed straight away is found here too: the line says so.
+                var body = await CreatedLineAsync(ticket, ct) + "\n" + TicketRules.TakenLine(assignee, assigner, taken.ByRule, taken.At - ticket.CreatedAt) +
+                           (ticket.IsOpen ? "" : $" · {ticket.Status}");
+                Show(await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, "Already taken",
+                    $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, GroupLabel(group))
+                    { EventTime = ticket.CreatedAt, IsTicketNotification = true }, ticket, group, ct));
+            }
+        }
     }
 
     private async Task ShowNewTicketAsync(Ticket ticket, WatchedGroup group, CancellationToken ct, string heading = "New ticket")

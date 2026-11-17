@@ -208,6 +208,50 @@ public class UnassignedTicketTests
     }
 
     [Fact]
+    public async Task A_P1_taken_before_any_check_saw_it_still_notifies_when_chosen()
+    {
+        _zendesk.Users[55] = new User { Id = 55, Name = "Anna Agent" };
+        _zendesk.Users[66] = new User { Id = 66, Name = "Bob Lead" };
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None); // the group's first look
+
+        // Off (the default): nothing, and no extra search.
+        _zendesk.AddTakenQuickly(201, "urgent", by: 55, to: 55);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+
+        // P1 chosen: an urgent ticket taken between checks comes, once, saying who took it and how fast.
+        _settings.TakenQuicklyPriorities = ["urgent"];
+        _zendesk.AddTakenQuickly(202, "urgent", by: 66, to: 55);
+        _zendesk.AddTakenQuickly(203, "normal", by: 55, to: 55); // not a chosen priority
+        _zendesk.AddTakenQuickly(204, "urgent", by: 55, to: 55, createdAssigned: true); // nobody took it: it came assigned
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = TakeShown();
+        Assert.Equal([201L, 202L], shown.Select(n => n.TicketId!.Value).Order());
+        var assigned = shown.Single(n => n.TicketId == 202);
+        Assert.Equal("Already taken", assigned.Heading);
+        Assert.Contains("**Bob Lead** assigned it to **Anna Agent** after 1 min", assigned.Body);
+        Assert.Contains("**Anna Agent** took it after 1 min", shown.Single(n => n.TicketId == 201).Body);
+        Assert.False(assigned.CanTake);
+
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown()); // not again
+
+        // Solved straight away (solving gives it an assignee): found too, and the line says it's solved.
+        _zendesk.AddTakenQuickly(205, "urgent", by: 55, to: 55).Status = "solved";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.EndsWith("**Anna Agent** took it after 1 min · solved", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
+    public void Taken_line_says_who_and_how_fast()
+    {
+        Assert.Equal("**Anna** took it within a minute", TicketRules.TakenLine("Anna", null, false, TimeSpan.FromSeconds(20)));
+        Assert.Equal("**Bob** assigned it to **Anna** after 4 min", TicketRules.TakenLine("Anna", "Bob", false, TimeSpan.FromMinutes(4.5)));
+        Assert.Equal("Assigned to **Anna** by a rule after 1 h 5 min", TicketRules.TakenLine("Anna", null, true, TimeSpan.FromMinutes(65)));
+    }
+
+    [Fact]
     public async Task Empty_group_is_quiet_then_a_new_ticket_notifies_once()
     {
         var watcher = await StartAsync();

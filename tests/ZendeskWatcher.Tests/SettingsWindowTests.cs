@@ -39,6 +39,7 @@ public class SettingsWindowTests
         GuessPriority = true,
         QuietThankYous = true,
         SlaOverrides = [new SlaOverride { Type = "slapremium", Priority = "high", FirstReply = true, Minutes = 120 }],
+        TakenQuicklyPriorities = ["urgent"],
         MyTicketPriorities = ["urgent"],
         CcTicketPriorities = ["urgent", "high", "normal"],
         NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip },

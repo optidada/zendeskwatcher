@@ -30,6 +30,11 @@ internal sealed class NotificationsPage : SettingsPage
     };
     private readonly GroupsPage _groups;
 
+    /// <summary>The priorities that notify even when someone took the ticket before the app saw it unassigned.</summary>
+    private static readonly (string Label, string[] Priorities)[] TakenQuicklyChoices =
+        [("Off", []), ("P1", ["urgent"]), ("P1, P2", ["urgent", "high"]), ("All", Settings.AllPriorities)];
+    private readonly ChoicePills _takenQuickly = new([.. TakenQuicklyChoices.Select(c => c.Label)]) { AccessibleName = "Also when someone took it before I saw it" };
+
     /// <summary>Groups with fewer priorities than all, as chosen here (also for groups not shown right now).</summary>
     private Dictionary<long, List<string>> _newPriorities = [];
 
@@ -41,6 +46,12 @@ internal sealed class NotificationsPage : SettingsPage
             "priorities you choose per group.", Kit.CardWidth);
         unassigned.Body.Controls.Add(_notifyUnassigned);
         unassigned.Body.Controls.Add(_groupPriorities);
+        // Tickets someone took between two checks (never seen unassigned): off for most, P1 for managers.
+        var takenLabel = Theme.Label("Also when someone took it before I saw it");
+        takenLabel.Margin = new Padding(50, 8, 0, 0);
+        _takenQuickly.Margin = new Padding(50, 4, 0, 6);
+        unassigned.Body.Controls.Add(takenLabel);
+        unassigned.Body.Controls.Add(_takenQuickly);
         Panel.Controls.Add(unassigned);
 
         var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose.", Kit.CardWidth);
@@ -83,6 +94,7 @@ internal sealed class NotificationsPage : SettingsPage
         _trackMine.CheckedChanged += (_, _) => UpdateChangeTypes();
         _trackCc.CheckedChanged += (_, _) => UpdateChangeTypes();
         _notifyUnassigned.CheckedChanged += (_, _) => UpdateChangeTypes();
+        _takenQuickly.SelectedIndexChanged += (_, _) => Changed();
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
         _myDays.Changed += Changed;
@@ -104,6 +116,9 @@ internal sealed class NotificationsPage : SettingsPage
         _priority.Checked = settings.NotifyPriorityChanges;
         _automatic.Checked = settings.NotifyAutomaticChanges;
         _newPriorities = settings.NewTicketPriorities.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+        // By the lowest priority in the list, like the other priority choices (none: Off).
+        var taken = settings.TakenQuicklyPriorities;
+        _takenQuickly.SelectedIndex = taken.Count == 0 ? 0 : taken.Contains("low") || taken.Contains("normal") ? 3 : taken.Contains("high") ? 2 : 1;
         ShowGroupPriorities();
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
@@ -130,6 +145,7 @@ internal sealed class NotificationsPage : SettingsPage
         // Only the monitored groups' choices are kept (one unticked and ticked again starts at all priorities).
         var monitored = _groups.MonitoredGroups().Select(g => g.Id).ToHashSet();
         s.NewTicketPriorities = _newPriorities.Where(kv => monitored.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+        s.TakenQuicklyPriorities = [.. TakenQuicklyChoices[_takenQuickly.SelectedIndex].Priorities];
         s.MyTicketPriorities = _myPriorities.Selected;
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.OnlyNotifyDuringMyHours = _onlyMyHours.Checked;
@@ -190,6 +206,7 @@ internal sealed class NotificationsPage : SettingsPage
 
     private void UpdateChangeTypes()
     {
+        _takenQuickly.Enabled = _notifyUnassigned.Checked;
         foreach (var (_, choice) in _groupChoices)
             choice.Enabled = _notifyUnassigned.Checked;
         foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority, _automatic })

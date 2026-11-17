@@ -40,6 +40,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
                 "the others stay quiet and aren't counted. If one is raised while still unassigned, it comes then as “Priority " +
                 "raised”. Important clients always come.",
+                "The app checks every few minutes, so a ticket someone takes in between is never seen unassigned. With “Also when " +
+                "someone took it before I saw it” (Notifications → New tickets), those with the priorities you pick come anyway, as " +
+                "“Already taken”, saying who took it and how fast. Off by default; useful for leads who don't want to miss a P1.",
                 "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
                 "No group ticked yet: nothing comes, and Catch up reminds you each time the app starts."
             ]),

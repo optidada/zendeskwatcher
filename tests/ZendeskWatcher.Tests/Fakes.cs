@@ -91,6 +91,27 @@ internal sealed partial class FakeZendesk : IZendeskSession
         return ticket;
     }
 
+    /// <summary>
+    /// A ticket that came in <paramref name="minutesAgo"/> minutes ago in group 10 and that <paramref name="by"/> assigned to
+    /// <paramref name="to"/> a minute later, before any check saw it unassigned (with its history). With
+    /// <paramref name="createdAssigned"/> it had its assignee from the start.
+    /// </summary>
+    public Ticket AddTakenQuickly(long id, string priority, long by, long to, int minutesAgo = 3, bool createdAssigned = false)
+    {
+        var created = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo);
+        var ticket = new Ticket { Id = id, Subject = "Site down", Status = "open", Priority = priority, GroupId = 10, AssigneeId = to, CreatedAt = created, UpdatedAt = created.AddMinutes(1) };
+        Tickets[id] = ticket;
+        var create = new AuditEvent { Type = "Create", FieldName = "assignee_id", Value = createdAssigned ? JsonSerializer.SerializeToElement(to.ToString()) : null };
+        Audits[id] = [new Audit { Id = 1, AuthorId = by, CreatedAt = created, Events = [create] }];
+        if (!createdAssigned)
+            Audits[id].Add(new Audit
+            {
+                Id = 2, AuthorId = by, CreatedAt = created.AddMinutes(1),
+                Events = [new AuditEvent { Type = "Change", FieldName = "assignee_id", PreviousValue = null, Value = JsonSerializer.SerializeToElement(to.ToString()) }]
+            });
+        return ticket;
+    }
+
     /// <summary>An open ticket assigned to <paramref name="assignee"/> (me by default).</summary>
     public Ticket AddAssigned(long id, string? priority, long? assignee = null, string subject = "Something broke")
     {
@@ -205,6 +226,11 @@ internal sealed partial class FakeZendesk : IZendeskSession
         if (AssigneeQuery().Match(query) is { Success: true } assignee) // Colleagues: an agent's recently updated tickets
             return Tickets.Values.Where(t => t.AssigneeId == long.Parse(assignee.Groups[1].Value)).OrderByDescending(t => t.UpdatedAt).ToList();
         var match = GroupQuery().Match(query);
+        if (query.Contains("-assignee:none") && CreatedQuery().Match(query) is { Success: true } created && match.Success) // tickets taken quickly
+        {
+            var since = DateTimeOffset.Parse(created.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            return Tickets.Values.Where(t => t.AssigneeId is not null && t.CreatedAt > since && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
+        }
         if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets
             return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))).ToList();
         if (query.Contains("-assignee:none") && match.Success) // Help colleagues: assigned tickets before solved, in a group
@@ -224,6 +250,9 @@ internal sealed partial class FakeZendesk : IZendeskSession
         var ids = query.Split("ids=")[1].Split('&')[0].Split(',').Select(long.Parse);
         return ids.Where(Tickets.ContainsKey).Select(id => Tickets[id]).ToList();
     }
+
+    [GeneratedRegex(@"created>([^\s&]+)")]
+    private static partial Regex CreatedQuery();
 
     [GeneratedRegex(@"group:(\d+|none)")]
     private static partial Regex GroupQuery();

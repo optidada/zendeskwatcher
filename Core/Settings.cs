@@ -166,6 +166,13 @@ public sealed class Settings
     /// </summary>
     public Dictionary<long, List<string>> NewTicketPriorities { get; set; } = [];
 
+    /// <summary>
+    /// New tickets someone took between two checks, before the app saw them unassigned: with these priorities they notify
+    /// anyway ("Taken by Anna", Notifications → New tickets). Empty: off, the default. For managers who don't want to miss
+    /// a P1 even when it was assigned out within a minute.
+    /// </summary>
+    public List<string> TakenQuicklyPriorities { get; set; } = [];
+
     /// <summary>The priorities of new unassigned tickets that notify in this group.</summary>
     public IReadOnlyList<string> NewTicketPrioritiesFor(long groupId) =>
         NewTicketPriorities.TryGetValue(groupId, out var chosen) && chosen.Count > 0 ? chosen : AllPriorities;

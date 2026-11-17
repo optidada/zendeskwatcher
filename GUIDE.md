@@ -101,7 +101,9 @@ and says which one matched. Zendesk's product list is often out of date, so trea
 
 Choose what you want to hear about: new tickets in your groups (for each group: all priorities, P1–P3, P1 and P2, or
 P1 only), changes on your own tickets and the ones you're CC'd on or follow, which kinds of change, and when you work.
-A ticket kept quiet for its priority notifies as "Priority raised" if someone raises it while it's still unassigned. With "Only notify me during my working hours", notifications
+A ticket kept quiet for its priority notifies as "Priority raised" if someone raises it while it's still unassigned.
+"Also when someone took it before I saw it" (off by default) notifies tickets of the chosen priorities that someone took
+between two checks, as "Already taken", saying who took it and how fast: for leads who don't want to miss a P1. With "Only notify me during my working hours", notifications
 outside them wait for Catch up, unless you're active in Zendesk.
 
 ![Notifications](docs/images/settings-notifications.png)
