@@ -782,11 +782,13 @@ public sealed class SettingsForm : Form
                        new(12, "Nina", "Asia/Kolkata"), new(13, "Milton Waddams", "America/Mexico_City")],
                 [2] = [new(14, "Maurice Moss", "Europe/London"), new(15, "Dennis Nedry", "America/Costa_Rica"), new(16, "Cleveland Brown", null)]
             }, TimeRegion.EuropeAfrica);
-            StatisticsPage.SetTeamSample(settings.Subdomain, settings.WatchedGroups.Select(g => g.Id), TimeRegion.EuropeAfrica,
+            StatisticsPage.SetTeamSample(settings.Subdomain, 99, settings.WatchedGroups.Select(g => g.Id),
             [
-                new(10, "Samir Nagheenanajar", 14, 2, 3, 1, 6, false, Solved: 12), new(99, "You", 11, 1, 1, 0, 4, true, Solved: 9),
-                new(18, "Maurice Moss", 7, 0, 4, 2, 9, false, Solved: 15), new(9, "Peter Gibbons", 3, 0, 0, 0, 1, false, Solved: 4)
-            ]);
+                new(10, "Samir Nagheenanajar", 10, 2, 3, 1, 6, false, 4), new(99, "You", 8, 1, 1, 0, 4, true, 3),
+                new(18, "Maurice Moss", 5, 0, 4, 2, 9, false, 2), new(9, "Peter Gibbons", 2, 0, 0, 0, 1, false, 1),
+                new(12, "Nina Patel", 6, 1, 0, 0, 3, false, 0), new(11, "Joanna Lee", 0, 0, 0, 0, 0, false)
+            ], new() { [10] = "Europe/Stockholm", [99] = "Europe/Stockholm", [18] = "Europe/London", [9] = "Europe/Stockholm",
+                [12] = "Asia/Kolkata", [11] = "America/New_York" });
             form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)
             {

@@ -586,6 +586,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             var result = await taker.Client.TakeTicketAsync(ticketId, userId, CancellationToken.None);
             Log.Info(result.Taken ? $"Assigned ticket #{ticketId} to user {userId}" : $"Ticket #{ticketId} was already taken by {result.TakenBy}");
+            Tracking.GroupWorkloadCache.Clear(); // someone's count changed: the next look reads it again
             _notifier.ShowInfo(result.Taken ? $"#{ticketId} assigned to {name}" : $"#{ticketId} was already taken",
                 result.Taken ? "Maybe tell them in Teams too." : $"{result.TakenBy} got it first.", ticketId);
             WakeUp(); // refresh the unassigned count

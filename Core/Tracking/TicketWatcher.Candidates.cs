@@ -4,6 +4,9 @@ namespace ZendeskWatcher.Tracking;
 
 public sealed partial class TicketWatcher
 {
+    /// <summary>How old the group's members and workload may be for "Who could take it" (a few tickets more or less at most).</summary>
+    private static readonly TimeSpan CandidatesDataAge = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// Who could take a new ticket ("▾" next to Take it): colleagues in the ticket's group who are in their working
     /// hours and were active in Zendesk lately (<see cref="TicketRules.ColleagueAway"/>), least busy first. Read only
@@ -19,10 +22,14 @@ public sealed partial class TicketWatcher
         if (ticket.GroupId is not { } groupId)
             return ([], "The ticket has no group.");
 
-        var members = (await zendesk.GetGroupMembersAsync(groupId, ct)).Where(u => u.Role != "end-user").DistinctBy(u => u.Id).ToList();
+        // Members and workload may be a few minutes old (shared with Insights → Team workload); the ticket above and
+        // everyone's activity below are read fresh.
+        var group = await GroupWorkloadCache.GetAsync(zendesk, settings.Subdomain, groupId, CandidatesDataAge, ct);
+        var members = group.Members;
         var team = members.ToDictionary(u => u.Id, u => u.Name ?? $"User {u.Id}");
-        var statuses = (await zendesk.GetCustomStatusesAsync(ct)).Where(s => s.AgentLabel is { Length: > 0 }).ToDictionary(s => s.Id, s => s.AgentLabel!);
-        var rows = TeamWorkload.Count(await zendesk.GetAssignedOpenTicketsAsync(groupId, ct), team, Me?.Id ?? 0, statuses);
+        var statuses = _statusNames.Count > 0 ? _statusNames
+            : (await zendesk.GetCustomStatusesAsync(ct)).Where(s => s.AgentLabel is { Length: > 0 }).ToDictionary(s => s.Id, s => s.AgentLabel!);
+        var rows = TeamWorkload.Count(group.Tickets, team, Me?.Id ?? 0, statuses);
 
         var now = DateTimeOffset.UtcNow;
         var users = members.ToDictionary(u => u.Id);

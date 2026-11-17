@@ -198,6 +198,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
                 new { users = GroupMembers.GetValueOrDefault(long.Parse(gm.Groups[1].Value), []).Where(Users.ContainsKey).Select(id => Users[id]).ToList() },
             "/api/v2/custom_statuses.json" => new { custom_statuses = CustomStatuses },
             "/api/v2/search.json" => new { results = Search(query) },
+            "/api/v2/search/export.json" => new { results = Search(query), meta = new { has_more = false } }, // Insights → Team workload
             "/api/v2/tickets/show_many.json" => new { tickets = ShowMany(query) },
             "/api/v2/organization_fields.json" => new { organization_fields = OrganizationFields },
             "/api/v2/organizations/show_many.json" => new

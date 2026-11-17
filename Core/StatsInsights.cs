@@ -89,7 +89,7 @@ public static class StatsInsights
             double Share(StatOutcome outcome) => Count(kind, outcome) / (double)shown;
             // Copying for Teams is using it too; a copied one is often closed afterwards, so it doesn't count as ignored.
             var copied = Share(StatOutcome.Copied);
-            var acted = Share(StatOutcome.Acted); // opened, took or copied: once per notification
+            var acted = Share(StatOutcome.Acted); // opened, took, copied or snoozed: once per notification
             var timedOut = Share(StatOutcome.TimedOut);
             var closed = Math.Max(0, Share(StatOutcome.Closed) - copied);
             var snoozed = Share(StatOutcome.Snoozed);

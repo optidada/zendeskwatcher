@@ -10,9 +10,14 @@ public sealed class GridTable : Control
 
     /// <summary>
     /// A cell. <paramref name="Tags"/>: priority chips ("urgent", "high") drawn before the text. A cell with
-    /// <paramref name="Click"/> is a link (hand cursor, underlined under the mouse).
+    /// <paramref name="Click"/> is a link (hand cursor, underlined under the mouse). <paramref name="Bar"/>: a bar filled
+    /// this much (0-1) instead of text (muted with <see cref="Ink.Muted"/>). <paramref name="Left"/>: left-aligned like the first column.
     /// </summary>
-    public sealed record Cell(string Text, Font Font, Ink Ink = Ink.Text, string? Tip = null, Action? Click = null, string[]? Tags = null);
+    public sealed record Cell(string Text, Font Font, Ink Ink = Ink.Text, string? Tip = null, Action? Click = null, string[]? Tags = null,
+        float? Bar = null, bool Left = false);
+
+    /// <summary>How long a <see cref="Cell.Bar"/> is (logical pixels).</summary>
+    private const int BarWidth = 110;
 
     private IReadOnlyList<Cell[]> _rows = [];
     private int[] _widths = [];
@@ -20,9 +25,13 @@ public sealed class GridTable : Control
     private (int Row, int Column)? _hover;
     private readonly ToolTip _tip = new();
 
-    /// <summary>The widest the table may get: the first column gives way (its texts end in "…").</summary>
+    /// <summary>The widest the table may get: <see cref="ShrinkColumn"/> gives way.</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public int MaxWidth { get; set; } = int.MaxValue;
+
+    /// <summary>The column that gives way when the table is wider than <see cref="MaxWidth"/> (its texts end in "…").</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int ShrinkColumn { get; set; }
 
     public GridTable()
     {
@@ -49,8 +58,8 @@ public sealed class GridTable : Control
                 _heights[r] = Math.Max(_heights[r], size.Height + Px(8));
             }
         var over = _widths.Sum() - MaxWidth;
-        if (over > 0 && columns > 0)
-            _widths[0] = Math.Max(Px(48), _widths[0] - over);
+        if (over > 0 && columns > ShrinkColumn)
+            _widths[ShrinkColumn] = Math.Max(Px(48), _widths[ShrinkColumn] - over);
         Size = new Size(_widths.Sum(), _heights.Sum());
         Invalidate();
     }
@@ -63,6 +72,8 @@ public sealed class GridTable : Control
 
     private Size Measure(Cell cell)
     {
+        if (cell.Bar is not null)
+            return new Size(Px(BarWidth), TextRenderer.MeasureText("X", cell.Font, Size.Empty, Flags).Height);
         var text = cell.Text.Length == 0 ? new Size(0, TextRenderer.MeasureText("X", cell.Font, Size.Empty, Flags).Height)
             : TextRenderer.MeasureText(cell.Text, cell.Font, Size.Empty, Flags);
         if (cell.Tags is not { Length: > 0 } tags)
@@ -101,14 +112,42 @@ public sealed class GridTable : Control
                 };
                 var font = cell.Click is not null && _hover == (r, c) ? new Font(cell.Font, cell.Font.Style | FontStyle.Underline) : cell.Font;
                 var size = Measure(cell);
-                var x = c == 0 ? bounds.X : bounds.Right - size.Width;
+                var left = c == 0 || cell.Left;
+                if (cell.Bar is { } fill)
+                {
+                    DrawBar(g, new Rectangle(bounds.X, bounds.Y + (bounds.Height - Px(8)) / 2, size.Width, Px(8)), fill, cell.Ink == Ink.Muted);
+                    continue;
+                }
+                var x = left ? bounds.X : bounds.Right - size.Width;
                 foreach (var tag in cell.Tags ?? [])
                     x += PriorityTag.Draw(g, PriorityTag.Short(tag) ?? tag, PriorityTag.ColorOf(tag), x, bounds.Y + bounds.Height / 2, Scale_) + Px(4);
                 TextRenderer.DrawText(g, cell.Text, font, new Rectangle(x, bounds.Y, bounds.Right - x, bounds.Height), color,
-                    Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | (c == 0 ? TextFormatFlags.Left : TextFormatFlags.Right));
+                    Flags | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | (left ? TextFormatFlags.Left : TextFormatFlags.Right));
                 if (!ReferenceEquals(font, cell.Font))
                     font.Dispose();
             }
+    }
+
+    /// <summary>A rounded track with the filled part in the accent color (or muted).</summary>
+    private void DrawBar(Graphics g, Rectangle track, float fill, bool muted)
+    {
+        using (var back = new SolidBrush(Theme.Border))
+            FillRounded(g, back, track);
+        var width = (int)Math.Round(track.Width * Math.Clamp(fill, 0, 1));
+        if (width <= 0)
+            return;
+        using var front = new SolidBrush(muted ? Theme.TextMuted : Theme.Accent);
+        FillRounded(g, front, track with { Width = Math.Max(width, track.Height) });
+    }
+
+    private static void FillRounded(Graphics g, Brush brush, Rectangle r)
+    {
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var d = r.Height;
+        path.AddArc(r.X, r.Y, d, d, 90, 180);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 180);
+        path.CloseFigure();
+        g.FillPath(brush, path);
     }
 
     private (int Row, int Column)? CellAt(Point p)
@@ -124,7 +163,7 @@ public sealed class GridTable : Control
                     continue;
                 // Only the text itself, as with a label (right-aligned cells are mostly empty on the left).
                 var width = Math.Min(Measure(_rows[r][c]).Width, bounds.Width);
-                return (c == 0 ? p.X < bounds.X + width : p.X >= bounds.Right - width) ? (r, c) : null;
+                return (c == 0 || _rows[r][c].Left ? p.X < bounds.X + width : p.X >= bounds.Right - width) ? (r, c) : null;
             }
         }
         return null;

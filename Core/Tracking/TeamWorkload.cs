@@ -2,7 +2,7 @@ using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher.Tracking;
 
-/// <summary>A teammate's open tickets in the monitored groups (Insights → Tickets right now → Your team).</summary>
+/// <summary>A teammate's open tickets in the monitored groups (Insights → Team workload).</summary>
 /// <param name="Open">Needs an agent: New or Open, also open-category custom statuses other than In progress.</param>
 /// <param name="UrgentOrHigh">Of the open and In progress ones, Urgent (P1) or High (P2).</param>
 /// <param name="Escalated">Escalated: custom statuses with "escalat" in the name (to Engineering, internally, …), whatever their category; all together.</param>
@@ -28,7 +28,7 @@ public static class TeamWorkload
 
     /// <summary>
     /// A short column heading for an escalated status: "Escalated to Engineering" → "Esc. Eng.", "Escalated internally" →
-    /// "Esc. Int." (the Your team table is narrow). Just "Escalated" when the name says nothing more.
+    /// "Esc. Int." (narrow columns). Just "Escalated" when the name says nothing more.
     /// </summary>
     public static string ShortEscalatedName(string label)
     {
@@ -43,7 +43,7 @@ public static class TeamWorkload
     }
 
     /// <summary>
-    /// Names for the narrow Your team table: "Maria Svensson" → "Maria S.". Full names where two would look the same,
+    /// Names for the narrow workload list: "Maria Svensson" → "Maria S.". Full names where two would look the same,
     /// and single words ("You") as they are.
     /// </summary>
     public static Dictionary<string, string> ShortNames(IEnumerable<string> names)
@@ -113,5 +113,47 @@ public static class TeamWorkload
                 kv.Value.Scheduled, kv.Value.Pending, kv.Key == meId, kv.Value.InProgress, escalatedBy[kv.Key], kv.Value.Solved))
             .OrderByDescending(Score).ThenByDescending(r => r.Open + r.InProgress).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// Insights → Team workload, one line: "10 open (2 P1/P2) · 3 escalated · 6 waiting"; "nothing open" without tickets.
+    /// Open includes In progress; waiting is Pending and On-hold.
+    /// </summary>
+    public static string Summary(WorkloadRow row)
+    {
+        var open = row.Open + row.InProgress;
+        List<string> parts = [];
+        if (open > 0)
+            parts.Add(row.UrgentOrHigh > 0 ? $"{open} open ({row.UrgentOrHigh} P1/P2)" : $"{open} open");
+        if (row.Escalated > 0)
+            parts.Add($"{row.Escalated} escalated");
+        if (row.Scheduled > 0)
+            parts.Add($"{row.Scheduled} scheduled");
+        if (row.Pending > 0)
+            parts.Add($"{row.Pending} waiting");
+        return parts.Count == 0 ? "nothing open" : string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// Outside working hours (Notifications → Colleagues: the hours and days) in the person's Zendesk time zone; null
+    /// when they have none (then it can't be told).
+    /// </summary>
+    public static bool? OffWork(User? user, DateTimeOffset now, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays)
+    {
+        var zone = TicketRules.ResolveTimeZone(user?.IanaTimeZone) ?? TicketRules.ResolveTimeZone(user?.TimeZone);
+        return zone is null ? null : TicketRules.IsOutsideHours(TimeZoneInfo.ConvertTime(now, zone).DateTime, startHour, endHour, workDays);
+    }
+
+    /// <summary>
+    /// The order on Insights → Team workload: people in working hours (or with no time zone) first, off work last; within
+    /// each, busiest or least busy first (<see cref="Score"/>), then by name.
+    /// </summary>
+    public static List<WorkloadRow> Order(IEnumerable<WorkloadRow> rows, Func<long, bool> offWork, bool busiestFirst)
+    {
+        var byLoad = rows.OrderBy(r => offWork(r.AssigneeId));
+        var sorted = busiestFirst
+            ? byLoad.ThenByDescending(Score).ThenByDescending(r => r.Open + r.InProgress)
+            : byLoad.ThenBy(Score).ThenBy(r => r.Open + r.InProgress);
+        return sorted.ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 }

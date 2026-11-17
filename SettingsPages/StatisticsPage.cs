@@ -22,15 +22,43 @@ internal sealed class StatisticsPage : SettingsPage
     ];
 
     private readonly Label _nowStatus = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-    private readonly Label _teamTitle = Theme.Label("Your team", Theme.BodyBold, Theme.Text);
     private readonly Label _teamStatus = Theme.Linked("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-    private readonly GridTable _team = new() { Margin = new Padding(0, 2, 0, 0) };
+    private readonly GridTable _team = new() { Margin = new Padding(0, 2, 0, 0), ShrinkColumn = 2 }; // the summary gives way, not the names
 
-    /// <summary>How often the team's tickets are read again, at most (only while Insights is shown).</summary>
+    /// <summary>How often the group's tickets are read again, at most (only while Insights is shown).</summary>
     private static readonly TimeSpan TeamRefresh = TimeSpan.FromMinutes(10);
 
-    /// <summary>The team as last read: for which account and groups, when, the region, the rows, and which status names count as escalated / scheduled.</summary>
-    private static (string Key, DateTime At, TimeRegion Region, List<WorkloadRow> Rows, string[] Escalated, string[] Scheduled)? _teamCache;
+    /// <summary>A group "Who could take it" read this recently is used as it is (<see cref="GroupWorkloadCache"/>).</summary>
+    private static readonly TimeSpan SharedDataAge = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Team workload as last read for one choice of groups, kept in cache\team-workload.json (one per choice) so Insights shows it
+    /// right away, also after switching groups or a restart (names, time zones and counts only): for which account, person
+    /// and groups (Key), when, the rows, and each person's time zone.
+    /// </summary>
+    private sealed class SavedTeam
+    {
+        public string Key { get; set; } = "";
+        public DateTime At { get; set; }
+        public List<WorkloadRow> Rows { get; set; } = [];
+        public Dictionary<long, string?> Zones { get; set; } = [];
+    }
+
+    /// <summary>Key → the team as last read; at most <see cref="TeamsKept"/>, the oldest go.</summary>
+    private static Dictionary<string, SavedTeam>? _teams;
+    private const int TeamsKept = 8;
+
+    private const string TeamCacheName = "team-workload", TeamChoiceCacheName = "team-group";
+
+    /// <summary>
+    /// The group Team workload shows (0: all monitored groups) and the order; remembered on this PC (cache\team-group.json)
+    /// right away, not a setting to save.
+    /// </summary>
+    private static long? _teamGroup;
+    private static bool _busiestFirst = true;
+
+    private readonly ChoiceBox _teamGroups = new() { Width = 190, Visible = false };
+    private bool _fillingTeamGroups;
     private int _teamVersion;
     private readonly TableLayoutPanel _now = new() { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 4, 0, 0) };
     private readonly ToolTip _tips = new();
@@ -40,25 +68,36 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly TableLayoutPanel _insights = new() { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = Padding.Empty };
 
     public StatisticsPage(SettingsContext context)
-        : base(context, "Insights", "What's waiting now, how you used notifications, and tips. Counted on this PC only.")
+        : base(context, "Insights", "Your tickets, your team's workload, how you used notifications, and tips. Counted on this PC only.")
     {
-        var now = new Card("Tickets right now", null, Kit.CardWidth);
+        var now = new Card("Your tickets", null, Kit.CardWidth);
         now.Body.Controls.Add(_nowStatus);
         now.Body.Controls.Add(_now);
-        _teamTitle.Margin = new Padding(0, 14, 0, 0);
-        now.Body.Controls.Add(_teamTitle);
-        now.Body.Controls.Add(_teamStatus);
-        now.Body.Controls.Add(_team);
         Panel.Controls.Add(now);
+
+        var workload = new Card("Team workload", null, Kit.CardWidth);
+        _teamGroups.Margin = new Padding(0, 0, 0, 4);
+        workload.Body.Controls.Add(_teamGroups);
+        _teamGroups.SelectedIndexChanged += (_, _) =>
+        {
+            if (_fillingTeamGroups || _teamGroups.SelectedItem is not Option<long> chosen)
+                return;
+            _teamGroup = chosen.Value;
+            SaveTeamChoice();
+            RefreshTeam();
+        };
+        workload.Body.Controls.Add(_teamStatus);
+        workload.Body.Controls.Add(_team);
+        Panel.Controls.Add(workload);
         // Updated after every check while the window is open.
         WatchStatus.Changed += ShowNow;
         Panel.Disposed += (_, _) => WatchStatus.Changed -= ShowNow;
 
-        var card = new Card("How you used notifications · 30 days", null, Kit.CardWidth);
+        var card = new Card("Notification usage · 30 days", null, Kit.CardWidth);
         card.Body.Controls.Add(_summary);
         card.Body.Controls.Add(_table);
         card.Body.Controls.Add(Theme.Label(
-            "Acted on: opened, taken or copied. A snoozed notification counts for what you do when it comes back.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
+            "Acted on: opened, taken or assigned, copied (also just the number) or snoozed.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         _clear.Margin = new Padding(0, 10, 0, 0);
         card.Body.Controls.Add(_clear);
         Panel.Controls.Add(card);
@@ -87,130 +126,176 @@ internal sealed class StatisticsPage : SettingsPage
         RefreshTeam();
     }
 
-    // ------------------------------------------------------------------ your team
+    // ------------------------------------------------------------------ who's busy
 
     /// <summary>
-    /// Your region's teammates in your monitored groups (from their Zendesk time zones, like the Colleagues page), and
-    /// their open tickets in those groups. Read when Insights is shown, at most every 10 minutes.
+    /// Everyone in the chosen group (or all monitored groups) who is in working hours, and how busy they are with tickets in
+    /// those groups. Read when Insights is shown, at most every 10 minutes; the last result for these groups is shown
+    /// meanwhile (also after a restart: cache\team-workload.json).
     /// </summary>
     private async void RefreshTeam()
     {
         var version = ++_teamVersion;
         var settings = Context.Current();
-        var groups = settings.WatchedGroups.Where(g => !g.IsNoGroup).Select(g => g.Id).Order().ToList();
+        var teams = LoadSavedTeams(settings.Subdomain);
+        var monitored = settings.WatchedGroups.Where(g => !g.IsNoGroup).ToList();
+        ShowTeamChoice(monitored);
+        var chosen = monitored.FirstOrDefault(g => g.Id == _teamGroup);
+        var groups = (chosen is null ? monitored : [chosen]).Select(g => g.Id).Order().ToList();
+        var groupsKey = string.Join(',', groups);
         if (Context.Client is not { } client || Context.Me is not { } me)
         {
-            ShowTeam(_teamCache?.Region, _teamCache?.Rows, "Sign in to see your team.");
+            var last = teams.Values.Where(t => t.Key.StartsWith(settings.Subdomain + "|") && t.Key.EndsWith("|" + groupsKey)).MaxBy(t => t.At);
+            ShowTeam(last, "Sign in to see the workload.");
             return;
         }
         if (groups.Count == 0)
         {
-            ShowTeam(null, null, "Choose groups to monitor (Groups page) to see your team.");
+            ShowTeam(null, "Choose groups to monitor (Groups page) to see the workload.");
             return;
         }
-        var key = $"{settings.Subdomain}|{string.Join(',', groups)}";
-        if (_teamCache is { } cached && cached.Key == key && DateTime.UtcNow - cached.At < TeamRefresh)
+        var key = $"{settings.Subdomain}|{me.Id}|{groupsKey}";
+        if (teams.TryGetValue(key, out var cached))
         {
-            ShowTeam(cached.Region, cached.Rows, null, cached.At, cached.Escalated, cached.Scheduled);
-            return;
+            ShowTeam(cached, null); // right away, also while it's read again
+            if (DateTime.UtcNow - cached.At < TeamRefresh)
+                return;
         }
-        if (_teamCache is null || _teamCache.Value.Key != key)
-            ShowTeam(null, null, "Loading your team\u2026");
+        else
+            ShowTeam(null, "Loading… (a big group can take a few seconds the first time)");
         try
         {
-            var region = TimeRegions.Mine(me);
-            var members = await Task.WhenAll(groups.Select(id => client.GetGroupMembersAsync(id, CancellationToken.None)));
-            var team = members.SelectMany(m => m)
-                .Where(u => u.Role != "end-user" && (u.Id == me.Id || TimeRegions.Of(TimeRegions.ZoneOf(u)) == region))
-                .DistinctBy(u => u.Id)
-                .ToDictionary(u => u.Id, u => u.Id == me.Id ? "You" : u.Name ?? $"User {u.Id}");
-            var tickets = await Task.WhenAll(groups.Select(id => client.GetAssignedOpenTicketsAsync(id, CancellationToken.None))
-                .Concat(groups.Select(id => client.GetRecentlySolvedTicketsAsync(id, TeamWorkload.SolvedDays, CancellationToken.None))));
+            var watch = Stopwatch.StartNew();
+            // Shared with "Who could take it": a group it read in the last few minutes isn't read again.
+            var read_ = await Task.WhenAll(groups.Select(id =>
+                GroupWorkloadCache.GetAsync(client, settings.Subdomain, id, SharedDataAge, CancellationToken.None)));
+            var members = read_.SelectMany(g => g.Members).DistinctBy(u => u.Id).ToList();
+            var tickets = read_.Select(g => g.Tickets).ToList();
+            var team = members.ToDictionary(u => u.Id, u => u.Id == me.Id ? "You" : u.Name ?? $"User {u.Id}");
             var statuses = (await client.GetCustomStatusesAsync(CancellationToken.None))
                 .Where(s => s.AgentLabel is { Length: > 0 }).ToDictionary(s => s.Id, s => s.AgentLabel!);
-            var rows = TeamWorkload.Count(tickets.SelectMany(t => t), team, me.Id, statuses);
-            string[] Names(Func<string, bool> which) => [.. statuses.Values.Where(which).Distinct().Order()];
-            _teamCache = (key, DateTime.UtcNow, region, rows, Names(TeamWorkload.IsEscalatedStatus), Names(n => TicketRules.IsScheduled(n)));
-            if (version == _teamVersion && !Panel.IsDisposed)
+            var read = new SavedTeam
             {
-                var c = _teamCache.Value;
-                ShowTeam(c.Region, c.Rows, null, c.At, c.Escalated, c.Scheduled);
-            }
+                Key = key, At = read_.Min(g => g.At), Rows = TeamWorkload.Count(tickets.SelectMany(t => t), team, me.Id, statuses),
+                Zones = members.ToDictionary(u => u.Id, u => TimeRegions.ZoneOf(u))
+            };
+            Log.Info($"Insights: team workload read in {watch.Elapsed.TotalSeconds:0.0} s ({groups.Count} group(s), " +
+                $"{tickets.Sum(t => t.Count)} open tickets, {members.Count} people)");
+            teams[key] = read;
+            foreach (var old in teams.Values.OrderByDescending(t => t.At).Skip(TeamsKept).ToList())
+                teams.Remove(old.Key);
+            ListCache.Save(TeamCacheName, settings.Subdomain, read.At, teams);
+            if (version == _teamVersion && !Panel.IsDisposed)
+                ShowTeam(read, null);
         }
         catch (Exception ex)
         {
             if (ex is not AuthRequiredException)
-                Log.Error("Insights: could not read the team's tickets", ex);
+                Log.Error("Insights: could not read the team workload", ex);
             if (version == _teamVersion && !Panel.IsDisposed)
-                ShowTeam(_teamCache?.Region, _teamCache?.Rows, "Couldn't read your team's tickets just now.");
+                ShowTeam(teams.GetValueOrDefault(key), "Couldn't read the group's tickets just now.");
         }
     }
 
-    /// <summary>For the screenshot tool: a sample team, as if just read (some Open moved to In progress, Escalated split up).</summary>
-    internal static void SetTeamSample(string subdomain, IEnumerable<long> groups, TimeRegion region, List<WorkloadRow> rows) =>
-        _teamCache = ($"{subdomain}|{string.Join(',', groups.Order())}", DateTime.UtcNow, region, rows.Select(SampleRow).ToList(),
-            ["Escalated internally", "Escalated to Engineering"], ["Scheduled"]);
-
-    private static WorkloadRow SampleRow(WorkloadRow row) => row.EscalatedBy is not null ? row : row with
+    /// <summary>Once per run: the teams, the chosen group and the order as last saved on this PC (for this Zendesk).</summary>
+    private static Dictionary<string, SavedTeam> LoadSavedTeams(string subdomain)
     {
-        Open = row.Open - row.Open / 3, InProgress = row.InProgress + row.Open / 3,
-        EscalatedBy = new Dictionary<string, int>
+        if (_teamGroup is null)
         {
-            ["Escalated to Engineering"] = (row.Escalated + 1) / 2, ["Escalated internally"] = row.Escalated / 2
+            // [group, order]: order 1 = least busy first.
+            var choice = ListCache.Load<List<long>>(TeamChoiceCacheName, subdomain, anyAge: true)?.Value ?? [];
+            _teamGroup = choice.ElementAtOrDefault(0);
+            _busiestFirst = choice.ElementAtOrDefault(1) == 0;
         }
-    };
+        return _teams ??= ListCache.Load<Dictionary<string, SavedTeam>>(TeamCacheName, subdomain, anyAge: true)?.Value ?? [];
+    }
 
-    private void ShowTeam(TimeRegion? region, List<WorkloadRow>? rows, string? message, DateTime? at = null,
-        string[]? escalated = null, string[]? scheduled = null)
+    private void SaveTeamChoice() =>
+        ListCache.Save(TeamChoiceCacheName, Context.Current().Subdomain, DateTime.UtcNow, new List<long> { _teamGroup ?? 0, _busiestFirst ? 0 : 1 });
+
+    /// <summary>The drop-down: All monitored groups, then each one (hidden with a single group).</summary>
+    private void ShowTeamChoice(List<WatchedGroup> monitored)
     {
-        var key = $"{region}|{rows?.GetHashCode()}|{message}|{at:O}";
+        Option<long>[] options = [new(0, "All monitored groups"), .. monitored.OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(g => new Option<long>(g.Id, g.Name))];
+        _teamGroups.Visible = monitored.Count > 1;
+        _fillingTeamGroups = true;
+        if (!_teamGroups.Items.Cast<Option<long>>().SequenceEqual(options))
+        {
+            _teamGroups.Items.Clear();
+            _teamGroups.Items.AddRange(options);
+        }
+        Kit.Select(_teamGroups, monitored.Any(g => g.Id == _teamGroup) ? _teamGroup!.Value : 0L);
+        _fillingTeamGroups = false;
+    }
+
+    /// <summary>For the screenshot tool: a sample group, as if just read.</summary>
+    internal static void SetTeamSample(string subdomain, long meId, IEnumerable<long> groups, List<WorkloadRow> rows, Dictionary<long, string?> zones)
+    {
+        _teamGroup = 0;
+        _busiestFirst = true;
+        var key = $"{subdomain}|{meId}|{string.Join(',', groups.Order())}";
+        _teams = new() { [key] = new SavedTeam { Key = key, At = DateTime.UtcNow, Rows = rows, Zones = zones } };
+    }
+
+    private void ShowTeam(SavedTeam? team, string? message)
+    {
+        var settings = Context.Current();
+        var now = DateTimeOffset.UtcNow;
+        bool OffWork(long id) => TeamWorkload.OffWork(new User { IanaTimeZone = team?.Zones.GetValueOrDefault(id) }, now,
+            settings.WorkdayStartHour, settings.WorkdayEndHour, settings.WorkDays) == true;
+        // Off work: not shown (you are, greyed); nobody can be asked then anyway.
+        var rows = team is null ? null : TeamWorkload.Order(team.Rows.Where(r => r.IsMe || !OffWork(r.AssigneeId)), OffWork, _busiestFirst);
+        var hidden = team is null ? 0 : team.Rows.Count(r => !r.IsMe && OffWork(r.AssigneeId));
+        var key = $"{team?.Key}|{team?.At:O}|{message}|{_busiestFirst}|{(rows is null ? "" : string.Join(',', rows.Select(r => r.AssigneeId)))}";
         if (key == _teamShown)
             return;
         _teamShown = key;
-        _teamTitle.Text = region is { } r ? $"Your team \u00b7 {TimeRegions.Name(r)}" : "Your team";
-        _teamStatus.Text = message ?? (rows is { Count: > 0 }
-            ? $"Busiest first. Click a name to see their tickets; point at a heading for details. Updated " +
-                $"{(at is { } read ? Clock.Time(read.ToLocalTime()) : "")}."
-            : "No colleagues in your region in these groups.");
+        string Updated(DateTime read) => read.ToLocalTime() is var local && local.Date == DateTime.Today ? Clock.Time(local) : Clock.DayTime(local);
+        var offNote = hidden == 0 ? "" : $"{hidden} off work not shown (Notifications → Colleagues). ";
+        _teamStatus.Text = message ?? (team is null ? ""
+            : rows!.Any(r => !r.IsMe)
+                ? $"Open tickets in {(_teamGroups.Visible && _teamGroups.SelectedItem is Option<long> { Value: > 0 } g ? g.Label : "your monitored groups")}. " +
+                  $"{offNote}Updated {Updated(team.At)}."
+                : $"Nobody else is in working hours right now. {offNote}Updated {Updated(team.At)}.");
         _team.Visible = rows is { Count: > 0 };
-        if (rows is { Count: > 0 })
+        if (rows is not { Count: > 0 })
+            return;
+        var most = Math.Max(1, rows.Max(TeamWorkload.Score));
+        var baseUrl = settings.BaseUrl;
+        var shortNames = TeamWorkload.ShortNames(rows.Select(r => r.Name));
+        // Headings; Workload sorts (▼ busiest first, ▲ least busy first), like a column heading in Zendesk or Outlook.
+        var table = new List<GridTable.Cell[]>
         {
-            // One column per escalated status when there are several (e.g. to Engineering, internally), else one for all.
-            List<(string Text, string Tip, Func<WorkloadRow, int> Count)> columns =
-            [
-                ("", "", _ => 0),
-                ("Open", "New and Open, also other open statuses", r => r.Open),
-                ("In progress", "Statuses with “in progress” in their name", r => r.InProgress),
-                ("P1/P2", "Of the Open and In progress ones: Urgent or High", r => r.UrgentOrHigh)
-            ];
-            if (escalated is { Length: > 1 })
-                foreach (var status in escalated)
-                    columns.Add((TeamWorkload.ShortEscalatedName(status), status, r => r.EscalatedBy?.GetValueOrDefault(status) ?? 0));
-            else
-                columns.Add(("Escalated", escalated is { Length: > 0 } e ? e[0] : "No status with “escalat” in its name", r => r.Escalated));
-            columns.Add(("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with “scheduled” in its name",
-                r => r.Scheduled));
-            columns.Add(("Pending", "Pending and On-hold: waiting on the client or someone else", r => r.Pending));
-            columns.Add(("Solved", $"Solved or closed in the last {TeamWorkload.SolvedDays} days", r => r.Solved));
-
-            var table = new List<GridTable.Cell[]>
+            new GridTable.Cell[]
             {
-                columns.Select(c => c.Text == "P1/P2"
-                    ? new GridTable.Cell("", Theme.Small, Tip: c.Tip, Tags: ["urgent", "high"])
-                    : new GridTable.Cell(c.Text, Theme.Small, GridTable.Ink.Muted, c.Tip.Length > 0 ? c.Tip : null)).ToArray()
-            };
-            var baseUrl = Context.Current().BaseUrl;
-            var shortNames = TeamWorkload.ShortNames(rows.Select(r => r.Name));
-            foreach (var row in rows)
-            {
-                var query = $"assignee:{row.AssigneeId} status<solved";
-                var name = new GridTable.Cell(shortNames[row.Name], row.IsMe ? Theme.BodyBold : Theme.Body, GridTable.Ink.Link,
-                    $"{(row.IsMe ? "Your" : $"{row.Name}'s")} unsolved tickets – opens in Zendesk", () => OpenSearch(baseUrl, query));
-                table.Add([name, .. columns.Skip(1).Select(c => Number(c.Count(row), Theme.Body))]);
+                new("Name", Theme.Small, GridTable.Ink.Muted),
+                new(_busiestFirst ? "Workload ▼" : "Workload ▲", Theme.Small, GridTable.Ink.Muted,
+                    _busiestFirst ? "Busiest first. Click for least busy first." : "Least busy first. Click for busiest first.",
+                    () =>
+                    {
+                        _busiestFirst = !_busiestFirst;
+                        SaveTeamChoice();
+                        RefreshTeam();
+                    }, Left: true),
+                new("", Theme.Small, GridTable.Ink.Muted, Left: true)
             }
-            _team.MaxWidth = TableRoom(_team);
-            _team.SetRows(table);
+        };
+        foreach (var row in rows)
+        {
+            var off = OffWork(row.AssigneeId);
+            var ink = off ? GridTable.Ink.Muted : GridTable.Ink.Text;
+            var query = $"assignee:{row.AssigneeId} status<solved";
+            table.Add(
+            [
+                new GridTable.Cell(shortNames[row.Name], row.IsMe ? Theme.BodyBold : Theme.Body, off ? GridTable.Ink.Muted : GridTable.Ink.Link,
+                    $"{(row.IsMe ? "Your" : $"{row.Name}'s")} unsolved tickets – opens in Zendesk", () => OpenSearch(baseUrl, query)),
+                new GridTable.Cell("", Theme.Body, ink, Bar: TeamWorkload.Score(row) / (float)most, Left: true),
+                new GridTable.Cell(off ? $"off work · {TeamWorkload.Summary(row)}" : TeamWorkload.Summary(row), Theme.Small, ink, Left: true)
+            ]);
         }
+        _team.MaxWidth = TableRoom(_team);
+        _team.SetRows(table);
     }
 
     /// <summary>The width a table may use in its card (names give way when it's wider).</summary>

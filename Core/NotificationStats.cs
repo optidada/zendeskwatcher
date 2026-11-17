@@ -22,8 +22,8 @@ public enum StatOutcome
     Copied,
 
     /// <summary>
-    /// Acted on, counted once per notification: opened, took it or copied. Snoozing isn't (what's done when it comes
-    /// back is), nor is only reading it. Days before this was counted are estimated (see <see cref="Totals"/>).
+    /// Acted on, counted once per notification: any reaction (opened, took or assigned it, copied it or its number,
+    /// snoozed); not closing, a choice for the client, or only reading it. Days before this was counted are estimated (see <see cref="Totals"/>).
     /// </summary>
     Acted
 }
@@ -127,7 +127,7 @@ public sealed class NotificationStats
                     day_[id] = (parts[2],
                         shown + (outcome == StatOutcome.Shown ? count : 0),
                         acted + (outcome == StatOutcome.Acted ? count : 0),
-                        positive + (outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied ? count : 0),
+                        positive + (outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied or StatOutcome.Snoozed ? count : 0),
                         counted || outcome == StatOutcome.Acted);
                 }
                 foreach (var (id, d) in day_)
@@ -162,7 +162,7 @@ public sealed class NotificationStats
                 foreach (var kind in dayTotals.Keys.Select(k => k.Kind).Distinct().ToList())
                     if (!dayTotals.ContainsKey((kind, StatOutcome.Acted)))
                         dayTotals[(kind, StatOutcome.Acted)] = EstimatedActed(dayTotals.GetValueOrDefault((kind, StatOutcome.Shown)),
-                            [.. new[] { StatOutcome.OpenedTicket, StatOutcome.OpenedZendesk, StatOutcome.Took, StatOutcome.Copied }
+                            [.. new[] { StatOutcome.OpenedTicket, StatOutcome.OpenedZendesk, StatOutcome.Took, StatOutcome.Copied, StatOutcome.Snoozed }
                                 .Select(o => dayTotals.GetValueOrDefault((kind, o)))]);
                 foreach (var (key, count) in dayTotals)
                     totals[key] = totals.GetValueOrDefault(key) + count;

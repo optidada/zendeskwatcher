@@ -21,7 +21,7 @@ internal sealed class BehaviorPage : SettingsPage
     public BehaviorPage(SettingsContext context)
         : base(context, "Behavior", "How long notifications stay, what happens to ones that waited, and Snooze.")
     {
-        var screen = new Card("On screen", "How long notifications stay. Pointing at one pauses it.", Kit.CardWidth);
+        var screen = new Card("Display time", "How long a notification stays on screen. Pointing at it pauses the countdown.", Kit.CardWidth);
         _ticketLength.Margin = new Padding(3, 2, 0, 4);
         screen.Body.Controls.Add(_ticketLength);
         _ticketTimes.Margin = new Padding(3, 0, 0, 0);
@@ -33,9 +33,8 @@ internal sealed class BehaviorPage : SettingsPage
         screen.Body.Controls.Add(Theme.Label("Away means the screen is locked, or no mouse or keyboard for a minute.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(screen);
 
-        var back = new Card("Skip old news", "A notification that had to wait is checked again first. If the ticket was taken, solved " +
-            "or closed meanwhile, it's dropped, and with the switch below also when someone from your side (the assignee or another " +
-            "agent) already replied to the client.", Kit.CardWidth);
+        var back = new Card("Already handled", "A notification that had to wait is checked again first, and dropped if the ticket was " +
+            "taken, solved or closed meanwhile.", Kit.CardWidth);
         back.Body.Controls.Add(_dropAnswered);
         Panel.Controls.Add(back);
 

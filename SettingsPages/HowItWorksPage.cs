@@ -110,7 +110,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Pointing at one pauses its countdown.",
                 "Away means the screen is locked, or no mouse or keyboard for a minute. While you present or use a full-screen " +
                 "app, notifications wait silently, so nothing pops up over your screen.",
-                "[[Skip old news|Behavior/Skip old news]]: when you're back, notifications that waited 15 minutes or more are checked again and dropped if " +
+                "[[Already handled|Behavior/Already handled]]: when you're back, notifications that waited 15 minutes or more are checked again and dropped if " +
                 "the ticket was taken, solved or closed, or (if you choose) already answered by someone.",
                 "[[Snooze|Behavior/Snooze]] brings a notification back after the time you chose, but only if the ticket still needs you.",
                 "Several at once take turns instead of piling up."
@@ -163,8 +163,11 @@ internal sealed class HowItWorksPage : SettingsPage
             "On the Insights page. Clear statistics starts the counting over.",
             [
                 "Counted on this PC only; nothing is sent anywhere.",
-                "[[Your team|Insights]]: your region's colleagues in your monitored groups, with their open, pending and recently solved " +
-                "tickets, read while the page is open (at most every 10 minutes)."
+                "[[Team workload|Insights]]: everyone in your monitored groups (or the one group you pick) who is in working hours " +
+                "(in their Zendesk time zone; people off work aren't shown), and their open tickets there. The bar counts open and " +
+                "In progress tickets twice, Urgent and High once more, escalated, scheduled and waiting ones once, like the " +
+                "suggestions next to Take it. Read while the page is open (at most every 10 minutes); each group's last result " +
+                "shows right away."
             ]),
         new("Experimental",
             "Two optional helpers that work entirely on your PC: a warning when a ticket sounds more urgent than its priority, " +

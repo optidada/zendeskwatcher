@@ -3,6 +3,15 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.19
+
+- **Team workload on Insights**: pick a group to see who's busy right now, as a bar per person with their open, urgent, escalated and waiting tickets. Click "Workload ▼" to see the least busy first. People who are off work aren't shown.
+- **Insights opens instantly**: each group's workload is remembered, so it shows right away and refreshes in the background.
+- **"Who could take it" (▾ next to Take it) is faster**: it shares the group's workload with Insights for up to 5 minutes. The ticket and colleagues' activity are still checked fresh.
+- **Fairer "acted on" in Insights**: copying just the ticket number and snoozing now count too.
+- **Clearer names**: Insights has the cards Your tickets, Team workload and Notification usage. On Behavior, "On screen" is now Display time and "Skip old news" is Already handled.
+- **Lighter on Zendesk**: big groups' open tickets take one request instead of up to ten.
+
 ## 1.8.18
 
 - **Catch up once a day**: it comes by itself at the first start of the day (or when your working day starts), not again after a restart or an update. Ask for it any time as before (tray menu, Ctrl+Alt+Z).

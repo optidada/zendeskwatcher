@@ -30,6 +30,9 @@ public sealed class PopupManager
     /// <summary>A choice from "Options ▾" on a notification's client line.</summary>
     public Action<NotificationContent, ClientChoice>? ClientChosen { get; set; }
 
+    /// <summary>The ticket number was copied from a notification (it stays open).</summary>
+    public Action<NotificationContent>? CopiedId { get; set; }
+
     /// <summary>Which of these notifications are still needed (bool: also read the ticket's changes). Set by the notifier.</summary>
     public Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? StillNeeded { get; set; }
     private readonly Action<string, long?> _onAction;
@@ -120,6 +123,7 @@ public sealed class PopupManager
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.ClientChosen += (p, choice) => ClientChosen?.Invoke(p.Content, choice);
+        popup.CopyIdClicked += p => CopiedId?.Invoke(p.Content);
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
         _visible.Add(popup);
         _shownAt[popup] = DateTime.UtcNow;

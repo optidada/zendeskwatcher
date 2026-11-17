@@ -25,7 +25,8 @@ public sealed class Notifier : INotificationSink
         _popups = new PopupManager(onAction, Snooze, OnPopupClosed, Copy)
         {
             Shown = OnShown,
-            ClientChosen = (content, choice) => { if (content.IsTicketNotification) ChooseForClient(choice); } // samples: nothing to change
+            ClientChosen = (content, choice) => { if (content.IsTicketNotification) ChooseForClient(choice); }, // samples: nothing to change
+            CopiedId = content => { if (content.IsTicketNotification) Count(content, StatOutcome.Copied); }
         };
 
     /// <summary>
@@ -50,9 +51,13 @@ public sealed class Notifier : INotificationSink
             MarkActed(content);
     }
 
-    /// <summary>Opened, took or copied: acted on. Snoozing, closing and only reading it aren't.</summary>
+    /// <summary>
+    /// Any reaction is acting on it (Daniel: whatever takes the ticket further): opened, took or assigned, copied (all of
+    /// it or the number), or snoozed. Closing, a choice for the client (muting doesn't take the ticket further) and only
+    /// reading it aren't.
+    /// </summary>
     private static bool IsAction(StatOutcome outcome) =>
-        outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied;
+        outcome is StatOutcome.OpenedTicket or StatOutcome.OpenedZendesk or StatOutcome.Took or StatOutcome.Copied or StatOutcome.Snoozed;
 
     /// <summary>Notifications already counted as acted on (by <see cref="NotificationContent.StatId"/>, so snoozed repeats too).</summary>
     private readonly HashSet<Guid> _acted = [];
@@ -365,7 +370,7 @@ public sealed class Notifier : INotificationSink
 
     /// <summary>
     /// A random priority for each sample (sometimes none), so "Try it" shows the colors and how long each priority stays
-    /// (Behavior → On screen) instead of always the same.
+    /// (Behavior → Display time) instead of always the same.
     /// </summary>
     private static string? RandomPriority() => Random.Shared.Next(5) switch
     {

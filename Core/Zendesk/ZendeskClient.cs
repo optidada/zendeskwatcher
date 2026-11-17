@@ -491,13 +491,17 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             : null;
     }
 
-    /// <summary>All open tickets in a group that are assigned to someone (for Insights → Your team).</summary>
+    /// <summary>All open tickets in a group that are assigned to someone (Insights → Team workload, and who could take a ticket).</summary>
     public Task<List<Ticket>> GetAssignedOpenTicketsAsync(long groupId, CancellationToken ct) =>
-        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved", ct);
+        ExportTicketsAsync($"group:{groupId} -assignee:none status<solved", ct);
 
-    /// <summary>Tickets in a group solved (or since closed) in the last <paramref name="days"/> days (Insights → Your team).</summary>
-    public Task<List<Ticket>> GetRecentlySolvedTicketsAsync(long groupId, int days, CancellationToken ct) =>
-        SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status>=solved solved>{DateTime.UtcNow.AddDays(-days):yyyy-MM-ddTHH:mm:ssZ}", ct);
+    /// <summary>
+    /// Search export: up to 1,000 tickets per request instead of the normal search's 100 (and not capped at 1,000 in
+    /// all), for searches that return many tickets. Same index and lag as the normal search; allowed for agents.
+    /// </summary>
+    private async Task<List<Ticket>> ExportTicketsAsync(string query, CancellationToken ct, [CallerMemberName] string caller = "") =>
+        await GetAllPagesAsync<SearchResponse, Ticket>(
+            $"/api/v2/search/export.json?query={Uri.EscapeDataString(query)}&filter%5Btype%5D=ticket&page%5Bsize%5D=1000", r => r.Results, ct, caller: caller);
 
     /// <summary>
     /// Tickets in a group created after <paramref name="since"/> that have an assignee now (any status): the ones someone

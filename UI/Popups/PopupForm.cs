@@ -188,6 +188,9 @@ public sealed class PopupForm : Form
     /// <summary>Copy was clicked (ticket notifications only). The popup stays open and shows a check mark for a moment.</summary>
     public event Action<PopupForm>? CopyClicked;
 
+    /// <summary>Copy ticket number was clicked; the popup stays open (counted as acted on, like Copy).</summary>
+    public event Action<PopupForm>? CopyIdClicked;
+
 
     /// <summary>A choice from "Options ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
     public event Action<PopupForm, ClientChoice>? ClientChosen;
@@ -1152,6 +1155,7 @@ public sealed class PopupForm : Form
             {
                 Clipboard.SetDataObject(TicketNumberText(ticketId), copy: true, retryTimes: 5, retryDelay: 100);
                 _copiedIdUntil = _clock.Elapsed.TotalMilliseconds + 1500;
+                CopyIdClicked?.Invoke(this);
             }
             catch (Exception ex)
             {
