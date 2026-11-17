@@ -160,6 +160,33 @@ public sealed class Settings
     /// <summary>The ticket priorities, in Zendesk's words. Tickets without a priority count as "normal".</summary>
     public static readonly string[] AllPriorities = ["urgent", "high", "normal", "low"];
 
+    /// <summary>
+    /// New unassigned tickets: group id -> the priorities that notify and count (Notifications → New tickets). A group not
+    /// listed: all. One raised to a chosen priority while still unassigned notifies then; important clients always do.
+    /// </summary>
+    public Dictionary<long, List<string>> NewTicketPriorities { get; set; } = [];
+
+    /// <summary>The priorities of new unassigned tickets that notify in this group.</summary>
+    public IReadOnlyList<string> NewTicketPrioritiesFor(long groupId) =>
+        NewTicketPriorities.TryGetValue(groupId, out var chosen) && chosen.Count > 0 ? chosen : AllPriorities;
+
+    /// <summary>The priority choices in Settings (new tickets per group, ticket changes, Help colleagues), most to fewest;
+    /// null is all priorities.</summary>
+    public static readonly (string Label, string[]? Priorities)[] PriorityChoices =
+    [
+        ("All", null),
+        ("P1–P3", ["urgent", "high", "normal"]),
+        ("P1, P2", ["urgent", "high"]),
+        ("P1 only", ["urgent"])
+    ];
+
+    /// <summary>
+    /// The choice for a list of priorities: by the lowest one in it (a list from an older version with a gap, e.g. P1 and
+    /// P3, gets P1–P3). An empty list gets P1 only, the fewest there is.
+    /// </summary>
+    public static int PriorityChoiceIndex(IReadOnlyCollection<string> priorities) =>
+        priorities.Contains("low") ? 0 : priorities.Contains("normal") ? 1 : priorities.Contains("high") ? 2 : 3;
+
     /// <summary>Only changes on my tickets with these (current) priorities notify.</summary>
     public List<string> MyTicketPriorities { get; set; } = [.. AllPriorities];
 
@@ -458,7 +485,7 @@ public enum ClientMode
     /// <summary>Only Urgent (P1) and High (P2) new tickets and colleagues' tickets notify.</summary>
     OnlyUrgent,
 
-    /// <summary>Always notify (also outside your hours and for priorities you unticked), stay until dismissed, ★ in the heading.</summary>
+    /// <summary>Always notify (also outside your hours and for priorities left out), stay until dismissed, ★ in the heading.</summary>
     Important
 }
 

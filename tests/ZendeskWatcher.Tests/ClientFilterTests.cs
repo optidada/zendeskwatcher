@@ -296,7 +296,7 @@ public class ClientFilterTests
 
         var clients = await new ZendeskClient(_settings, _zendesk).GetGroupClientsAsync(10, CancellationToken.None);
 
-        Assert.Equal([(Fabrikam, "Fabrikam", 2), (ClientChoice.NoClientId, ClientChoice.NoClientName, 1), (Contoso, "Contoso", 1)], clients);
+        Assert.Equal([(Fabrikam, "Fabrikam", 2), (ClientChoice.NoClientId, ClientChoice.NoClientName, 1), (Contoso, "Contoso", 1)], clients.Select(c => (c.Id, c.Name, c.Tickets)));
     }
 
     [Fact]
@@ -313,5 +313,26 @@ public class ClientFilterTests
 
         Assert.Equal(["Contoso", "(No client)", "Gone Group"], sections[0].Clients.Select(c => c.Name)); // ticked first, by name, "(No client)" last; then muted
         Assert.Equal(["Northwind", "Old Client"], sections[1].Clients.Select(c => c.Name));
+    }
+    [Fact]
+    public void Products_come_from_the_comma_separated_field()
+    {
+        Assert.Equal(["Content Management PaaS", "Configured Commerce"], Organization.ParseProducts(" Content Management PaaS,Configured Commerce, "));
+        Assert.Empty(Organization.ParseProducts(null));
+        Assert.Empty(Organization.ParseProducts("  "));
+    }
+
+    [Fact]
+    public void Filter_finds_clients_by_name_or_product_and_says_which_product()
+    {
+        var byProduct = new ClientsView.Client(1, "Initech", 3, ["Configured Commerce", "Content Management PaaS"]);
+        var byName = new ClientsView.Client(2, "Commerce Partners", 1);
+        var neither = new ClientsView.Client(3, "Contoso", 1, ["Web Experimentation"]);
+
+        Assert.True(ClientsView.Matches(byProduct, "commerce"));
+        Assert.Equal(["Configured Commerce"], ClientsView.MatchedProducts(byProduct, "commerce"));
+        Assert.True(ClientsView.Matches(byName, "commerce"));
+        Assert.False(ClientsView.Matches(neither, "commerce"));
+        Assert.True(ClientsView.Matches(neither, "")); // no filter: everyone
     }
 }

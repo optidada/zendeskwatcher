@@ -320,9 +320,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// <summary>
     /// The clients (organizations) of a group's tickets created in the last <see cref="ClientLookBackDays"/> days, with
     /// how many tickets each had, most first. Zendesk doesn't tie organizations to groups, so the tickets tell.
-    /// <see cref="ClientChoice.NoClientId"/> stands for tickets without one. Reads up to 500 tickets (5 searches).
+    /// <see cref="ClientChoice.NoClientId"/> stands for tickets without one. Reads up to 500 tickets (5 searches). With
+    /// each client's products (<see cref="Organization.Products"/>, from the same request as the names).
     /// </summary>
-    public async Task<List<(long Id, string Name, int Tickets)>> GetGroupClientsAsync(long groupId, CancellationToken ct)
+    public async Task<List<(long Id, string Name, int Tickets, List<string> Products)>> GetGroupClientsAsync(long groupId, CancellationToken ct)
     {
         var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
         var query = $"type:ticket group:{group} created>{DateTime.UtcNow.AddDays(-ClientLookBackDays):yyyy-MM-dd}";
@@ -346,9 +347,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
 
         return counts
-            .Select(kv => (kv.Key, kv.Key == ClientChoice.NoClientId ? ClientChoice.NoClientName
-                : _organizations.GetValueOrDefault(kv.Key)?.Name is { Length: > 0 } name ? name : $"Organization {kv.Key}", kv.Value))
-            .OrderByDescending(c => c.Value).ThenBy(c => c.Item2, StringComparer.CurrentCultureIgnoreCase)
+            .Select(kv => (Id: kv.Key, Name: kv.Key == ClientChoice.NoClientId ? ClientChoice.NoClientName
+                : _organizations.GetValueOrDefault(kv.Key)?.Name is { Length: > 0 } name ? name : $"Organization {kv.Key}", Tickets: kv.Value,
+                Products: _organizations.GetValueOrDefault(kv.Key)?.Products ?? []))
+            .OrderByDescending(c => c.Tickets).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
 

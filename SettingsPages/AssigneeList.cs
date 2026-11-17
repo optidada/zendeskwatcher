@@ -13,7 +13,8 @@ namespace ZendeskWatcher.SettingsPages;
 internal sealed class AssigneeList : Control
 {
     /// <param name="Zone">Their time zone (from Zendesk), for "working now"; null when unknown.</param>
-    public sealed record Person(long Id, string Name, string? Tip, TimeZoneInfo? Zone = null);
+    /// <param name="Note">Muted text after the name, e.g. the product a client matched the filter by.</param>
+    public sealed record Person(long Id, string Name, string? Tip, TimeZoneInfo? Zone = null, string? Note = null);
 
     /// <param name="Title">A heading (a region), or null for no heading.</param>
     /// <param name="Tag">The caller's own key for the group (e.g. the region).</param>
@@ -286,6 +287,15 @@ internal sealed class AssigneeList : Control
                     }
                     TextRenderer.DrawText(g, item.Text, Font, text, Active ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    if (item.Person.Note is { Length: > 0 } personNote)
+                    {
+                        // "Contoso  · Configured Commerce": muted, in the room left after the name.
+                        var nameWidth = TextRenderer.MeasureText(g, item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
+                        var noteRect = new Rectangle(text.X + nameWidth, text.Y, text.Width - nameWidth, text.Height);
+                        if (noteRect.Width > 30 * s)
+                            TextRenderer.DrawText(g, "· " + personNote, Theme.Small, noteRect, Theme.TextMuted,
+                                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    }
                     break;
 
                 case ItemKind.GroupTick:

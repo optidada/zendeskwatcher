@@ -323,8 +323,24 @@ public static class TicketRules
     }
 
     /// <summary>Whether a ticket's priority is one of the chosen ones. No priority counts as normal.</summary>
-    public static bool MatchesPriority(string? priority, ICollection<string> chosen) =>
+    public static bool MatchesPriority(string? priority, IEnumerable<string> chosen) =>
         chosen.Contains(string.IsNullOrEmpty(priority) ? "normal" : priority);
+
+    /// <summary>Low 0, normal (or none) 1, high 2, urgent 3.</summary>
+    public static int PriorityRank(string? priority) => priority?.ToLowerInvariant() switch
+    {
+        "urgent" => 3,
+        "high" => 2,
+        "low" => 0,
+        _ => 1
+    };
+
+    /// <summary>
+    /// A new unassigned ticket kept quiet for its priority notifies once it's raised to a ticked one while still
+    /// unassigned. Ticking the priority later doesn't count as raised (no burst of old tickets).
+    /// </summary>
+    public static bool WasRaisedToWanted(string? quietPriority, string? priority, IEnumerable<string> chosen) =>
+        quietPriority is not null && MatchesPriority(priority, chosen) && PriorityRank(priority) > PriorityRank(quietPriority);
 
     /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>
     public static string? Involvement(Ticket ticket, long me) =>

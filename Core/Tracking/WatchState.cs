@@ -11,6 +11,9 @@ public sealed class WatchState
     /// <summary>Unassigned ticket id -> the last time it was seen in a group's unassigned list.</summary>
     public Dictionary<long, DateTimeOffset> SeenUnassigned { get; set; } = [];
 
+    /// <summary>Unassigned tickets kept quiet for a priority not chosen -> that priority, to notify once one is raised.</summary>
+    public Dictionary<long, string> QuietPriority { get; set; } = [];
+
     /// <summary>Groups whose current unassigned tickets were recorded silently on their first poll.</summary>
     public HashSet<long> BaselinedGroups { get; set; } = [];
 

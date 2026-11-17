@@ -177,6 +177,37 @@ public class UnassignedTicketTests
     }
 
     [Fact]
+    public async Task Unticked_priorities_stay_quiet_until_raised()
+    {
+        _settings.NewTicketPriorities[10] = ["urgent", "high"];
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None);
+
+        // A Normal and a Low ticket: no notification, not counted.
+        var normal = _zendesk.AddUnassigned(103);
+        normal.Priority = "normal";
+        _zendesk.AddUnassigned(104).Priority = "low";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+        Assert.Equal(0, watcher.Snapshot().Unassigned);
+
+        // Raised to High while still unassigned: notifies then, once.
+        normal.Priority = "high";
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal("Priority raised", shown.Heading);
+        Assert.Equal(103, shown.TicketId);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+
+        // Ticking Low later isn't a raise: the waiting Low ticket doesn't notify now.
+        _settings.NewTicketPriorities[10] = ["urgent", "high", "low"];
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+        Assert.Equal(2, watcher.Snapshot().Unassigned);
+    }
+
+    [Fact]
     public async Task Empty_group_is_quiet_then_a_new_ticket_notifies_once()
     {
         var watcher = await StartAsync();

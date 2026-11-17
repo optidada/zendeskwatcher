@@ -134,6 +134,15 @@ public sealed class Organization
     public long Id { get; set; }
     public string? Name { get; set; }
     public Dictionary<string, JsonElement>? OrganizationFields { get; set; }
+
+    /// <summary>
+    /// The products in the client's "Products" field (key <c>products</c>, names separated by commas), in its order. Often
+    /// out of date, and products that come in a bundle or platform aren't listed: a hint to look at, never a rule.
+    /// </summary>
+    public List<string> Products => ParseProducts(OrganizationFields?.GetValueOrDefault("products") is { ValueKind: JsonValueKind.String } v ? v.GetString() : null);
+
+    public static List<string> ParseProducts(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? [] : [.. text.Split([',', ';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct()];
 }
 
 /// <summary>One of the account's organization fields, e.g. "Plan" (a dropdown with options) or "SLA" (text).</summary>

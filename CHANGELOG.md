@@ -3,6 +3,14 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.15
+
+- **Priorities per group for new tickets**: Notifications → New tickets lets each monitored group notify for All, P1–P3, P1 and P2, or P1 only. A quiet ticket raised to a chosen priority while still unassigned comes as "Priority raised".
+- **See a client's products**: point at a client on the Clients page to see the products Zendesk lists for it, and filter by product (the row says which product matched). Zendesk's list is often out of date, so it's a hint, never a rule.
+- **One way to choose priorities**: New tickets, Ticket changes and Colleagues all use the same buttons, and priorities show as P1–P4 tags only.
+- **Clearer when signed out**: a "Not signed in" banner with a Sign in button, and Groups, Clients, Colleagues and SLA greyed with a lock in the sidebar.
+- The Groups page is only about which groups you monitor again.
+
 ## 1.8.14
 
 - **"Client" everywhere**: the app says client instead of customer, as the team does (Colleagues page, Catch up, How it works, SLA and more).

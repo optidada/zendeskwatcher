@@ -37,6 +37,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 "in their working hours and did something in Zendesk in the last 3 hours, least busy first. You're asked before " +
                 "it's assigned.",
                 "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
+                "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
+                "the others stay quiet and aren't counted. If one is raised while still unassigned, it comes then as “Priority " +
+                "raised”. Important clients always come.",
                 "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
                 "No group ticked yet: nothing comes, and Catch up reminds you each time the app starts."
             ]),
@@ -47,13 +50,16 @@ internal sealed class HowItWorksPage : SettingsPage
             "Options ▾ on a group's row sets it for all its clients at once, and Options ▾ on a notification's client line " +
             "does the same for one client.",
             [
-                "Important ★: always notifies, also outside your hours and for priorities you unticked, and stays until you close it.",
+                "Important ★: always notifies, also outside your hours and for priorities you left out, and stays until you close it.",
                 "Only urgent: notifies just for Urgent (P1) and High (P2).",
                 "Mute for a while: until your shift ends, until your next shift ([[your working hours|Notifications/Working hours]]), or for a week.",
                 "A sound of its own, so you know who it is before you look.",
                 "Muting and “only urgent” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
                 "whatever the client.",
-                "The list comes from the last 90 days of tickets in your monitored groups."
+                "The list comes from the last 90 days of tickets in your monitored groups.",
+                "Point at a client to see its products, as the client's Products field in Zendesk lists them. The filter finds " +
+                "products too, and says which one matched. That field is often out of date, and bundled products aren't listed, " +
+                "so a client missing from the results may still have the product."
             ]),
         new("Notifications",
             "This is where you choose what you want to hear about: new tickets in your groups, changes on your own tickets and " +

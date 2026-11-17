@@ -39,7 +39,7 @@ internal static class ClientMenu
         var own = current.Mode == ClientMode.Muted ? ClientMode.Normal : current.Mode;
         Item("Normal", own == ClientMode.Normal, c => WithMode(c, ClientMode.Normal));
         Item("Important ★  – always, stays until closed", own == ClientMode.Important, c => WithMode(c, ClientMode.Important));
-        Item("Only urgent  – Urgent (P1) and High (P2)", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
+        Item("Only urgent  – P1 and P2", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
         menu.Items.Add(new ToolStripSeparator());
         var muted = current.IsMutedAt(now);
         var mutedFor = muted && current.MutedUntil is { } until ? until : (DateTimeOffset?)null;

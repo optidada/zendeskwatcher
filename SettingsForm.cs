@@ -44,7 +44,7 @@ public sealed class SettingsForm : Form
         ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
         ("Behavior", true), ("Look & sound", true), ("SLA", true), ("General", false), ("Updates & feedback", true), ("Insights", false), ("How it works", false), ("Experimental", false)
     ];
-    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 8;
+    private const int GroupsIndex = 1, ClientsIndex = 2, HelpIndex = 4, SlaIndex = 7, GeneralIndex = 8;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
     private const int UpdatesIndex = GeneralIndex + 1;
@@ -231,7 +231,7 @@ public sealed class SettingsForm : Form
         _account = new AccountPage(_context, _groups);
         _makePage =
         [
-            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context),
+            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context, _groups),
             () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
             () => new SlaPage(_context), MakeGeneralPage, MakeUpdatesPage, () => new StatisticsPage(_context), () => new HowItWorksPage(_context), () => new ExperimentalPage(_context)
         ];
@@ -327,6 +327,14 @@ public sealed class SettingsForm : Form
             stack.Controls.Add(nav);
             _nav.Add(nav);
         }
+        // Signed out, the pages whose lists come from Zendesk are greyed with a lock: they can be looked at, not changed.
+        void ShowLocks()
+        {
+            foreach (var index in new[] { GroupsIndex, ClientsIndex, HelpIndex, SlaIndex })
+                _nav[index].Locked = _context.SignedOut;
+        }
+        _context.SignedOutChanged += ShowLocks;
+        ShowLocks();
 
         // The version and its release date; the author is on the General page.
         var about = new Label
@@ -743,15 +751,19 @@ public sealed class SettingsForm : Form
                 HelpRegionDefaultDone = true, HelpOffRegions = [TimeRegion.EuropeAfrica],
                 HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Milton Waddams" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
+                NewTicketPriorities = new() { [1] = ["urgent", "high"] },
                 Clients = [new ClientChoice { Id = 23, Name = "Chotchkie's", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
                     new ClientChoice { Id = 21, Name = "Initech", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
                     new ClientChoice { Id = 25, Name = "Happy-Go-Lucky Toy Factory", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
             };
             ClientsView.SetSample(settings.Subdomain, new()
             {
-                [1] = [new(21, "Initech", 41), new(22, "Reynholm Industries", 17), new(23, "Chotchkie's", 9), new(24, "InGen", 6),
+                [1] = [new(21, "Initech", 41, ["Content Management PaaS", "Content Management Addons"]),
+                       new(22, "Reynholm Industries", 17, ["Configured Commerce", "Product Recommendations"]), new(23, "Chotchkie's", 9, ["Web Experimentation"]),
+                       new(24, "InGen", 6, ["Commerce Connect Retail", "Content Management PaaS"]),
                        new(25, "Happy-Go-Lucky Toy Factory", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
-                [2] = [new(21, "Initech", 12), new(26, "Pawtucket Brewery", 8), new(27, "Initrode", 2)]
+                [2] = [new(21, "Initech", 12, ["Content Management PaaS", "Content Management Addons"]), new(26, "Pawtucket Brewery", 8, ["Feature Experimentation"]),
+                       new(27, "Initrode", 2, ["Configured Commerce"])]
             });
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
@@ -803,6 +815,18 @@ public sealed class SettingsForm : Form
                     form._content.AutoScrollPosition = Point.Empty;
                 }
             }
+            // Clients filtered by a product: the matched product after the name.
+            form.SelectPage(ClientsIndex);
+            Application.DoEvents();
+            form.BuiltClients?.ShowFilter("commerce");
+            Application.DoEvents();
+            using (var filtered = new Bitmap(form.Width, form.Height))
+            {
+                form.DrawToBitmap(filtered, new Rectangle(Point.Empty, filtered.Size));
+                filtered.Save(Path.Combine(dir, $"{theme}-{ClientsIndex}-filtered.png"));
+            }
+            form.BuiltClients?.ShowFilter("");
+
             // Groups, Clients and Colleagues while signed out: the strip, read-only lists.
             form._context.SetSignedOut(true);
             foreach (var index in new[] { 1, ClientsIndex, HelpIndex })

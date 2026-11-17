@@ -12,7 +12,25 @@ namespace ZendeskWatcher.SettingsPages;
 internal sealed class ClientsView
 {
     /// <summary>A group's clients: id, name, tickets in the last 90 days.</summary>
-    internal sealed record Client(long Id, string Name, int Tickets);
+    /// <param name="Products">From the client's "Products" field in Zendesk; often out of date (a hint, never a rule).</param>
+    internal sealed record Client(long Id, string Name, int Tickets, List<string>? Products = null);
+
+    /// <summary>A client matches the filter by its name or one of its products.</summary>
+    internal static bool Matches(Client client, string filter) =>
+        filter.Length == 0 || client.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase) || MatchedProducts(client, filter).Count > 0;
+
+    /// <summary>The client's products that contain the filter text (the reason a client matched, when its name doesn't).</summary>
+    internal static List<string> MatchedProducts(Client client, string filter) =>
+        filter.Length == 0 ? [] : [.. (client.Products ?? []).Where(p => p.Contains(filter, StringComparison.CurrentCultureIgnoreCase))];
+
+    /// <summary>The row's tooltip: name, recent tickets, and the products Zendesk lists (with a word on how reliable that is).</summary>
+    private static string TipFor(Client c)
+    {
+        var tip = c.Tickets > 0 ? $"{c.Name} · {c.Tickets} ticket{(c.Tickets == 1 ? "" : "s")} in the last {ZendeskClient.ClientLookBackDays} days" : c.Name;
+        if (c.Products is { Count: > 0 } products)
+            tip += $"\nProducts in Zendesk: {string.Join(" · ", products)}\n(may be out of date; bundled products aren't listed)";
+        return tip;
+    }
 
     private readonly AssigneeList _list;
     private readonly ThinScrollBar _scrollBar = new() { BackColor = Theme.Surface };
@@ -292,7 +310,7 @@ internal sealed class ClientsView
         ListCache.Clear(CacheName);
     }
 
-    private const string CacheName = "clients";
+    private const string CacheName = "clients-products"; // renamed when products came: older cached lists have none
 
     /// <summary>Groups whose clients are being fetched right now (a second request joins the first).</summary>
     private static readonly Dictionary<(long Group, ZendeskClient Client), Task<List<Client>?>> Loading = [];
@@ -312,7 +330,7 @@ internal sealed class ClientsView
             try
             {
                 return (await client.GetGroupClientsAsync(groupId, CancellationToken.None))
-                    .Select(c => new Client(c.Id, c.Name, c.Tickets)).ToList();
+                    .Select(c => new Client(c.Id, c.Name, c.Tickets, c.Products)).ToList();
             }
             catch (Exception ex)
             {
@@ -430,9 +448,10 @@ internal sealed class ClientsView
         var visible = Layout(_shown, _choices.Values.ToList(), _filter);
         _list.Filtering = _filter.Length > 0;
         _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
-            s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, c.Tickets > 0
-                ? $"{c.Name} · {c.Tickets} ticket{(c.Tickets == 1 ? "" : "s")} in the last {ZendeskClient.ClientLookBackDays} days"
-                : c.Name)).ToList(),
+            s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, TipFor(c),
+                // Matched by a product, not the name: that product after the name says why it's in the list.
+                Note: !c.Name.Contains(_filter, StringComparison.CurrentCultureIgnoreCase) && MatchedProducts(c, _filter) is { Count: > 0 } why
+                    ? string.Join(", ", why) : null)).ToList(),
             StartOpen: s.Changed)).ToList()); // groups with muted or customized clients start open
         if (!keepScroll)
             _scroll = 0;
@@ -463,7 +482,7 @@ internal sealed class ClientsView
         bool Changed(Client c) => byId.GetValueOrDefault(c.Id) is { } choice && !choice.IsDefaultAt(now);
         return sections
             .Select(s => (s.Group, Clients: filter.Length == 0 ? s.Clients
-                : s.Clients.Where(c => c.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)).ToList()))
+                : s.Clients.Where(c => Matches(c, filter)).ToList()))
             .Where(s => s.Clients.Count > 0)
             .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed)))
             .ToList();
@@ -514,7 +533,7 @@ internal sealed class ClientsView
         var muted = clients.Count(c => ModeOf(c.Id) == ClientMode.Muted);
         var important = clients.Count(c => ModeOf(c.Id) == ClientMode.Important);
         var onlyUrgent = clients.Count(c => ModeOf(c.Id) == ClientMode.OnlyUrgent);
-        var matching = _filter.Length == 0 ? 0 : clients.Count(c => c.Name.Contains(_filter, StringComparison.CurrentCultureIgnoreCase));
+        var matching = _filter.Length == 0 ? 0 : clients.Count(c => Matches(c, _filter));
         var text = clients.Count == 0 ? ""
             : _filter.Length > 0
                 ? (matching == 0 ? "" : $"{matching} of {clients.Count} clients match · a group's box applies to {(matching == 1 ? "this one" : $"these {matching}")}")

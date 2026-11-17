@@ -37,7 +37,7 @@ internal sealed class HelpColleaguesCard
     private readonly Label _peopleHint = Theme.Linked("", Theme.Small, Theme.TextMuted, PeopleWidth);
     private readonly HourRange _workHours = new() { Margin = new Padding(0, 4, 0, 2) };
     private readonly DayChecks _workDays = new("Days", new Padding(0, 2, 0, 0));
-    private readonly PriorityChecks _priorities = new(new Padding(0, 0, 0, 0), label: false);
+    private readonly PriorityChoice _priorities = new(new Padding(0, 0, 0, 0), label: false);
     private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself");
 
     /// <summary>Groups chosen under "Only these groups".</summary>

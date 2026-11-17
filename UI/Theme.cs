@@ -424,6 +424,16 @@ public sealed class NavItem : Control
 
     private bool _unsaved;
 
+    /// <summary>Signed out, the page can only be looked at (its lists come from Zendesk): greyed, with a lock after its name.</summary>
+    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Locked
+    {
+        get => _locked;
+        set { if (_locked == value) return; _locked = value; Invalidate(); }
+    }
+
+    private bool _locked;
+
     protected override void OnMouseEnter(EventArgs e) { _hover = true; Invalidate(); base.OnMouseEnter(e); }
     protected override void OnMouseLeave(EventArgs e) { _hover = false; Invalidate(); base.OnMouseLeave(e); }
 
@@ -440,12 +450,19 @@ public sealed class NavItem : Control
         var indent = _sub ? 40 : 24;
         var font = _selected ? Theme.BodyBold : Font;
         TextRenderer.DrawText(g, Text, font, new Rectangle(indent, 0, Width - indent, Height),
-            _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
+            _locked ? Theme.Neutral : _selected ? Theme.SidebarTitle : Theme.SidebarText, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix);
+        var s = DeviceDpi / 96f;
+        var textWidth = TextRenderer.MeasureText(g, Text, font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width;
+        if (_locked)
+        {
+            var lockX = indent + textWidth + (int)(8 * s);
+            TextRenderer.DrawText(g, "🔒", Font, new Rectangle(lockX, 0, Width - lockX, Height), Theme.Neutral,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
+            textWidth += TextRenderer.MeasureText(g, "🔒", Font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width + (int)(8 * s);
+        }
         if (_unsaved)
         {
             // In the "Unsaved changes" color, just after the name.
-            var s = DeviceDpi / 96f;
-            var textWidth = TextRenderer.MeasureText(g, Text, font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width;
             var r = 3.5f * s;
             var x = indent + textWidth + 8 * s;
             g.SmoothingMode = SmoothingMode.AntiAlias;

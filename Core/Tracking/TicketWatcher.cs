@@ -233,6 +233,20 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             tickets = tickets.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
             fresh = fresh.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
 
+            // Priorities not chosen for the group (Notifications → New tickets) work the same way: neither notify nor count. Their priority is kept, so
+            // one raised to a chosen priority while still unassigned notifies then.
+            var raised = new List<Ticket>();
+            foreach (var ticket in tickets)
+            {
+                if (!WantedPriority(ticket, group))
+                    _state.QuietPriority[ticket.Id] = ticket.Priority ?? "normal";
+                else if (_state.QuietPriority.Remove(ticket.Id, out var was) &&
+                         TicketRules.WasRaisedToWanted(was, ticket.Priority, settings.NewTicketPrioritiesFor(group.Id)) && !fresh.Contains(ticket))
+                    raised.Add(ticket);
+            }
+            tickets = tickets.Where(t => WantedPriority(t, group)).ToList();
+            fresh = fresh.Where(t => WantedPriority(t, group)).ToList();
+
             total += tickets.Count;
             byGroup.Add((group, tickets));
 
@@ -242,6 +256,13 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 await ShowAlreadyWaitingAsync(group, tickets, ct);
                 ShowedAlreadyWaiting = true;
                 continue;
+            }
+
+            if (!isBaseline && raised.Count > 0 && settings.NotifyUnassigned && !(settings.OnlyNotifyDuringMyHours && await IAmOffWorkAsync(ct)))
+            {
+                Log.Info($"{raised.Count} unassigned ticket(s) raised to a chosen priority {group.Describe()}: {string.Join(",", raised.Select(t => t.Id))}");
+                foreach (var ticket in raised)
+                    await ShowNewTicketAsync(ticket, group, ct, "Priority raised");
             }
 
             // New tickets are always recorded, so switching notifications on later does not report old ones.
@@ -278,6 +299,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         // Forget tickets that have not been unassigned for a while, so they notify again if they come back.
         foreach (var id in _state.SeenUnassigned.Where(kv => now - kv.Value > ForgetUnassignedAfter).Select(kv => kv.Key).ToList())
             _state.SeenUnassigned.Remove(id);
+        foreach (var id in _state.QuietPriority.Keys.Where(id => !_state.SeenUnassigned.ContainsKey(id)).ToList())
+            _state.QuietPriority.Remove(id);
 
         UnassignedCount = total;
         _unassigned = byGroup;
@@ -911,6 +934,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private ClientMode ClientMode(Ticket ticket) => TicketRules.ClientMode(ticket, settings, DateTimeOffset.UtcNow);
 
     private bool IsImportant(Ticket ticket) => ClientMode(ticket) == ZendeskWatcher.ClientMode.Important;
+
+    /// <summary>A new unassigned ticket with a priority chosen for its group (Notifications → New tickets), or from an important client.</summary>
+    private bool WantedPriority(Ticket ticket, WatchedGroup group) => TicketRules.MatchesPriority(ticket.Priority, settings.NewTicketPrioritiesFor(group.Id)) || IsImportant(ticket);
 
     /// <summary>
     /// Adds the client: "Client: Contoso", ★ and "until dismissed"

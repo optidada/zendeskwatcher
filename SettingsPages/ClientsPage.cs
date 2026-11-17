@@ -13,7 +13,7 @@ internal sealed class ClientsPage : SettingsPage
 
     private readonly GroupsPage _groups;
     private readonly ClientsView _clients = new(ListWidth);
-    private readonly InputBox _filter = new(ListWidth, "Filter clients…", searchIcon: true);
+    private readonly InputBox _filter = new(ListWidth, "Filter by client or product…", searchIcon: true);
     private readonly Label _hint = Theme.Label("", Theme.Small, Theme.TextMuted);
     private readonly Button _reload = Theme.SecondaryButton("Reload");
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
@@ -24,7 +24,7 @@ internal sealed class ClientsPage : SettingsPage
         _groups = groups;
         var card = new Card("Clients of your monitored groups",
             $"Clients from the last {ZendeskClient.ClientLookBackDays} days of tickets. Muting never affects your own or " +
-                $"CC'd tickets. Important clients notify even outside your hours and for priorities you unticked, and stay until " +
+                $"CC'd tickets. Important clients notify even outside your hours and for priorities you left out, and stay until " +
                 $"closed.", Kit.CardWidth);
         _clients.Host.Size = new Size(ListWidth, 280);
         _clients.Host.Margin = new Padding(0, 10, 0, 10);
@@ -149,6 +149,9 @@ internal sealed class ClientsPage : SettingsPage
 
     /// <summary>After Save or Discard: the filter starts empty again (all clients, in their new sections).</summary>
     public void ClearFind() => _filter.Text = "";
+
+    /// <summary>For the screenshot tool: the list filtered by this text.</summary>
+    internal void ShowFilter(string text) => _filter.Text = text;
 
     /// <summary>A choice made from a notification while Settings is open.</summary>
     public void SetChoice(ClientChoice choice) => _clients.SetChoice(choice);
