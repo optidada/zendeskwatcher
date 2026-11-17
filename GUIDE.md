@@ -24,7 +24,8 @@ notifications look.
 
 A ticket landed in one of your groups and nobody has taken it yet. You see the client, the subject, who it's from and
 how long ago, when the first reply is due, and the start of what they wrote. **Take it** assigns it to you and opens
-it; the **▾** next to it suggests colleagues who could take it instead.
+it; the **▾** next to it suggests colleagues who could take it instead. At the top right, the copy icon with a **#**
+copies just the ticket number, and the plain copy icon copies the title, link and details.
 
 ![A new-ticket notification](docs/images/notification-new-ticket.png)
 
@@ -74,7 +75,8 @@ Every page is also explained in the app, under **How it works**.
 ### Account
 
 Connects the app to Zendesk with your own agent account. You sign in as usual (Okta), and the app sees only what you
-can see in Zendesk.
+can see in Zendesk. While you're signed out, the pages whose lists come from Zendesk (Groups, Clients, Colleagues, SLA)
+show a "Not signed in" banner and can only be looked at.
 
 ![Account](docs/images/settings-account.png)
 
@@ -90,14 +92,16 @@ tickets are. Your own tickets notify you in any group.
 Control which clients you get notifications from. You hear about every client in your groups to begin with. Untick a
 client to mute it, or use **Options ▾** to make one Important (always notifies, stays until you close it), only urgent,
 muted until your shift ends or your next shift, or give it its own sound. **Options ▾** on a group's row sets it
-for all its clients at once.
+for all its clients at once. Point at a client to see the products Zendesk lists for it; the filter finds products too
+and says which one matched. Zendesk's product list is often out of date, so treat it as a hint.
 
 ![Clients](docs/images/settings-clients.png)
 
 ### Notifications
 
-Choose what you want to hear about: new tickets in your groups, changes on your own tickets and the ones you're CC'd on
-or follow, which kinds of change, and when you work. With "Only notify me during my working hours", notifications
+Choose what you want to hear about: new tickets in your groups (for each group: all priorities, P1–P3, P1 and P2, or
+P1 only), changes on your own tickets and the ones you're CC'd on or follow, which kinds of change, and when you work.
+A ticket kept quiet for its priority notifies as "Priority raised" if someone raises it while it's still unassigned. With "Only notify me during my working hours", notifications
 outside them wait for Catch up, unless you're active in Zendesk.
 
 ![Notifications](docs/images/settings-notifications.png)

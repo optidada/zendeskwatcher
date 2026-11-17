@@ -10,7 +10,9 @@ A Windows tray app that watches Zendesk with **your own agent permissions**:
 
 Clicking a notification opens the ticket in the browser. New-ticket notifications show who wrote and the start of their message, and have **Take it**, which assigns the ticket to you and opens it. If a colleague was faster, you're told who has it and the ticket opens anyway. When someone takes the ticket (or it's solved) while its notification is still up, the notification closes by itself within a few minutes. The **▾** next to Take it lists up to 3 colleagues in the ticket's group who could take it (in their working hours, active in Zendesk lately, least busy first); pick one to assign it to them, after a confirmation. Assigning an unassigned ticket (to you or a colleague you pick) is the only thing the app ever changes in Zendesk.
 
-Priorities are shown with their P-level: Urgent (P1), High (P2), Normal (P3), Low (P4).
+Two small icons at the top right of a ticket notification copy it: the copy icon with a **#** copies just the ticket number (e.g. `123456`), the plain one copies the ticket's title, link and details (for Teams or email).
+
+Priorities are shown as P1–P4 tags: Urgent (P1), High (P2), Normal (P3), Low (P4).
 
 **[See the guide with screenshots](GUIDE.md)** for what each notification and Settings page looks like.
 
@@ -42,8 +44,8 @@ failing test stops the release.
 On first start the **Settings** window opens, with a short guide at the top that leads you through four steps (sign in, groups, working hours, colleagues; **Skip** closes it):
 
 1. **Account:** enter the subdomain (`yourcompany` for yourcompany.zendesk.com) and click **Sign in**. A window opens with the Zendesk/Okta login. It closes on its own once you're signed in.
-2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon. On **Clients** (under Groups) untick clients you don't need to hear about (or click **Mute ▾** on a notification's client line); everyone is included by default, new clients too.
-3. **Notifications:** choose whether new unassigned tickets notify you, which changes on your own tickets notify you, and your working hours. Below it: **Colleagues**, **Behavior** (how long notifications stay: Short, Normal or Long; snooze), **Look & sound** (style, sounds, an optional glow at the screen edge for the most urgent ones, and how they appear: below each other, stacked like cards, peeking from the screen edge, a pill at the top, a ticker at the screen edge, or "achievement unlocked") and **SLA**.
+2. **Groups:** tick the groups to monitor. **(No group)** covers tickets with neither a group nor an assignee. The unassigned count of the monitored groups shows on the tray icon. On **Clients** (under Groups) untick clients you don't need to hear about (or click **Options ▾** on a notification's client line); everyone is included by default, new clients too. Point at a client to see the products Zendesk lists for it; the filter finds products too (Zendesk's list is often out of date, so it's only a hint).
+3. **Notifications:** choose whether new unassigned tickets notify you, and for which priorities per group (All, P1–P3, P1 and P2, or P1 only), which changes on your own tickets notify you, and your working hours. Below it: **Colleagues**, **Behavior** (how long notifications stay: Short, Normal or Long; snooze), **Look & sound** (style, sounds, an optional glow at the screen edge for the most urgent ones, and how they appear: below each other, stacked like cards, peeking from the screen edge, a pill at the top, a ticker at the screen edge, or "achievement unlocked") and **SLA**.
 4. **Insights** shows what's waiting now, your team's workload in your region, and how you used notifications in the last 30 days. **Experimental** has two optional extras worked out on your PC: a priority guess and quiet thank-yous.
 
 **How it works**, the last page, explains in plain words when and why each notification appears.

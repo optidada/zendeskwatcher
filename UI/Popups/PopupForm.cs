@@ -50,7 +50,7 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _whoRect, _dismissRect, _clientRect, _muteRect;
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _copyIdRect, _openRect, _snoozeRect, _takeRect, _whoRect, _dismissRect, _clientRect, _muteRect;
     private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _dismissLabel = "";
 
     // State
@@ -198,8 +198,14 @@ public sealed class PopupForm : Form
     /// <summary>Its Options ▾ or Who could take it ▾ menu is open (the pill stays open meanwhile).</summary>
     internal bool MenuOpen => _menuOpen;
 
-    private double _copiedUntil;
-    private Font? _iconFont;
+    private double _copiedUntil, _copiedIdUntil;
+
+    /// <summary>What "copy ticket number" puts on the clipboard: the number alone (pastes into Zendesk search and fields).</summary>
+    internal static string TicketNumberText(long id) => id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Says what the two copy buttons do while the mouse is on them.</summary>
+    private readonly ToolTip _tips = new() { InitialDelay = 400 };
+    private Font? _iconFont, _hashFont;
 
     /// <param name="scale">Screen DPI scale.</param>
     /// <param name="size">The user's notification size (1 = 100%): text, buttons and spacing grow together.</param>
@@ -602,9 +608,14 @@ public sealed class PopupForm : Form
         _copyRect = _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone
             ? new Rectangle(_closeRect.Left - copyWidth - Px(2), _closeRect.Top, copyWidth, closeSize)
             : Rectangle.Empty;
+        // Copy ticket number, left of Copy: the copy icon with a small "#" (only for notifications about one ticket).
+        var copyIdWidth = _palette.Terminal ? TextRenderer.MeasureText("[#]", _smallFont).Width + Px(4) : closeSize;
+        _copyIdRect = !_copyRect.IsEmpty && _content.TicketId is not null
+            ? new Rectangle(_copyRect.Left - copyIdWidth - Px(2), _copyRect.Top, copyIdWidth, closeSize)
+            : Rectangle.Empty;
 
         var headingHeight = TextRenderer.MeasureText("Ag", _headingFont).Height;
-        _headingRect = new Rectangle(left, y, (_copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
+        _headingRect = new Rectangle(left, y, (!_copyIdRect.IsEmpty ? _copyIdRect.Left : _copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
         y += headingHeight + Px(6);
 
         // The client's name, large: the first thing to see.
@@ -787,6 +798,37 @@ public sealed class PopupForm : Form
                 // Segoe MDL2 Assets: E8C8 = copy, E73E = check mark.
                 _iconFont ??= new Font("Segoe MDL2 Assets", _smallFont.SizeInPoints);
                 DrawText(g, copied ? "\uE73E" : "\uE8C8", _iconFont, _copyRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+        }
+
+        if (!_copyIdRect.IsEmpty)
+        {
+            var hover = _hoverButton == _copyIdRect;
+            var copied = _clock.Elapsed.TotalMilliseconds < _copiedIdUntil;
+            if (hover && !_palette.Terminal)
+            {
+                using var hoverBrush = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 18, _palette.Text));
+                g.FillEllipse(hoverBrush, _copyIdRect);
+            }
+            var color = copied ? (_palette.Terminal ? _accent : Readable(_accent)) : hover ? _palette.Text : _palette.Muted;
+            if (_palette.Terminal)
+                DrawText(g, copied ? "[ok]" : "[#]", _smallFont, _copyIdRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else if (copied)
+                DrawText(g, char.ConvertFromUtf32(0xE73E), _iconFont ??= new Font("Segoe MDL2 Assets", _smallFont.SizeInPoints), _copyIdRect, color,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else
+            {
+                // The copy icon with a bold "#" on a patch of the background over its lower right corner.
+                _iconFont ??= new Font("Segoe MDL2 Assets", _smallFont.SizeInPoints);
+                var icon = _copyIdRect;
+                icon.Offset(-Px(2), 0); // level with the Copy icon next to it, only a little to the left
+                DrawText(g, char.ConvertFromUtf32(0xE8C8), _iconFont, icon, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                _hashFont ??= new Font(_smallFont.FontFamily, _smallFont.SizeInPoints * 0.95f, FontStyle.Bold);
+                var hashSize = TextRenderer.MeasureText(g, "#", _hashFont, Size.Empty, TextFormatFlags.NoPadding);
+                var hash = new Rectangle(_copyIdRect.Right - hashSize.Width - Px(3), _copyIdRect.Top + _copyIdRect.Height / 2 - Px(4), hashSize.Width, hashSize.Height);
+                using (var patch = new SolidBrush(hover ? Blend(_palette.Background, _palette.Text, _palette.Dark ? 40 / 255f : 18 / 255f) : _palette.Background))
+                    g.FillRectangle(patch, Rectangle.Inflate(hash, Px(1), 0));
+                DrawText(g, "#", _hashFont, hash, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             }
         }
 
@@ -1026,7 +1068,7 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _whoRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        SetHover(true, new[] { _closeRect, _copyRect, _copyIdRect, _muteRect, _openRect, _snoozeRect, _whoRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
     }
 
@@ -1037,6 +1079,11 @@ public sealed class PopupForm : Form
         if (hover == _hover && button == _hoverButton)
             return;
         _hover = hover;
+        var tip = button == _copyRect && !_copyRect.IsEmpty ? "Copy the ticket (title, link, details)"
+            : button == _copyIdRect && !_copyIdRect.IsEmpty && _content.TicketId is { } tipId ? $"Copy ticket number ({TicketNumberText(tipId)})"
+            : null;
+        if (button != _hoverButton)
+            _tips.SetToolTip(this, tip);
         _hoverButton = button;
         if (hover && Peek != PeekEdge.None)
         {
@@ -1063,6 +1110,19 @@ public sealed class PopupForm : Form
             _menuOpen = true;
             menu.Closed += (_, _) => { _menuOpen = false; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
             menu.Show(this, new Point(_muteRect.Left, _muteRect.Bottom));
+        }
+        else if (_copyIdRect.Contains(e.Location) && _content.TicketId is { } ticketId)
+        {
+            try
+            {
+                Clipboard.SetDataObject(TicketNumberText(ticketId), copy: true, retryTimes: 5, retryDelay: 100);
+                _copiedIdUntil = _clock.Elapsed.TotalMilliseconds + 1500;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not copy the ticket number", ex);
+            }
+            Invalidate();
         }
         else if (_copyRect.Contains(e.Location))
         {

@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.16
+
+- **Copy just the ticket number**: a new icon at the top right of ticket notifications (the copy icon with a #) copies only the number, e.g. 123456. Pointing at either copy icon says what it copies.
+- The guide and README show the new Settings pages and notifications.
+
 ## 1.8.15
 
 - **Priorities per group for new tickets**: Notifications → New tickets lets each monitored group notify for All, P1–P3, P1 and P2, or P1 only. A quiet ticket raised to a chosen priority while still unassigned comes as "Priority raised".
