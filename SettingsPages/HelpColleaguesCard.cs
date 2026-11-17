@@ -21,7 +21,7 @@ internal sealed class HelpColleaguesCard
     private readonly SettingsContext _context;
     private readonly GroupsPage _groups;
 
-    private readonly ToggleSwitch _help = new("Customer replies on colleagues' tickets when they're off work or away");
+    private readonly ToggleSwitch _help = new("Client replies on colleagues' tickets when they're off work or away");
     private readonly RadioButton _same = Kit.Radio("Same as my monitored groups");
     private readonly RadioButton _custom = Kit.Radio("Only these groups:");
 

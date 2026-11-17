@@ -586,7 +586,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 continue;
             var author = await zendesk.GetUserAsync(audit.AuthorId, ct);
             if (TicketRules.IsCustomer(author, ticket, Me?.Email))
-                return (author!.Name ?? "The customer", comment, audit.CreatedAt);
+                return (author!.Name ?? "The client", comment, audit.CreatedAt);
             // Someone from us (an agent, or an end-user from your own company) wrote after the customer.
             if (settings.DropAnswered && author is not null)
             {

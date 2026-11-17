@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.14
+
+- **"Client" everywhere**: the app says client instead of customer, as the team does (Colleagues page, Catch up, How it works, SLA and more).
+
 ## 1.8.13
 
 - **Options for a whole group of clients**: Options ▾ on a group's row on the Clients page sets Only urgent, Important, a mute or a sound for all its clients at once.

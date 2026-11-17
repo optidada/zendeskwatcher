@@ -74,7 +74,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Important clients always come."
             ]),
         new("Colleagues",
-            "Makes sure customers aren't left waiting when a colleague is off. If a customer writes on a colleague's ticket while " +
+            "Makes sure clients aren't left waiting when a colleague is off. If a client writes on a colleague's ticket while " +
             "that colleague is off work or away, you get a notification, so you can step in.",
             "Choose whose tickets you cover on the [[Notifications → Colleagues|Colleagues]] page.",
             [
@@ -82,9 +82,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Activity in Zendesk counts too: off work but they changed or commented on a ticket in the last 30 minutes means " +
                 "they're on it (no notification). In their working hours but nothing for 3 hours means probably away, so you're " +
                 "told, with the reason on the notification. Calls, chat and just reading tickets don't show in Zendesk.",
-                "Waiting means the customer's message is the newest public comment; an internal note isn't an answer. Any status " +
+                "Waiting means the client's message is the newest public comment; an internal note isn't an answer. Any status " +
                 "counts (Pending, On-hold, Escalated, …).",
-                "The customer is someone outside your company. Colleagues on the ticket, also as CC, count as you, except the " +
+                "The client is someone outside your company. Colleagues on the ticket, also as CC, count as you, except the " +
                 "person who opened it.",
                 "Colleagues are chosen by region: newcomers follow their region's tick, and you can tick or untick people one by " +
                 "one. Your own region starts unticked: they usually work when you do.",
@@ -114,7 +114,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Glow at the screen edge: urgent tickets, SLAs breached or due within 15 minutes and important clients make the " +
                 "screen edges pulse briefly, so you notice them even when you look away.",
                 "A sound per kind of notification, and a volume for all of them (this app only).",
-                "Show the comment text: what the customer wrote on new tickets, and replies and notes on changes. When off, " +
+                "Show the comment text: what the client wrote on new tickets, and replies and notes on changes. When off, " +
                 "notifications only say who wrote."
             ]),
         new("SLA",
@@ -122,7 +122,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "answer first. Once it's late, it says by how much.",
             "Adjust the targets, or switch it off, on the [[Notifications → SLA|SLA]] page.",
             [
-                "New tickets show when the first reply is due, counted from when they were created. A customer waiting on an " +
+                "New tickets show when the first reply is due, counted from when they were created. A client waiting on an " +
                 "assigned ticket shows when the next reply is due, counted from when they wrote.",
                 "Each client's SLA type comes from Zendesk (its organization's SLA Type); clients without one count as Standard.",
                 "When Zendesk runs an SLA timer on the ticket, its deadline is used. Otherwise the target for the type and " +
@@ -161,11 +161,11 @@ internal sealed class HowItWorksPage : SettingsPage
             "and quiet thank-yous. Both are off until you switch them on.",
             "Switch them on on the Experimental page (English only).",
             [
-                "Priority guess: “Set as P3 · looks like P1”, with the reasons, when what the customer wrote sounds more urgent: " +
+                "Priority guess: “Set as P3 · looks like P1”, with the reasons, when what the client wrote sounds more urgent: " +
                 "the site is down, security, data loss, lost sales, everyone affected, a deadline, a frustrated tone, or similar " +
                 "earlier P1 or P2 tickets. A P1 or P2 ticket without a single sign says “Set as P1 · probably not”. Just a line " +
                 "of text: the order, sound and time on screen stay.",
-                "Quiet thank-yous: a customer's plain “Thanks, that worked!” notifies without sound, and Catch up skips it.",
+                "Quiet thank-yous: a client's plain “Thanks, that worked!” notifies without sound, and Catch up skips it.",
                 "Worked out by rules and a small language model that comes with the app: ticket text never leaves your PC, and " +
                 "Zendesk is never changed. It knows words, not your product, so some matches are missed."
             ]),
@@ -175,13 +175,13 @@ internal sealed class HowItWorksPage : SettingsPage
             "It comes when the app starts (General → Startup) and when your working day starts (Notifications → Working hours). " +
             "Ask for it any time from the tray menu, the Account page, or with Ctrl+Alt+Z.",
             [
-                "One line each, the number first: customers waiting for your reply, SLAs past or due today, unassigned tickets in " +
-                "your groups, customers waiting on CC'd and colleagues' tickets, Escalated ones with no reply to the customer for " +
+                "One line each, the number first: clients waiting for your reply, SLAs past or due today, unassigned tickets in " +
+                "your groups, clients waiting on CC'd and colleagues' tickets, Escalated ones with no reply to the client for " +
                 "2+ days, and Pending ones with no update for 7+ days. Nothing at all: “Nothing needs you right now”.",
                 "Then your own open tickets by status, with how many are P1 or P2, and “To work on”: up to 5 of your New, Open " +
                 "and In progress tickets, most urgent first, then the nearest SLA, then the longest untouched. Click a number to " +
                 "open it.",
-                "Up to 5 waiting customers and up to 3 unassigned tickets also come one by one: once a working day, or when you ask."
+                "Up to 5 waiting clients and up to 3 unassigned tickets also come one by one: once a working day, or when you ask."
             ]),
         new("Summaries",
             "When a lot happens at once, you get one notification with a list instead of a flood.",

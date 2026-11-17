@@ -35,7 +35,7 @@ internal sealed class BehaviorPage : SettingsPage
 
         var back = new Card("Skip old news", "A notification that had to wait is checked again first. If the ticket was taken, solved " +
             "or closed meanwhile, it's dropped, and with the switch below also when someone from your side (the assignee or another " +
-            "agent) already replied to the customer.", Kit.CardWidth);
+            "agent) already replied to the client.", Kit.CardWidth);
         back.Body.Controls.Add(_dropAnswered);
         Panel.Controls.Add(back);
 

@@ -1,7 +1,7 @@
 # Zendesk Watcher: a short guide
 
 Zendesk Watcher sits in the Windows tray and tells you when something in Zendesk needs you: a new ticket nobody has
-taken, a reply on one of your tickets, or a customer waiting on a colleague's ticket while that colleague is off. You
+taken, a reply on one of your tickets, or a client waiting on a colleague's ticket while that colleague is off. You
 don't need to keep Zendesk open to stay on top of things.
 
 New here? Install it first with the [install guide](INSTALL.md). The pictures below use made-up sample data.
@@ -33,13 +33,13 @@ it; the **▾** next to it suggests colleagues who could take it instead.
 ### Ticket updated
 
 Someone else replied, added a note, or changed the status, priority or assignee of one of your tickets (or one you're
-CC'd on or follow). The reply deadline shows at the right when a customer is waiting.
+CC'd on or follow). The reply deadline shows at the right when a client is waiting.
 
 ![A ticket-updated notification](docs/images/notification-ticket-updated.png)
 
 ### Colleague's ticket
 
-A customer wrote on a colleague's ticket while that colleague is off work or away, so you can step in.
+A client wrote on a colleague's ticket while that colleague is off work or away, so you can step in.
 
 ![A colleague's-ticket notification](docs/images/notification-colleague.png)
 

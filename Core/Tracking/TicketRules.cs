@@ -175,7 +175,7 @@ public static class TicketRules
         if (c.Colleagues > 0)
             lines.Add($"**{c.Colleagues}** waiting on colleagues' tickets");
         if (c.QuietEscalated > 0)
-            lines.Add($"**{c.QuietEscalated}** Escalated, no reply to the customer for {EscalatedQuietFor.TotalDays:0}+ days");
+            lines.Add($"**{c.QuietEscalated}** Escalated, no reply to the client for {EscalatedQuietFor.TotalDays:0}+ days");
         if (c.QuietPending > 0)
             lines.Add($"**{c.QuietPending}** Pending, no update for {PendingQuietFor.TotalDays:0}+ days");
         if (c.Attention == 0 && !c.NoGroups)

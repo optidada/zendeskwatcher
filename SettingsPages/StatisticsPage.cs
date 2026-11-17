@@ -190,7 +190,7 @@ internal sealed class StatisticsPage : SettingsPage
                 columns.Add(("Escalated", escalated is { Length: > 0 } e ? e[0] : "No status with “escalat” in its name", r => r.Escalated));
             columns.Add(("Scheduled", scheduled is { Length: > 0 } s ? string.Join(", ", s) : "No status with “scheduled” in its name",
                 r => r.Scheduled));
-            columns.Add(("Pending", "Pending and On-hold: waiting on the customer or someone else", r => r.Pending));
+            columns.Add(("Pending", "Pending and On-hold: waiting on the client or someone else", r => r.Pending));
             columns.Add(("Solved", $"Solved or closed in the last {TeamWorkload.SolvedDays} days", r => r.Solved));
 
             var table = new List<GridTable.Cell[]>

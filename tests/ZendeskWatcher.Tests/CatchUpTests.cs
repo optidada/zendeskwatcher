@@ -30,7 +30,7 @@ public class CatchUpTests
                      $"**2** past SLA · **3** due today, first {Clock.Time(due)}\n" +
                      "**4** unassigned in your groups · 1 Scheduled\n" +
                      "**2** waiting on colleagues' tickets\n" +
-                     "**1** Escalated, no reply to the customer for 2+ days\n" +
+                     "**1** Escalated, no reply to the client for 2+ days\n" +
                      "**5** Pending, no update for 7+ days\n" +
                      "\nYour tickets: 3 Open",
             TicketRules.CatchUpBody(new TicketRules.CatchUpCounts
@@ -155,7 +155,7 @@ public class CatchUpTests
         // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets, then what to work on.
         Assert.Contains("**1** waiting for your reply", lines);
         Assert.Contains("**1** past SLA", lines);
-        Assert.Contains("**1** Escalated, no reply to the customer for 2+ days", lines);
+        Assert.Contains("**1** Escalated, no reply to the client for 2+ days", lines);
         Assert.Contains("**1** Pending, no update for 7+ days", lines);
         var work = Array.IndexOf(lines, "To work on:");
         Assert.True(work > 0);

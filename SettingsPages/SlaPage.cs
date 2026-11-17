@@ -243,7 +243,7 @@ internal sealed class SlaPage : SettingsPage
             }
         _explain.Text = (firstReply
             ? "Counted from when the ticket was created."
-            : "Counted from when the customer wrote.") +
+            : "Counted from when the client wrote.") +
             " d = day, wd = working day (Mon–Fri). Point at a target for details.";
         _warning.Visible = _custom.Count > 0;
         _reset.Visible = _custom.Count > 0 && !Context.SignedOut;

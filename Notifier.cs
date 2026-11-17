@@ -274,7 +274,7 @@ public sealed class Notifier : INotificationSink
         if (Count(NotificationKind.CcTicket) is > 0 and var cc)
             lines.Add(Plural(cc, "update on CC'd tickets", "updates on CC'd tickets"));
         if (Count(NotificationKind.HelpColleague) is > 0 and var help)
-            lines.Add(Plural(help, "customer waiting on a colleague's ticket", "customers waiting on colleagues' tickets"));
+            lines.Add(Plural(help, "client waiting on a colleague's ticket", "clients waiting on colleagues' tickets"));
         if (dropped > 0)
             lines.Add($"{Plural(dropped, "other is", "others are")} no longer needed (taken, solved or answered)");
 

@@ -199,7 +199,7 @@ public sealed partial class TicketWatcher
             if (comment is null || audit.AuthorId == SystemUserId)
                 continue;
             var author = await zendesk.GetUserAsync(audit.AuthorId, ct);
-            return TicketRules.IsCustomer(author, ticket, Me?.Email) ? (author!.Name ?? "The customer", comment, audit.CreatedAt) : null;
+            return TicketRules.IsCustomer(author, ticket, Me?.Email) ? (author!.Name ?? "The client", comment, audit.CreatedAt) : null;
         }
         return null;
     }

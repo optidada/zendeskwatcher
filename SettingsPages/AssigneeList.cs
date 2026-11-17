@@ -322,10 +322,10 @@ internal sealed class AssigneeList : Control
                 }
 
                 case ItemKind.Legend:
-                    // "● working now   ○ off work: you hear about their customers' replies", with the same dots.
+                    // "● working now   ○ off work: you hear about their clients' replies", with the same dots.
                     var x = item.Rect.X + 6 * s;
                     var middle = item.Rect.Y + item.Rect.Height / 2;
-                    foreach (var (working, label) in new[] { (true, "working now"), (false, "off work: you hear about their customers' replies") })
+                    foreach (var (working, label) in new[] { (true, "working now"), (false, "off work: you hear about their clients' replies") })
                     {
                         DrawDot(g, x, middle, working, s);
                         var width = TextRenderer.MeasureText(label, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
