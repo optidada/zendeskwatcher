@@ -18,6 +18,10 @@ public sealed class Settings
     /// </summary>
     public static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(3);
 
+    /// <summary>New unassigned tickets are also checked halfway between two checks (not while away): new work, P1s
+    /// especially, shows within about 1½ minutes, while the rest stays at <see cref="CheckInterval"/>.</summary>
+    public static readonly TimeSpan NewTicketsCheckInterval = TimeSpan.FromSeconds(90);
+
     /// <summary>How often while you're away (<see cref="AwayForChecks"/>); a check runs as soon as you're back.</summary>
     public static readonly TimeSpan AwayCheckInterval = TimeSpan.FromMinutes(10);
 

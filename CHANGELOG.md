@@ -3,6 +3,16 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.18
+
+- **Catch up once a day**: it comes by itself at the first start of the day (or when your working day starts), not again after a restart or an update. Ask for it any time as before (tray menu, Ctrl+Alt+Z).
+- **New tickets show sooner**: new unassigned tickets are also checked halfway between the regular checks, so they show within about 1½ minutes.
+- **"Taken by Anna"**: when someone takes a new ticket (or it's solved) while its notification is up, it says so for a few seconds before closing.
+- **A card for each client**: point at a client's name on the Clients page to see its tickets in the last 90 days and its products, tidy even with many products.
+- **Priority levels on How it works**: what P1–P4 mean, as a reminder when a client's priority doesn't match the case.
+- **Lighter on Zendesk**: names, the group list and the Priority guess history are remembered for a week, a colleague's activity takes one request instead of six, and starting the app asks Zendesk for much less.
+- The Colleagues page no longer loads the same group members several times at once.
+
 ## 1.8.17
 
 - **Don't miss a P1, even when it was taken within a minute**: Notifications → New tickets → "Also when someone took it before I saw it" (Off · P1 · P1, P2 · All, off by default). Tickets someone took between two checks come as "Already taken", saying who took it and how fast, and whether it's already solved.

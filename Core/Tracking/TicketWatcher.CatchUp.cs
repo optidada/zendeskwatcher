@@ -42,10 +42,13 @@ public sealed partial class TicketWatcher
             _state.LastCatchUp = localNow;
             return false;
         }
-        return _state.LastCatchUp < localNow.Date.AddHours(Math.Clamp(settings.MyWorkdayStartHour, 0, 23));
+        return _state.LastCatchUp.Date < localNow.Date; // once a day: not when it already came today (start, or asked for)
     }
 
     public bool DayStartCatchUpDue() => DayStartCatchUpDue(DateTime.Now);
+
+    /// <summary>A Catch up already came today: a later start of the app (an update, a restart) doesn't bring another.</summary>
+    public bool CaughtUpToday => _state.LastCatchUp.Date == DateTime.Now.Date;
 
     /// <summary>
     /// Finds what still needs attention since you stopped working last time, and shows it: a greeting with the counts
@@ -55,8 +58,9 @@ public sealed partial class TicketWatcher
     /// <param name="since">For tests; normally worked out from your working hours.</param>
     public async Task<CatchUpResult> CatchUpAsync(CancellationToken ct, DateTime? since = null, CatchUpReason reason = CatchUpReason.Requested)
     {
+        ZendeskClient.Reason.Value = "catch up";
         var requestedByUser = reason == CatchUpReason.Requested;
-        var oneByOne = reason != CatchUpReason.AppStart || DayStartCatchUpDue(DateTime.Now);
+        var oneByOne = reason != CatchUpReason.AppStart || !CaughtUpToday;
         _state.LastCatchUp = DateTime.Now;
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var start = since ?? TicketRules.CatchUpStart(DateTime.Now, settings.MyWorkdayStartHour, settings.MyWorkdayEndHour, settings.MyWorkDays);
@@ -99,9 +103,15 @@ public sealed partial class TicketWatcher
 
         // 4. Colleagues' tickets, by the Colleagues rules: customer waiting, colleague off work right now.
         var skip = mineIds.Concat(ccIds).ToHashSet();
+        var colleagueTickets = new List<(WatchedGroup Group, Ticket Ticket)>();
         foreach (var group in settings.EffectiveHelpGroups)
+            colleagueTickets.AddRange((await zendesk.GetAssignedOpenTicketsUpdatedSinceAsync(group.Id, sinceUtc, ct)).Select(t => (group, t)));
+        // Their assignees in one go (100 per request), not one request each.
+        await zendesk.PrefetchUsersAsync(colleagueTickets.Select(c => c.Ticket.AssigneeId).OfType<long>(), ct);
+        foreach (var byGroup in colleagueTickets.GroupBy(c => c.Group))
         {
-            foreach (var ticket in await zendesk.GetAssignedOpenTicketsUpdatedSinceAsync(group.Id, sinceUtc, ct))
+            var group = byGroup.Key;
+            foreach (var ticket in byGroup.Select(c => c.Ticket))
             {
                 if (ticket.AssigneeId is not { } assigneeId || assigneeId == me || !skip.Add(ticket.Id))
                     continue;
@@ -110,6 +120,8 @@ public sealed partial class TicketWatcher
                 var assignee = await zendesk.GetUserAsync(assigneeId, ct);
                 if (!settings.CoversColleague(assigneeId, TimeRegions.Of(TimeRegions.ZoneOf(assignee)), TimeRegions.Mine(Me)))
                     continue;
+                if (OutsideWorkingHours(assignee, DateTimeOffset.UtcNow).Away is null)
+                    continue; // unknown time zone: never stepped in for, so the ticket's history isn't read for nothing
                 if (await CustomerWaitingAsync(ticket, sinceUtc, ct) is not { } waiting || IsQuietThankYou(waiting.Comment))
                     continue;
                 var (away, _, why) = await ColleagueAwayAsync(assigneeId, assignee, DateTimeOffset.UtcNow, ct);

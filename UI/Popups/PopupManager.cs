@@ -60,7 +60,21 @@ public sealed class PopupManager
         other.Kind == content.Kind && other.TicketId == content.TicketId && other.Title == content.Title && other.Body == content.Body);
 
     /// <summary>Closes (uncounted) the new-ticket notifications of a ticket someone took, on screen or waiting.</summary>
-    public void CloseNewTicket(long ticketId) => CloseWhere(c => c.Kind == NotificationKind.NewTicket && c.TicketId == ticketId && !c.IsSample);
+    /// <param name="note">"Taken by Anna": a notification on screen says so for a few seconds before closing; null: closes at once.</param>
+    public void CloseNewTicket(long ticketId, string? note = null)
+    {
+        bool Match(NotificationContent c) => c.Kind == NotificationKind.NewTicket && c.TicketId == ticketId && !c.IsSample;
+        if (note is null)
+        {
+            CloseWhere(Match);
+            return;
+        }
+        _pending.RemoveAll(w => Match(w.Content)); // not shown yet: nothing to say
+        foreach (var popup in _visible.Where(p => Match(p.Content)).ToList())
+            popup.ShowTaken(note);
+        _ticker?.RemoveWhere(Match);
+        SyncPill();
+    }
 
     /// <summary>Notifications on screen, waiting in line or in the ticker (for tests).</summary>
     internal int OpenCount => _visible.Count + _pending.Count + (_ticker?.Count ?? 0);

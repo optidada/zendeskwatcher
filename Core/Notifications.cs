@@ -26,7 +26,8 @@ public interface INotificationSink
     void ShowMissingGroups(IReadOnlyCollection<string> names);
 
     /// <summary>A new ticket someone has taken meanwhile: its notification closes quietly (on screen or waiting).</summary>
-    void CloseTaken(long ticketId) { }
+    /// <param name="note">What to say while it closes ("Taken by Anna", "Solved"); null: just close.</param>
+    void CloseTaken(long ticketId, string? note = null) { }
 }
 
 /// <summary>What a click on a notification does.</summary>

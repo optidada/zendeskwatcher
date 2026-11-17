@@ -373,6 +373,33 @@ public sealed class PopupForm : Form
 
     private string DismissLabel => _dismissLabel;
 
+    /// <summary>"Taken by Anna", shown in the footer while it closes by itself (<see cref="ShowTaken"/>).</summary>
+    private string? _takenNote;
+
+    /// <summary>
+    /// Someone took the ticket (or it was solved): says so where Take it was, for a few seconds, then closes. Without
+    /// a Take it button (a compact style) it closes at once, as before.
+    /// </summary>
+    public void ShowTaken(string note)
+    {
+        if (_phase == Phase.Leaving || _takenNote is not null)
+            return;
+        if (!HasExtraButton || _takeRect.IsEmpty)
+        {
+            Dismiss(Result.None);
+            return;
+        }
+        _takenNote = note;
+        Invalidate();
+        var wait = new System.Windows.Forms.Timer { Interval = 4000 };
+        wait.Tick += (_, _) =>
+        {
+            wait.Dispose();
+            Dismiss(Result.None);
+        };
+        wait.Start();
+    }
+
     public void Dismiss(Result outcome)
     {
         if (_phase == Phase.Leaving)
@@ -919,6 +946,14 @@ public sealed class PopupForm : Form
 
     private void PaintFooter(Graphics g)
     {
+        if (_takenNote is not null)
+        {
+            // Someone took it: "Taken by Anna" where Dismiss, Snooze and Take it were, until it closes by itself.
+            var area = new[] { _dismissRect, _snoozeRect, _takeRect }.Where(r => r.Width > 0).Aggregate(Rectangle.Union);
+            DrawText(g, _takenNote, _smallFont, area, _palette.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+            PaintButton(g, _openRect, _openLabel, primary: true);
+            return;
+        }
         if (_dismissRect.Width > 0)
             PaintButton(g, _dismissRect, DismissLabel, primary: false);
         if (_snoozeRect.Width > 0)
@@ -1130,11 +1165,11 @@ public sealed class PopupForm : Form
             _copiedUntil = _clock.Elapsed.TotalMilliseconds + 1500;
             Invalidate();
         }
-        else if (_snoozeRect.Contains(e.Location))
+        else if (_takenNote is null && _snoozeRect.Contains(e.Location))
             Dismiss(SecondButton);
-        else if (!_whoRect.IsEmpty && _whoRect.Contains(e.Location))
+        else if (_takenNote is null && !_whoRect.IsEmpty && _whoRect.Contains(e.Location))
             ShowWhoMenu();
-        else if (HasExtraButton && _takeRect.Contains(e.Location))
+        else if (_takenNote is null && HasExtraButton && _takeRect.Contains(e.Location))
             Dismiss(Result.Take);
         else
         {

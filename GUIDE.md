@@ -92,7 +92,7 @@ tickets are. Your own tickets notify you in any group.
 Control which clients you get notifications from. You hear about every client in your groups to begin with. Untick a
 client to mute it, or use **Options ▾** to make one Important (always notifies, stays until you close it), only urgent,
 muted until your shift ends or your next shift, or give it its own sound. **Options ▾** on a group's row sets it
-for all its clients at once. Point at a client to see the products Zendesk lists for it; the filter finds products too
+for all its clients at once. Point at a client's name to see a card with the products Zendesk lists for it; the filter finds products too
 and says which one matched. Zendesk's product list is often out of date, so treat it as a hint.
 
 ![Clients](docs/images/settings-clients.png)
@@ -165,5 +165,5 @@ quiet thank-yous. Both are off until you switch them on.
 ## Your data
 
 The app reads Zendesk with your own sign-in and only changes something when you click Take it or assign a ticket to a
-colleague. Nothing about your tickets is sent anywhere else. It checks every 3 minutes (every 10 while you're away), so
-it adds little to your company's shared Zendesk limit.
+colleague. Nothing about your tickets is sent anywhere else. It checks every 3 minutes (every 10 while you're away), and
+new unassigned tickets every 1½ minutes, so it adds little to your company's shared Zendesk limit.

@@ -206,7 +206,7 @@ public sealed class Notifier : INotificationSink
             Show(content, Settings);
     }
 
-    public void CloseTaken(long ticketId) => _popups.CloseNewTicket(ticketId);
+    public void CloseTaken(long ticketId, string? note = null) => _popups.CloseNewTicket(ticketId, note);
 
     // Replies to something the user just clicked ("No updates", "already taken") stay quiet and short.
     private static readonly NotificationStyle QuietInfo = new() { Sound = ToastSound.Silent, Display = ToastDisplay.Standard };

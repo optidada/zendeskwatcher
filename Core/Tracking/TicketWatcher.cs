@@ -110,14 +110,25 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     // Shared like the request counter: a Settings save restarts the watcher, and the minutes must still match the count.
     private static DateTime _lastRequestReport = DateTime.UtcNow;
 
-    public async Task PollAsync(CancellationToken ct)
+    /// <summary>
+    /// A check. <paramref name="newTicketsOnly"/>: only new unassigned tickets (the quick check between two full ones,
+    /// <see cref="Settings.NewTicketsCheckInterval"/>): two or three requests instead of eight.
+    /// </summary>
+    public async Task PollAsync(CancellationToken ct, bool newTicketsOnly = false)
     {
+        if (newTicketsOnly)
+        {
+            ZendeskClient.Reason.Value = "check: new tickets only";
+            await CheckUnassignedAsync(ct);
+            _state.Save();
+            return;
+        }
         // Every 10 minutes: how many Zendesk API requests were made (shows the app's load on Zendesk).
         if (DateTime.UtcNow - _lastRequestReport >= RequestReportInterval)
         {
             var minutes = (DateTime.UtcNow - _lastRequestReport).TotalMinutes;
             var count = ZendeskClient.TakeRequestCount();
-            Log.Info($"Zendesk API requests in the last {minutes:0} min: {count} ({count / minutes:0.#} per minute): {ZendeskClient.TakeRequestBreakdown()}");
+            Log.Info($"Zendesk API requests in the last {minutes:0} min: {count} ({count / minutes:0.#} per minute): {ZendeskClient.TakeRequestBreakdown()} · for: {ZendeskClient.TakeRequestsByReason()}");
             _lastRequestReport = DateTime.UtcNow;
         }
 
@@ -127,6 +138,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var parts = new List<string>();
         async Task Timed(string name, Func<Task> check)
         {
+            ZendeskClient.Reason.Value = "check: " + name;
             var own = System.Diagnostics.Stopwatch.StartNew();
             await check();
             lock (parts)
@@ -193,6 +205,17 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private Task<List<Ticket>> ReadTicketsAsync(TicketBatch.Part? part, List<long> ids, CancellationToken ct) =>
         part is not null ? part.ReadAsync(ids) : zendesk.GetTicketsAsync(ids, ct);
 
+    /// <summary>"Taken by Anna" (first name), "Taken by you", or "Solved" / "Closed" when nobody has it but it's done.</summary>
+    private async Task<string> TakenNoteAsync(Ticket ticket, CancellationToken ct)
+    {
+        if (ticket.AssigneeId is not { } assigneeId)
+            return ticket.Status == "closed" ? "Closed" : "Solved";
+        if (assigneeId == Me?.Id)
+            return "Taken by you";
+        var name = (await zendesk.GetUserAsync(assigneeId, ct))?.Name;
+        return string.IsNullOrWhiteSpace(name) ? "Taken by a colleague" : $"Taken by {name.Trim().Split(' ')[0]}";
+    }
+
     private async Task CheckUnassignedAsync(CancellationToken ct, TicketBatch.Part? part = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -211,7 +234,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var foundIds = found.SelectMany(f => f.Tickets).Select(t => t.Id).ToHashSet();
         var allIds = foundIds.Concat(_announcedNew.Keys).Distinct().ToList();
         var live = allIds.Count > 0 ? (await ReadTicketsAsync(part, allIds, ct)).ToDictionary(t => t.Id) : [];
-        CloseTakenTickets(live, now);
+        await CloseTakenTicketsAsync(live, now, ct);
         await LearnSlaAsync(live.Values.Where(t => foundIds.Contains(t.Id)), ct);
 
         foreach (var (group, candidates) in found)
@@ -381,15 +404,18 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// Closes the notifications of new tickets that someone took (or solved) since. Read exactly (the same request as
     /// the candidates, so no extra one), never from the search alone: its index lags and could close one too early.
     /// </summary>
-    private void CloseTakenTickets(IReadOnlyDictionary<long, Ticket> live, DateTimeOffset now)
+    private async Task CloseTakenTicketsAsync(IReadOnlyDictionary<long, Ticket> live, DateTimeOffset now, CancellationToken ct)
     {
         foreach (var (id, at) in _announcedNew.ToList())
         {
-            var taken = live.GetValueOrDefault(id) is { } t && TicketRules.IsTaken(t);
+            var ticket = live.GetValueOrDefault(id);
+            var taken = ticket is not null && TicketRules.IsTaken(ticket);
             if (taken)
             {
-                Log.Info($"Ticket #{id} was taken: its notification closes");
-                notifier.CloseTaken(id);
+                // Says who took it for a few seconds ("Taken by Anna"), instead of vanishing without a word.
+                var note = await TakenNoteAsync(ticket!, ct);
+                Log.Info($"Ticket #{id} was taken: its notification closes ({note})");
+                notifier.CloseTaken(id, note);
             }
             if (taken || now - at > ForgetAnnouncedAfter)
                 _announcedNew.Remove(id);
@@ -758,6 +784,9 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private readonly Dictionary<long, (DateTimeOffset ReadAt, DateTimeOffset? Last, bool Known)> _activity = [];
     private static readonly TimeSpan RememberActivity = TimeSpan.FromMinutes(15);
 
+    /// <summary>Zendesk didn't send ticket metrics: colleague activity is read from ticket histories (until checking restarts).</summary>
+    private bool _assigneeMetricsUnavailable;
+
     /// <summary>
     /// The colleague's latest change or comment on one of their tickets in the last 3 hours (null: none), from the 5
     /// they updated last; remembered for 15 minutes. Known false when Zendesk couldn't be read.
@@ -766,14 +795,38 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     {
         if (_activity.TryGetValue(userId, out var remembered) && now - remembered.ReadAt < RememberActivity)
             return (remembered.Known, remembered.Last); // a failed read is remembered too: not retried on every check
+        ZendeskClient.Reason.Value = "colleague activity";
         try
         {
             var since = now - TicketRules.InactiveFor;
             DateTimeOffset? last = null;
-            foreach (var ticket in (await zendesk.GetAssigneeTicketsUpdatedSinceAsync(userId, since, ct)).Take(5))
-                foreach (var audit in await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
-                    if (audit.AuthorId == userId && (last is null || audit.CreatedAt > last))
-                        last = audit.CreatedAt;
+            // One request: Zendesk's "assignee updated at" of their 5 latest tickets. Without it (not sent, or refused):
+            // each of those tickets' history, as before (up to 6 requests).
+            List<DateTimeOffset>? updates = null;
+            if (!_assigneeMetricsUnavailable)
+            {
+                try { updates = await zendesk.GetAssigneeLastUpdatesAsync(userId, ct); }
+                catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.Forbidden
+                                                          or System.Net.HttpStatusCode.NotFound)
+                {
+                    Log.Error("Ticket metrics not readable", ex); // refused for agents: histories from now on (a busy Zendesk isn't this)
+                }
+                if (updates is null && !_assigneeMetricsUnavailable)
+                {
+                    _assigneeMetricsUnavailable = true;
+                    Log.Info("Colleague activity: no ticket metrics from Zendesk, reading ticket histories instead");
+                }
+            }
+            if (updates is not null)
+            {
+                var recent = updates.Where(at => at >= since).ToList();
+                last = recent.Count > 0 ? recent.Max() : null;
+            }
+            else
+                foreach (var ticket in (await zendesk.GetAssigneeTicketsUpdatedSinceAsync(userId, since, ct)).Take(5))
+                    foreach (var audit in await zendesk.GetAuditsSinceAsync(ticket.Id, since, ct))
+                        if (audit.AuthorId == userId && (last is null || audit.CreatedAt > last))
+                            last = audit.CreatedAt;
             _activity[userId] = (now, last, true);
             return (true, last);
         }

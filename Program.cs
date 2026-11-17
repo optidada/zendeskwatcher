@@ -13,6 +13,11 @@ internal static class Program
             .OnBeforeUninstallFastCallback(_ => StartupRegistration.Set(false))
             .Run();
 
+        // The sample Settings windows (renders, CPU measuring) save their sample lists like the real one would: into a
+        // throwaway data folder, never over the real cache (it once replaced the real group members with the sample's).
+        if (args.Length >= 1 && args[0] is "--render-settings" or "--measure-settings" && Environment.GetEnvironmentVariable(AppPaths.DataDirVariable) is null)
+            Environment.SetEnvironmentVariable(AppPaths.DataDirVariable, Path.Combine(Path.GetTempPath(), "ZendeskWatcher-samples"));
+
         // Developer helper: write the app icon (.ico) and preview PNGs, then exit.
         if (args.Length >= 2 && args[0] == "--export-icons")
         {

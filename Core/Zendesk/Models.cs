@@ -172,7 +172,27 @@ internal sealed class GroupMembershipsResponse : PagedResponse { public List<Gro
 internal sealed class TicketResponse { public Ticket? Ticket { get; set; } }
 internal sealed class TicketsResponse : PagedResponse { public List<Ticket> Tickets { get; set; } = []; }
 internal sealed class SearchResponse : PagedResponse { public List<Ticket> Results { get; set; } = []; }
-internal sealed class AuditsResponse : PagedResponse { public List<Audit> Audits { get; set; } = []; }
+internal sealed class AuditsResponse : PagedResponse
+{
+    public List<Audit> Audits { get; set; } = [];
+
+    /// <summary>The audits' authors, sent along (include=users): no lookup of each one afterwards.</summary>
+    public List<User>? Users { get; set; }
+}
+
+/// <summary>Tickets with their metrics sideloaded (include=metric_sets); null when Zendesk didn't send them.</summary>
+internal sealed class TicketsWithMetricsResponse : PagedResponse
+{
+    public List<Ticket> Tickets { get; set; } = [];
+    public List<TicketMetricSet>? MetricSets { get; set; }
+}
+
+/// <summary>A ticket's metrics: here only when its assignee last changed or commented on it.</summary>
+public sealed class TicketMetricSet
+{
+    public long TicketId { get; set; }
+    public DateTimeOffset? AssigneeUpdatedAt { get; set; }
+}
 
 /// <summary>Zendesk uses either offset paging (next_page) or cursor paging (meta.has_more + links.next).</summary>
 internal abstract class PagedResponse

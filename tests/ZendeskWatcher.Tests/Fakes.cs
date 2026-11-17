@@ -21,6 +21,7 @@ internal static class TestSetup
             Directory.Delete(dir, recursive: true);
         Directory.CreateDirectory(dir);
         Environment.SetEnvironmentVariable(AppPaths.DataDirVariable, dir);
+        ZendeskWatcher.Tracking.TicketWatcher.TestMode = true; // no minute's wait before the ticket history is read
     }
 
     /// <summary>
@@ -45,7 +46,13 @@ internal sealed class RecordingNotifier : INotificationSink
 
     public void Show(NotificationContent content) => Shown.Add(content);
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => MissingGroups.AddRange(names);
-    public void CloseTaken(long ticketId) => ClosedTaken.Add(ticketId);
+    public void CloseTaken(long ticketId, string? note = null)
+    {
+        ClosedTaken.Add(ticketId);
+        TakenNotes[ticketId] = note;
+    }
+
+    public Dictionary<long, string?> TakenNotes { get; } = [];
 }
 
 /// <summary>

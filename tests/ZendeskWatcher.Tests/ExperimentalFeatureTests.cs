@@ -22,6 +22,9 @@ public class ExperimentalFeatureTests
     public ExperimentalFeatureTests()
     {
         File.Delete(AppPaths.StateFile);
+        var history = Path.Combine(AppPaths.DataDir, "cache", "ticket-history.json");
+        if (File.Exists(history))
+            File.Delete(history); // each test reads its own history
         _zendesk.Users[Customer] = new User { Id = Customer, Name = "Jane Customer", Role = "end-user" };
         _zendesk.Users[Jane] = new User { Id = Jane, Name = "Jane Agent", Role = "agent" };
     }
@@ -80,6 +83,24 @@ public class ExperimentalFeatureTests
         var second = await StartAsync(first);
         _zendesk.AddUnassigned(610, subject: "Checkout failing").Priority = "normal";
         await second.PollAsync(CancellationToken.None);
+        var hint = Assert.Single(TakeShown()).PriorityHint;
+        Assert.Contains(hint!.Reasons, r => r.StartsWith("like ") && r.EndsWith("earlier P1s"));
+    }
+
+    [Fact]
+    public async Task After_an_app_restart_the_saved_ticket_history_is_used_instead_of_reading_it_again()
+    {
+        _settings.GuessPriority = true;
+        Solved(601, "Checkout fails for all customers", Jane, "urgent");
+        Solved(602, "Checkout not working, customers cannot pay", Jane, "urgent");
+        Solved(603, "Checkout broken in production", Jane, "urgent");
+        await StartAsync();
+        foreach (var id in new long[] { 601, 602, 603 })
+            _zendesk.Tickets.Remove(id); // only the saved history knows them now
+
+        var restarted = await StartAsync(); // a new app run: nothing handed over in memory
+        _zendesk.AddUnassigned(610, subject: "Checkout failing").Priority = "normal";
+        await restarted.PollAsync(CancellationToken.None);
         var hint = Assert.Single(TakeShown()).PriorityHint;
         Assert.Contains(hint!.Reasons, r => r.StartsWith("like ") && r.EndsWith("earlier P1s"));
     }

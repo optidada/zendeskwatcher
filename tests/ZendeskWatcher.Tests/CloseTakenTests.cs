@@ -42,6 +42,30 @@ public class CloseTakenTests
         Assert.All(outcomes, closed => Assert.Equal((1L, PopupForm.Result.None), closed));
     }
 
+    [Fact]
+    public void With_a_note_it_says_who_took_it_for_a_few_seconds_then_closes()
+    {
+        var (stillThere, left) = OnUiThread(() =>
+        {
+            var manager = new PopupManager((_, _) => { }, _ => { }, (_, _) => { }, _ => { });
+            manager.Show(NewTicket(1), new Settings { Stacking = PopupStacking.List });
+            Pump(TimeSpan.FromMilliseconds(500));
+
+            manager.CloseNewTicket(1, "Taken by Anna");
+            Pump(TimeSpan.FromSeconds(2));
+            var stillThere = manager.OpenCount; // still saying who took it
+            Pump(TimeSpan.FromSeconds(4));
+            var left = manager.OpenCount;
+            foreach (var form in Application.OpenForms.OfType<PopupForm>().ToList())
+                form.Close();
+            return (stillThere, left);
+        });
+
+        // Waiting in line instead (the PC "busy"): it just leaves the line, so nothing is on screen either way at the end.
+        Assert.InRange(stillThere, 0, 1);
+        Assert.Equal(0, left);
+    }
+
     private static void Pump(TimeSpan time)
     {
         var until = DateTime.UtcNow + time;

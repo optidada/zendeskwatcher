@@ -32,7 +32,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Suggested groups are the ones you're a member of, or where your open tickets are. “(No group)” means tickets with " +
                 "no group and no assignee.",
                 "If a colleague took it first, you're told who has it. If someone takes it (or it's solved) while the notification " +
-                "is still up, it closes by itself within a few minutes.",
+                "is still up, it says so (“Taken by Anna”, “Solved”) for a few seconds and closes, within a few minutes.",
                 "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people in the ticket's group who are " +
                 "in their working hours and did something in Zendesk in the last 3 hours, least busy first. You're asked before " +
                 "it's assigned.",
@@ -60,7 +60,8 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Muting and “only urgent” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
                 "whatever the client.",
                 "The list comes from the last 90 days of tickets in your monitored groups.",
-                "Point at a client to see its products, as the client's Products field in Zendesk lists them. The filter finds " +
+                "Point at a client's name to see its card: its tickets in the last 90 days and its products, as the client's " +
+                "Products field in Zendesk lists them. The filter finds " +
                 "products too, and says which one matched. That field is often out of date, and bundled products aren't listed, " +
                 "so a client missing from the results may still have the product."
             ]),
@@ -181,8 +182,9 @@ internal sealed class HowItWorksPage : SettingsPage
         new("Catch up",
             "Your starting point for the day: one notification with what still needs you since you last worked, and which of " +
             "your own tickets to start with.",
-            "It comes when the app starts (General → Startup) and when your working day starts (Notifications → Working hours). " +
-            "Ask for it any time from the tray menu, the Account page, or with Ctrl+Alt+Z.",
+            "It comes by itself once a day: the first time the app starts that day (General → Startup), or when your working day " +
+            "starts if it's already running (Notifications → Working hours). Later restarts that day don't bring it again. Ask " +
+            "for it any time from the tray menu, the Account page, or with Ctrl+Alt+Z.",
             [
                 "One line each, the number first: clients waiting for your reply, SLAs past or due today, unassigned tickets in " +
                 "your groups, clients waiting on CC'd and colleagues' tickets, Escalated ones with no reply to the client for " +
@@ -200,14 +202,22 @@ internal sealed class HowItWorksPage : SettingsPage
                 "More than 5 new tickets in a group at once: one notification instead of one each.",
                 "Group added: when you start monitoring a group, the unassigned tickets already waiting there."
             ]),
+        new("Priority levels",
+            "What each priority means, as a reminder when the priority a client chose doesn't match the case.",
+            null,
+            [.. PriorityLevels.All.Select(l => $"{l.Tag}: {l.Definition}")]),
         new("Your data",
             "The app reads Zendesk with your own sign-in and only changes something when you click Take it or assign a ticket " +
             "to a colleague. Nothing about your tickets is sent anywhere else.",
             null,
             [
                 "It checks every 3 minutes, every 10 while you're away, and right away when you're back, so it adds little to your " +
-                "company's shared Zendesk limit. If Zendesk says it's busy, the app pauses until it may go on.",
-                "Your settings, statistics and the lists Settings shows are kept in your Windows profile on this PC."
+                "company's shared Zendesk limit. New unassigned tickets are also checked in between, so they show within about " +
+                "1½ minutes. If Zendesk says it's busy, the app pauses until it may go on.",
+                "Names are remembered for a week (colleagues with their time zone; people at clients only by name and email domain), so " +
+                "starting the app doesn't look them all up again.",
+                "Your settings, statistics and the lists Settings shows are kept in your Windows profile on this PC; with Priority " +
+                "guess on, also 90 days of ticket numbers, subjects and priorities (no ticket text), read again once a week."
             ])
     ];
 

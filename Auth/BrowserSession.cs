@@ -487,7 +487,9 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
 
         // The response as an object (one copy of the text, not JSON inside JSON), trimmed to the fields the app reads.
         var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.ScriptFor(KeepDescriptions) + "(body); " +
-                       "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body }; })";
+                       "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body, " +
+                       // Refused: which limit (Zendesk's rate-limit headers), so the log can say.
+                       "limits: r.ok ? null : [...r.headers].filter(h => /rate-?limit/i.test(h[0])).map(h => h[0] + ': ' + h[1]).join('; ') }; })";
         var script = method is null
             ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + toResult
             : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
@@ -515,7 +517,8 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         if (status == 200 && url.Contains("/api/v2/users/me.json", StringComparison.Ordinal) && !IsAgent(body))
             status = 401;
 
-        return new ApiResponse(status, body, retryAfter);
+        var limits = value.TryGetProperty("limits", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() : null;
+        return new ApiResponse(status, body, retryAfter, string.IsNullOrEmpty(limits) ? null : limits);
     }
 
     private static bool IsAgent(string meJson)

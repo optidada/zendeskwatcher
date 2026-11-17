@@ -100,6 +100,37 @@ internal sealed class AssigneeList : Control
     public event Action<Person, Point>? MenuRequested;
 
     /// <summary>
+    /// Optional, instead of the tooltip: the mouse came onto a person's name (with the name's rectangle on screen), or
+    /// left it (null). The Clients page shows its client card then.
+    /// </summary>
+    public event Action<Person?, Rectangle>? NamePointed;
+
+    private Person? _pointedName;
+
+    /// <summary>The person whose name is under <paramref name="p"/>, and the name's rectangle (on this control).</summary>
+    private (Person Person, Rectangle Name)? NameAt(Point p)
+    {
+        if (HitTest(p) is not { Kind: ItemKind.Person, Person: { } person } item)
+            return null;
+        var s = DpiScale;
+        var x = (int)(item.Rect.X + 1 + 24 * s); // after the tick box
+        var width = Math.Min(TextRenderer.MeasureText(item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width, (int)(item.Rect.Right - x - 90 * s));
+        var name = new Rectangle(x, (int)item.Rect.Y, Math.Max(0, width), (int)item.Rect.Height);
+        return name.Contains(p) ? (person, name) : null;
+    }
+
+    private void UpdatePointedName(Point p)
+    {
+        if (NamePointed is null)
+            return;
+        var at = NameAt(p);
+        if (at?.Person == _pointedName)
+            return;
+        _pointedName = at?.Person;
+        NamePointed(at?.Person, at is { } a ? RectangleToScreen(a.Name) : Rectangle.Empty);
+    }
+
+    /// <summary>
     /// Optional: "Options ▾" on each group's row (or a right-click on it) asks for a menu for the whole group, at that
     /// point (screen coordinates). Used by the Clients page: one choice for all the group's clients.
     /// </summary>
@@ -392,6 +423,7 @@ internal sealed class AssigneeList : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        UpdatePointedName(e.Location);
         var hit = HitTest(e.Location);
         var onOptions = hit is { Kind: ItemKind.Fold } && GroupMenuRequested is not null && GroupOptionsRect(hit).Contains(e.Location);
         if (hit == _hover && onOptions == _hoverOnGroupOptions)
@@ -399,13 +431,18 @@ internal sealed class AssigneeList : Control
         _hoverOnGroupOptions = onOptions;
         _hover = hit;
         Cursor = hit is not null && Active ? Cursors.Hand : Cursors.Default;
-        _tips.SetToolTip(this, hit?.Person?.Tip);
+        _tips.SetToolTip(this, NamePointed is null ? hit?.Person?.Tip : null); // with a card instead: no tooltip
         Invalidate();
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
+        if (_pointedName is not null)
+        {
+            _pointedName = null;
+            NamePointed?.Invoke(null, Rectangle.Empty);
+        }
         _hover = null;
         _tips.SetToolTip(this, null);
         Invalidate();

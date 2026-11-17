@@ -49,13 +49,45 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     };
 
     private readonly Dictionary<long, User?> _users = [];
+
+    /// <summary>Users remembered across checks and restarts (set by the app; tests leave it null).</summary>
+    public static UserStore? Users { get; set; }
     private static int _requestCount;
+
+    /// <summary>When the requests of the last minute were sent (all clients), for the log when Zendesk says it's busy.</summary>
+    private static readonly Queue<DateTimeOffset> RecentRequests = new();
+
+    private static int RequestsInLastMinute()
+    {
+        lock (RecentRequests)
+        {
+            while (RecentRequests.Count > 0 && DateTimeOffset.UtcNow - RecentRequests.Peek() > TimeSpan.FromMinutes(1))
+                RecentRequests.Dequeue();
+            return RecentRequests.Count;
+        }
+    }
 
     /// <summary>Zendesk API requests made since the last call (all clients); for the request statistics in the log.</summary>
     public static int TakeRequestCount() => Interlocked.Exchange(ref _requestCount, 0);
 
     /// <summary>Requests per purpose (the method that made them, e.g. "UnassignedTickets"), for the log.</summary>
     private static readonly ConcurrentDictionary<string, int> RequestsByPurpose = new();
+
+    /// <summary>
+    /// What the requests made from here on (in this async flow) are for: "catch up", "colleague activity" …, counted in
+    /// <see cref="TakeRequestsByReason"/>. Set at the start of an async method: it's back to before when that returns.
+    /// </summary>
+    public static readonly AsyncLocal<string?> Reason = new();
+
+    private static readonly ConcurrentDictionary<string, int> RequestsByReason = new();
+
+    /// <summary>"catch up 180, checks 40, …" since the last call, most first; then starts counting again.</summary>
+    public static string TakeRequestsByReason()
+    {
+        var counts = RequestsByReason.ToArray();
+        RequestsByReason.Clear();
+        return string.Join(", ", counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"));
+    }
 
     /// <summary>"UnassignedTickets 40, Audits 22, …" since the last call, most first; then starts counting again.</summary>
     public static string TakeRequestBreakdown()
@@ -211,10 +243,12 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     public async Task<List<Audit>> GetAuditsSinceAsync(long ticketId, DateTimeOffset since, CancellationToken ct)
     {
         var result = new List<Audit>();
-        string? next = $"/api/v2/tickets/{ticketId}/audits.json?sort_order=desc";
+        string? next = $"/api/v2/tickets/{ticketId}/audits.json?sort_order=desc&include=users";
         for (var page = 0; next is not null && page < MaxPages; page++)
         {
             var response = await GetAsync<AuditsResponse>(next, ct);
+            foreach (var author in response.Users ?? [])
+                RememberUser(author); // the authors came along: looking them up later costs nothing
             var audits = response.Audits;
             result.AddRange(audits.Where(a => a.CreatedAt > since));
 
@@ -371,6 +405,8 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     {
         if (_users.TryGetValue(userId, out var cached))
             return cached;
+        if (Users is { } store && store.Subdomain == settings.Subdomain && store.TryGet(userId, out var remembered))
+            return _users[userId] = remembered;
 
         User? user;
         try
@@ -383,7 +419,40 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
 
         _users[userId] = user;
+        if (user is not null)
+            RememberUser(user);
         return user;
+    }
+
+    private void RememberUser(User user)
+    {
+        _users[user.Id] = user;
+        if (Users is { } users && users.Subdomain == settings.Subdomain)
+            users.Remember(user);
+    }
+
+    /// <summary>
+    /// Looks up the users not known yet, 100 per request (instead of one request each), so the
+    /// <see cref="GetUserAsync"/> calls that follow cost nothing. Fails quietly: those then look them up one by one.
+    /// </summary>
+    public async Task PrefetchUsersAsync(IEnumerable<long> userIds, CancellationToken ct)
+    {
+        var unknown = userIds.Distinct()
+            .Where(id => !_users.ContainsKey(id) && !(Users is { } store && store.Subdomain == settings.Subdomain && store.TryGet(id, out _)))
+            .ToList();
+        foreach (var chunk in unknown.Chunk(100))
+        {
+            try
+            {
+                foreach (var user in (await GetAsync<UsersResponse>($"/api/v2/users/show_many.json?ids={string.Join(",", chunk)}", ct)).Users)
+                    RememberUser(user);
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Error("Could not look up users together; one by one instead", ex);
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -401,6 +470,25 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     {
         var query = $"type:ticket assignee:{userId} updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}";
         return (await GetAsync<SearchResponse>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&sort_by=updated_at&sort_order=desc&per_page=10", ct)).Results;
+    }
+
+    /// <summary>
+    /// When an agent last changed or commented on one of their 5 most recently updated tickets, from Zendesk's ticket
+    /// metrics ("assignee updated at"): one request instead of reading each ticket's history. Null when Zendesk doesn't
+    /// send the metrics (then the caller reads the histories); no tickets: an empty list.
+    /// </summary>
+    public async Task<List<DateTimeOffset>?> GetAssigneeLastUpdatesAsync(long userId, CancellationToken ct)
+    {
+        var response = await GetAsync<TicketsWithMetricsResponse>(
+            $"/api/v2/users/{userId}/tickets/assigned.json?sort_by=updated_at&sort_order=desc&per_page=5&include=metric_sets", ct);
+        if (response.Tickets.Count == 0)
+            return [];
+        // Only trusted newest first: in another order the 5 could be old ones, and the colleague would look inactive.
+        if (response.Tickets.Zip(response.Tickets.Skip(1)).Any(p => p.First.UpdatedAt < p.Second.UpdatedAt))
+            return null;
+        return response.MetricSets is { Count: > 0 } metrics
+            ? [.. metrics.Select(m => m.AssigneeUpdatedAt).OfType<DateTimeOffset>()]
+            : null;
     }
 
     /// <summary>All open tickets in a group that are assigned to someone (for Insights → Your team).</summary>
@@ -452,7 +540,11 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             if (PausedUntil - DateTimeOffset.UtcNow is { Ticks: > 0 } pause)
                 await Task.Delay(pause, ct);
             Interlocked.Increment(ref _requestCount);
+            lock (RecentRequests)
+                RecentRequests.Enqueue(DateTimeOffset.UtcNow);
+            RequestsInLastMinute(); // drops the older ones
             RequestsByPurpose.AddOrUpdate(caller, 1, (_, n) => n + 1);
+            RequestsByReason.AddOrUpdate(Reason.Value ?? "other", 1, (_, n) => n + 1);
             var response = method is null
                 ? await session.GetAsync(url, ct)
                 : await session.SendAsync(method, url, jsonBody ?? "", ct);
@@ -470,7 +562,8 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             if (response.Status == (int)HttpStatusCode.TooManyRequests && attempt < MaxRateLimitRetries)
             {
                 var wait = TimeSpan.FromSeconds(Math.Clamp((response.RetryAfter ?? TimeSpan.FromSeconds(30)).TotalSeconds, 1, 120));
-                Log.Info($"Zendesk is busy (rate limited, {caller}): all requests pause for {wait.TotalSeconds:0} s");
+                Log.Info($"Zendesk is busy (rate limited, {caller}): all requests pause for {wait.TotalSeconds:0} s · " +
+                         $"{RequestsInLastMinute()} requests in the last minute · {response.LimitInfo ?? "no limit headers"} · {Truncate(response.Body, 200)}");
                 PauseUntil(DateTimeOffset.UtcNow + wait);
                 continue; // waits at the top of the loop, like every other request
             }

@@ -33,6 +33,21 @@ internal sealed class ClientsView
     }
 
     private readonly AssigneeList _list;
+
+    /// <summary>The client card shown while pointing at a client's name (made on first use), and what it's waiting to show.</summary>
+    private ClientCard? _card;
+    private readonly System.Windows.Forms.Timer _cardDelay = new() { Interval = 350 };
+    private (Client Client, Rectangle Name)? _cardFor;
+
+    /// <summary>The clients in the list, by id (for the card).</summary>
+    private Dictionary<long, Client> _clientById = [];
+
+    private void HideCard()
+    {
+        _cardDelay.Stop();
+        _cardFor = null;
+        _card?.Hide();
+    }
     private readonly ThinScrollBar _scrollBar = new() { BackColor = Theme.Surface };
     private readonly Label _message = new LinkedLabel
     {
@@ -63,6 +78,17 @@ internal sealed class ClientsView
 
     /// <summary>Where the list is shown: the same place as the group list.</summary>
     public Panel Host { get; } = new() { BackColor = Theme.Surface, Visible = false };
+
+    private void WhenHostGoes()
+    {
+        // Another page, or the window closing: the card goes too.
+        Host.VisibleChanged += (_, _) => { if (!Host.Visible) HideCard(); };
+        Host.Disposed += (_, _) =>
+        {
+            _cardDelay.Dispose();
+            _card?.Dispose();
+        };
+    }
 
     /// <summary>A client's choice changed.</summary>
     public event Action? Changed;
@@ -105,6 +131,29 @@ internal sealed class ClientsView
             }
         };
         _list.Changed += () => { UpdateHint(); Changed?.Invoke(); };
+        WhenHostGoes();
+        // Pointing at a client's name: its card beside it after a moment (products, tickets); gone when the mouse leaves.
+        _list.NamePointed += (person, name) =>
+        {
+            if (person is null || !_clientById.TryGetValue(person.Id, out var client))
+            {
+                HideCard();
+                return;
+            }
+            _cardFor = (client, name);
+            if (_card is { Visible: true })
+                ShowCard(); // moving from one name to the next: at once
+            else
+            {
+                _cardDelay.Stop();
+                _cardDelay.Start();
+            }
+        };
+        _cardDelay.Tick += (_, _) =>
+        {
+            _cardDelay.Stop();
+            ShowCard();
+        };
         _list.FocusMoved += row =>
         {
             // Scroll just enough to show the keyboard's row.
@@ -113,7 +162,8 @@ internal sealed class ClientsView
             else if (row.Bottom > _scroll + Host.Height)
                 ScrollTo(row.Bottom - Host.Height);
         };
-        _list.MenuRequested += (client, at) =>
+        _list.MenuRequested += (client, at) => { HideCard(); ShowMenu(client, at); };
+        void ShowMenu(AssigneeList.Person client, Point at) =>
             ClientMenu.Build(ChoiceFor(client), choice =>
             {
                 Store(choice);
@@ -219,8 +269,18 @@ internal sealed class ClientsView
     private void OnWheel(object? sender, MouseEventArgs e) =>
         ScrollTo(_scroll - e.Delta * SystemInformation.MouseWheelScrollLines * (int)(26 * Host.DeviceDpi / 96f) / 3 / 120);
 
+    private void ShowCard()
+    {
+        if (_cardFor is not { } at || Host.FindForm() is not { Visible: true } window || !Host.Visible)
+            return;
+        _card ??= new ClientCard();
+        _card.ShowFor(window, at.Name, at.Client.Name, at.Client.Tickets, ZendeskClient.ClientLookBackDays, at.Client.Products,
+            MatchedProducts(at.Client, _filter));
+    }
+
     private void ScrollTo(int position)
     {
+        HideCard(); // the name moves away from its card
         _scroll = Math.Clamp(position, 0, Math.Max(0, _list.Height - Host.Height));
         _list.Top = -_scroll;
         _scrollBar.Invalidate();
@@ -446,6 +506,8 @@ internal sealed class ClientsView
                 _choices[c.Id].Name = c.Name; // keep the stored name current
 
         var visible = Layout(_shown, _choices.Values.ToList(), _filter);
+        _clientById = visible.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToDictionary(c => c.Id);
+        HideCard();
         _list.Filtering = _filter.Length > 0;
         _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
             s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, TipFor(c),

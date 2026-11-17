@@ -288,13 +288,16 @@ public class UnassignedTicketTests
         await watcher.PollAsync(CancellationToken.None);
         Assert.Empty(_notifier.ClosedTaken);
 
+        _zendesk.Users[42] = new User { Id = 42, Name = "Anna Svensson", Role = "agent" };
         taken.AssigneeId = 42;
         await watcher.PollAsync(CancellationToken.None);
         Assert.Equal([106L], _notifier.ClosedTaken);
+        Assert.Equal("Taken by Anna", _notifier.TakenNotes[106]);
 
         moved.Status = "solved";
         await watcher.PollAsync(CancellationToken.None);
         Assert.Equal([106L, 107L], _notifier.ClosedTaken);
+        Assert.Equal("Solved", _notifier.TakenNotes[107]);
 
         await watcher.PollAsync(CancellationToken.None);
         Assert.Equal(2, _notifier.ClosedTaken.Count); // once each

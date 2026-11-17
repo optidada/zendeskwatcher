@@ -292,6 +292,26 @@ internal sealed class HelpColleaguesCard
     /// Lists the members of the covered groups, all ticked except the ones you excluded. Members are only loaded
     /// while "Help colleagues" is on and you're signed in; otherwise just the excluded colleagues are shown.
     /// </summary>
+    /// <summary>Group member loads under way, by session and group.</summary>
+    private readonly Dictionary<(ZendeskClient Client, long Group), Task<(long Id, List<Member>? Members)>> _loadingMembers = [];
+
+    private static async Task<(long Id, List<Member>? Members)> LoadMembersAsync(ZendeskClient client, long id)
+    {
+        try
+        {
+            return (id, (await client.GetGroupMembersAsync(id, CancellationToken.None))
+                .Where(u => u.Role != "end-user")
+                .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", TimeRegions.ZoneOf(u)))
+                .ToList());
+        }
+        catch (Exception ex)
+        {
+            if (ex is not AuthRequiredException)
+                Log.Error($"Settings: could not load the members of group {id}", ex);
+            return (id, null);
+        }
+    }
+
     private async Task ShowPeopleAsync()
     {
         var version = ++_peopleVersion;
@@ -317,21 +337,15 @@ internal sealed class HelpColleaguesCard
             {
                 _peopleHint.Text = "Loading the group members…";
                 // All groups at once (the app sends a few requests side by side).
-                var results = await Task.WhenAll(missing.Select(async id =>
+                // A load already under way (the list is shown again while it runs) is shared, not started again.
+                var results = await Task.WhenAll(missing.Select(id =>
                 {
-                    try
+                    if (!_loadingMembers.TryGetValue((client, id), out var load))
                     {
-                        return (Id: id, Members: (await client.GetGroupMembersAsync(id, CancellationToken.None))
-                            .Where(u => u.Role != "end-user")
-                            .Select(u => new Member(u.Id, u.Name ?? $"User {u.Id}", TimeRegions.ZoneOf(u)))
-                            .ToList());
+                        _loadingMembers[(client, id)] = load = LoadMembersAsync(client, id);
+                        load.ContinueWith(_ => _loadingMembers.Remove((client, id)), TaskScheduler.FromCurrentSynchronizationContext());
                     }
-                    catch (Exception ex)
-                    {
-                        if (ex is not AuthRequiredException)
-                            Log.Error($"Settings: could not load the members of group {id}", ex);
-                        return (Id: id, Members: (List<Member>?)null);
-                    }
+                    return load;
                 }));
                 foreach (var (id, members) in results)
                 {

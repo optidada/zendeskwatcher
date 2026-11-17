@@ -81,6 +81,9 @@ internal sealed class GroupsPage : SettingsPage
     /// <summary>How long loaded groups, group members (Colleagues) and clients are reused; Reload fetches them again.</summary>
     public static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(24);
 
+    /// <summary>The group list itself changes rarely: reused for a week (Reload fetches it at once).</summary>
+    public static readonly TimeSpan GroupsLifetime = TimeSpan.FromDays(7);
+
     /// <summary>Reload was clicked: the account is checked again and everything is fetched fresh.</summary>
     public event Action? ReloadRequested;
 
@@ -299,12 +302,12 @@ internal sealed class GroupsPage : SettingsPage
     public void SetReloadEnabled(bool enabled) => _reload.Enabled = enabled;
 
     /// <summary>
-    /// Loads the groups and suggestions for the signed-in account (reusing the last day's unless
+    /// Loads the groups and suggestions for the signed-in account (reusing the last week's unless
     /// <paramref name="force"/>). Stops quietly when <paramref name="stale"/> says the account changed meanwhile.
     /// </summary>
     public async Task LoadAsync(ZendeskClient client, long meId, string subdomain, bool force, Func<bool> stale)
     {
-        // Groups rarely change: reuse what was loaded in the last day, also after a restart (Reload always fetches).
+        // Groups rarely change: reuse what was loaded in the last week, also after a restart (Reload always fetches).
         if (force)
             ListCache.Clear(CacheName);
         else if (_cache is null && ListCache.Load<SavedGroups>(CacheName, subdomain, anyAge: true) is { } saved)
@@ -316,9 +319,9 @@ internal sealed class GroupsPage : SettingsPage
             _groupsLoaded = true;
             SetGroups(WithMissing(cache.Groups));
             _reload.Enabled = true;
-            if (DateTime.UtcNow - cache.At < CacheLifetime)
+            if (DateTime.UtcNow - cache.At < GroupsLifetime)
                 return;
-            old = true; // over a day old: it stays in view while a fresh one loads
+            old = true; // over a week old: it stays in view while a fresh one loads
         }
 
         if (force)

@@ -87,6 +87,22 @@ public class CatchUpTests
     }
 
     [Fact]
+    public async Task Once_a_day_even_with_restarts_and_a_start_before_working_hours()
+    {
+        File.Delete(AppPaths.StateFile);
+        var settings = new Settings { Subdomain = "test", MyWorkdayStartHour = 9, MyWorkdayEndHour = 17, MyWorkDays = [.. Enum.GetValues<DayOfWeek>()] };
+        var watcher = new TicketWatcher(settings, new ZendeskClient(settings, new FakeZendesk()), new RecordingNotifier());
+        await watcher.InitializeAsync(CancellationToken.None);
+        Assert.False(watcher.CaughtUpToday);
+
+        await watcher.CatchUpAsync(CancellationToken.None, since: DateTime.Now.AddDays(-1), reason: CatchUpReason.AppStart);
+
+        Assert.True(watcher.CaughtUpToday);                                       // a restart later today doesn't greet again
+        Assert.False(watcher.DayStartCatchUpDue(DateTime.Today.AddHours(9.5)));   // nor does the working day's start
+        Assert.True(watcher.DayStartCatchUpDue(DateTime.Today.AddDays(1).AddHours(9.5))); // tomorrow it comes again
+    }
+
+    [Fact]
     public async Task Many_unassigned_go_in_the_summary_and_waiting_customers_still_come_one_by_one()
     {
         File.Delete(AppPaths.StateFile);
