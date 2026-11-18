@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.1
+
+- **"Working late?" sounds like an app message**: it uses the App messages sound and time on screen (Look & sound), not the one for your tickets.
+
 ## 1.9.0
 
 - **Notifications on the monitor you're working on**: with two or more monitors, notifications (and the pill, ticker and glow) appear where your mouse is, not always on the main monitor. The ones that follow join them there, so a stack never splits. They're drawn sharp and the right size for each monitor's own scaling, and their menus (Options ▾, ▾ next to Take it) stay on the same monitor.

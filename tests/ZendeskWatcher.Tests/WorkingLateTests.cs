@@ -71,6 +71,17 @@ public class WorkingLateTests
     }
 
     [Fact]
+    public async Task The_notice_sounds_like_an_app_message_not_like_my_tickets()
+    {
+        _settings.AppMessageStyle = new NotificationStyle { Sound = ToastSound.ChipBlip, Display = ToastDisplay.Long };
+        IWorked(minutesAgo: 5);
+        await StartAsync();
+
+        var notice = Assert.Single(_notices);
+        Assert.Equal(ToastSound.ChipBlip, _settings.SoundFor(notice));
+    }
+
+    [Fact]
     public async Task Inactive_for_30_minutes_outside_my_hours_stays_quiet()
     {
         IWorked(minutesAgo: 45);

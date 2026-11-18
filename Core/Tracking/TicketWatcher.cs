@@ -896,7 +896,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             Log.Info("Working late: active in Zendesk outside my hours, notifying as during them");
             notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Working late?",
                 "You're active in Zendesk after your hours, so notifications come as during your shift, until you've been " +
-                "inactive for 30 minutes (Notifications → Working hours)."));
+                "inactive for 30 minutes (Notifications → Working hours).")
+            {
+                Style = settings.AppMessageStyle // an app message (its sound and time on screen), not a "my tickets" one
+            });
         }
         return false;
     }
