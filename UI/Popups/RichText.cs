@@ -89,6 +89,8 @@ internal sealed partial class RichText(Font regular, Font bold)
                 link = new Link(NotificationActions.OpenTicket, id);
             else if (m.Groups["path"].Success && SettingsLinks.Resolve(m.Groups["path"].Value) is var (page, section))
                 link = new Link(NotificationActions.SettingsPage(page, section), null);
+            else if (m.Groups["more"].Success)
+                link = new Link(NotificationActions.Search(Tracking.TicketRules.WorkingOnSearch), null);
             if (link is null)
                 continue;
             if (m.Index > at)
@@ -102,14 +104,17 @@ internal sealed partial class RichText(Font regular, Font bold)
 
     private static Regex? _linkPattern;
 
-    /// <summary>"#123456" (not inside a word), or "Settings → " and sidebar pages joined by arrows.</summary>
+    /// <summary>
+    /// "#123456" (not inside a word), "Settings → " and sidebar pages joined by arrows, or Catch up's "+N more" (the rest
+    /// of your tickets to work on, opened in Zendesk).
+    /// </summary>
     private static Regex LinkPattern()
     {
         if (_linkPattern is not null)
             return _linkPattern;
         var page = "(?:" + string.Join("|", SettingsLinks.Pages.OrderByDescending(p => p.Length).Select(Regex.Escape)) + ")";
         return _linkPattern = new Regex(
-            @"(?<![\w#])#(?<ticket>\d{3,})\b|\bSettings\s*→\s*(?<path>" + page + @"(?:\s*→\s*" + page + @")*)(?![\w&])",
+            @"(?<![\w#])#(?<ticket>\d{3,})\b|\bSettings\s*→\s*(?<path>" + page + @"(?:\s*→\s*" + page + @")*)(?![\w&])|(?<more>(?<![\w+])\+\d+ more)\b",
             RegexOptions.Compiled);
     }
 

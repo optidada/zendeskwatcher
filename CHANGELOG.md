@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.21
+
+- **Colleagues' tickets show why, always**: who wrote and when, then why you're asked (off work, last active), then the message. A long message is now what gets cut, never the reason.
+- **"+N more" in Catch up opens the rest**: when you have more tickets to work on than fit, click "+N more" to see all of them in Zendesk.
+
 ## 1.8.20
 
 - **Catch up in seconds**: about 5 seconds instead of 2–3 minutes. It checks first whether a colleague is away before reading their tickets, reads only the messages instead of each ticket's full history, and does several things at once.

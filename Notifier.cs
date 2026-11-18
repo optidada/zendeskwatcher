@@ -388,7 +388,7 @@ public sealed class Notifier : INotificationSink
                 TicketId: 123458, Priority: "urgent", Context: "Support Tier 1") { CanTake = true, Client = "InGen" }).Append(
             // The priority guess (Experimental): higher than set, and "probably not" for an urgent one with no sign of urgency.
             GuessSample(new NotificationContent(NotificationKind.HelpColleague, "Colleague's ticket", "#123459 Flair orders fail for all restaurants",
-                $"**Stan**\n“Any update? Orders are not going through and our launch is tomorrow.”\nPeter is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+                $"**Stan**\nPeter is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time · last active 4 h ago\n“Any update? Orders are not going through for any of our restaurants, and our launch is tomorrow morning.”",
                 TicketId: 123459, Priority: "normal", Context: "Support Tier 2") { EventTime = DateTimeOffset.UtcNow.AddMinutes(-40) })).Append(
             GuessSample(new NotificationContent(NotificationKind.NewTicket, "New ticket", "#123465 Homepage plays Surfin' Bird on a loop",
                 "Brian Griffin", TicketId: 123465, Priority: "urgent", Context: "Support Tier 1") { EventTime = DateTimeOffset.UtcNow.AddMinutes(-3) },
@@ -478,7 +478,7 @@ public sealed class Notifier : INotificationSink
         {
             var (title, customer, text, client, colleague) = Waiting[pick % Waiting.Length];
             return [new NotificationContent(kind, "Colleague's ticket", $"#{123459 + pick * 11} {title}",
-                $"**{customer}**\n“{text}”\n{colleague} is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time",
+                $"**{customer}**\n{colleague} is off work · {Clock.DayTime(DateTime.Today.AddHours(21).AddMinutes(40))} their time · last active 4 h ago\n“{text}”",
                 TicketId: 123459 + pick * 11, Priority: "urgent", Context: "Support Tier 2")
                 { Action = ActionNone, Client = $"{client} · Premium Support", MuteTarget = SampleClient(client), SlaDue = DateTimeOffset.UtcNow.AddMinutes(-25),
                   EventTime = DateTimeOffset.UtcNow.AddMinutes(-85) }];

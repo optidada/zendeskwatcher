@@ -677,7 +677,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var said = Said(reply.Customer, reply.Comment);
         Show(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Colleague's ticket",
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
-            $"{said}\n{why}{StatusSuffix(ticket)}",
+            WhyUnderName(said, why + StatusSuffix(ticket)),
             ticket.Id, ticket.Priority, GroupLabel(group))
         { IsTicketNotification = true, ChangedAt = reply.At, EventTime = reply.At }, ticket, group, ct, sla: (reply.At, FirstReply: false),
             customerTexts: [TextCleanup.Plain(reply.Comment.PlainBody ?? reply.Comment.Body)], waitingSince: reply.At));
@@ -857,7 +857,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var away = TicketRules.ColleagueAway(outside, known, last, now);
         var who = Markdown.Escape(assignee?.Name ?? $"User {assigneeId}");
         var why = outside is true
-            ? $"{who} is off work · {Clock.DayTime(local)} their time{(last is { } at ? $" · last active {NotificationContent.Ago(now - at)}" : "")}"
+            ? $"{who} is off work · {Clock.DayTime(local)} their time{(last is { } at ? $" · last active {NotificationContent.Ago(now - at).Replace(' ', ' ')}" : "")}"
             : $"{who}: no activity in Zendesk for {TicketRules.InactiveFor.TotalHours:0}+ h · {Clock.DayTime(local)} their time";
         return (away, local, why);
     }
@@ -1163,6 +1163,16 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// Who wrote, on its own line (the notification adds "· 5 min ago" and the SLA deadline to it), then what they wrote
     /// as a quote: "**Jane Doe**\n“Still broken”". Without the text: "**Jane Doe** replied".
     /// </summary>
+    /// <summary>
+    /// A colleague's ticket: who wrote (the time goes on that line), then why it's shown (off work, last active), then the
+    /// message. Only ticket notifications' first lines show, so a long message is what's cut, never the reason.
+    /// </summary>
+    internal static string WhyUnderName(string said, string why)
+    {
+        var lineEnd = said.IndexOf('\n');
+        return lineEnd < 0 ? $"{said}\n{why}" : $"{said[..lineEnd]}\n{why}\n{said[(lineEnd + 1)..]}";
+    }
+
     private string Said(string name, AuditEvent comment, string label = "", string verb = "replied") =>
         settings.ShowCommentText ? $"**{Markdown.Escape(name)}**{label}\n{Quote(Markdown.Escape(Snippet(comment)))}" : $"**{Markdown.Escape(name)}**{label} {verb}";
 

@@ -220,6 +220,9 @@ public static class TicketRules
     /// <summary>Catch up lists at most this many of the tickets you're working on.</summary>
     public const int MaxWorkingOn = 5;
 
+    /// <summary>What "+N more" under "To work on" opens in Zendesk: all your New and Open tickets (Open-like statuses too).</summary>
+    public const string WorkingOnSearch = "assignee:me status<pending";
+
     /// <summary>One of your tickets for Catch up's "To work on" list.</summary>
     public readonly record struct WorkItem(long Id, string Subject, string StatusName, string? Status, string? Priority,
         DateTimeOffset? SlaDue, DateTimeOffset UpdatedAt);
@@ -227,7 +230,8 @@ public static class TicketRules
     /// <summary>
     /// Catch up's reminder of what you're working on: your New, Open and In progress tickets (not Pending, On-hold or
     /// Escalated: those wait on someone else), most urgent first, then the nearest SLA, then the longest untouched.
-    /// "#123 [P1] Subject" per line, at most <see cref="MaxWorkingOn"/>, then "+N more". Null when there are none.
+    /// "#123 [P1] Subject" per line, at most <see cref="MaxWorkingOn"/>, then "+N more" (a link: all of them in Zendesk,
+    /// <see cref="WorkingOnSearch"/>). Null when there are none.
     /// </summary>
     public static string? WorkingOnText(IEnumerable<WorkItem> tickets)
     {

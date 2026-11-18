@@ -77,7 +77,7 @@ public class HelpColleaguesTests
         _zendesk.Tickets[302].CustomStatusId = 88;
 
         Assert.Equal([301L, 302L], await CustomerRepliesNotifiedAsync());
-        Assert.EndsWith(" · In progress", _notifier.Shown.Single(n => n.TicketId == 302).Body);
+        Assert.EndsWith(" · In progress", _notifier.Shown.Single(n => n.TicketId == 302).Body.Split('\n')[1]); // the second line: why, then the status
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class HelpColleaguesTests
         var notified = await CustomerRepliesNotifiedAsync();
 
         Assert.Contains(302L, notified);
-        Assert.EndsWith(" · Escalated", _notifier.Shown.Single(n => n.TicketId == 302).Body);
+        Assert.EndsWith(" · Escalated", _notifier.Shown.Single(n => n.TicketId == 302).Body.Split('\n')[1]);
     }
 
     [Fact]

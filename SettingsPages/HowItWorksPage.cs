@@ -194,7 +194,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "2+ days, and Pending ones with no update for 7+ days. Nothing at all: “Nothing needs you right now”.",
                 "Then your own open tickets by status, with how many are P1 or P2, and “To work on”: up to 5 of your New, Open " +
                 "and In progress tickets, most urgent first, then the nearest SLA, then the longest untouched. Click a number to " +
-                "open it.",
+                "open it; with more, “+N more” opens all of them in Zendesk.",
                 "Up to 5 waiting clients and up to 3 unassigned tickets also come one by one: once a working day, or when you ask."
             ]),
         new("Summaries",

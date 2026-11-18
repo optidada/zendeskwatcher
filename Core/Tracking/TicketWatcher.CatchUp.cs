@@ -156,7 +156,7 @@ public sealed partial class TicketWatcher
             var said = Said(customer, comment, verb: "wrote");
             return await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Catch up · Colleague's ticket",
                 $"#{c.Ticket.Id} {TextCleanup.Plain(c.Ticket.Subject)}",
-                $"{said}\n{away[c.AssigneeId]}{StatusSuffix(c.Ticket)}",
+                WhyUnderName(said, away[c.AssigneeId] + StatusSuffix(c.Ticket)),
                 c.Ticket.Id, c.Ticket.Priority, GroupLabel(c.Group))
             { EventTime = at, ChangedAt = at, IsTicketNotification = true }, c.Ticket, c.Group, ct, sla: (at, FirstReply: false));
         })).ToList();
