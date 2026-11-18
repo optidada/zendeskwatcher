@@ -10,7 +10,8 @@ public static class ChipSounds
     private const int SampleRate = 22050;
     private static readonly Dictionary<ToastSound, byte[]> Cache = [];
 
-    public static bool IsChip(ToastSound sound) => sound is >= ToastSound.ChipBlip and <= ToastSound.SoftChime;
+    /// <summary>Sounds the app makes itself (chiptunes, the soft chime, and the americana and nature ones), not Windows'.</summary>
+    public static bool IsChip(ToastSound sound) => sound is >= ToastSound.ChipBlip and <= ToastSound.SoftChime || MoodSounds.Handles(sound);
 
     public static void Play(ToastSound sound)
     {
@@ -241,6 +242,8 @@ public static class ChipSounds
     {
         if (sound == ToastSound.SoftChime)
             return SoftChime();
+        if (MoodSounds.Handles(sound))
+            return MoodSounds.Render(sound);
         double[] mix;
         if (Song(sound) is { } song)
         {

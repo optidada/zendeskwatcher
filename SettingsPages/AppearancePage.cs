@@ -18,7 +18,11 @@ internal sealed class AppearancePage : SettingsPage
         new(ToastSound.SongBouncy, "Nostalgic – Bouncy"), new(ToastSound.SongGroove, "Nostalgic – Groove"),
         new(ToastSound.SongCelebration, "Nostalgic – Celebration"),
         new(ToastSound.SongQuest, "Nostalgic – Quest"), new(ToastSound.SongTurbo, "Nostalgic – Turbo"),
-        new(ToastSound.SongStarfield, "Nostalgic – Starfield")
+        new(ToastSound.SongStarfield, "Nostalgic – Starfield"),
+        new(ToastSound.AmericanaBanjoRoad, "Americana – Banjo road"), new(ToastSound.AmericanaSlide, "Americana – Slide"),
+        new(ToastSound.AmericanaHollow, "Americana – Hollow"),
+        new(ToastSound.NatureStream, "Nature – Stream"), new(ToastSound.NatureWindChimes, "Nature – Wind chimes"),
+        new(ToastSound.NatureBirdsong, "Nature – Birdsong")
     ];
 
     private readonly ThemeTile[] _themeTiles =

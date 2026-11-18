@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.22
+
+- **New sounds: Americana and Nature**: dark americana pieces (banjo road, slide guitar, hollow fingerpicking) and nature sounds (a quiet stream, wind chimes, a distant bird). Softer than the retro sounds. Choose them on Look & sound.
+
 ## 1.8.21
 
 - **Colleagues' tickets show why, always**: who wrote and when, then why you're asked (off work, last active), then the message. A long message is now what gets cut, never the reason.
