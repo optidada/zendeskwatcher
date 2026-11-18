@@ -148,16 +148,24 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             _gate.Release();
         }
 
+        var browser = _web; // the one this request runs in
         try
         {
             return await FetchAsync(url, ct, method, jsonBody).WaitAsync(RequestTimeout, ct);
         }
         catch (TimeoutException)
         {
-            // The hidden browser stopped answering (e.g. stuck while waking up): start over with a fresh one.
-            Log.Error("Browser session: the hidden browser did not respond; restarting it");
+            // The hidden browser stopped answering (e.g. stuck while waking up): start over with a fresh one. Several
+            // requests time out together then: only the first restarts it, the others would throw the fresh one away.
             await _gate.WaitAsync(CancellationToken.None);
-            try { ResetBrowser(); }
+            try
+            {
+                if (ReferenceEquals(_web, browser))
+                {
+                    Log.Error("Browser session: the hidden browser did not respond; restarting it");
+                    ResetBrowser();
+                }
+            }
             finally { _gate.Release(); }
             throw new HttpRequestException("The embedded browser did not respond and was restarted.");
         }
@@ -321,7 +329,24 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         Log.Info("Browser session: cookies cleared");
     }
 
-    private Task EnsureInitializedAsync() => _initialization ??= InitializeAsync();
+    /// <summary>Starts the browser once; a start that failed (e.g. its folder still held by a closing copy) is tried again next time.</summary>
+    private async Task EnsureInitializedAsync()
+    {
+        var starting = _initialization ??= InitializeAsync();
+        try
+        {
+            await starting;
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(_initialization, starting))
+            {
+                _initialization = null;
+                Log.Error("Browser session: the hidden browser could not start; trying again with the next request", ex);
+            }
+            throw;
+        }
+    }
 
     private async Task InitializeAsync()
     {
@@ -429,7 +454,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     }
 
     private bool IsOnZendesk() =>
-        Uri.TryCreate(_web.CoreWebView2.Source, UriKind.Absolute, out var current) &&
+        Uri.TryCreate(_web.CoreWebView2?.Source, UriKind.Absolute, out var current) && // null: restarted meanwhile, not started yet
         Uri.TryCreate(_baseUrl, UriKind.Absolute, out var expected) &&
         string.Equals(current.Host, expected.Host, StringComparison.OrdinalIgnoreCase);
 

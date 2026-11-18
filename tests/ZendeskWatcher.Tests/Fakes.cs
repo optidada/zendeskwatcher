@@ -45,7 +45,18 @@ internal sealed class RecordingNotifier : INotificationSink
     public List<string> MissingGroups { get; } = [];
     public List<long> ClosedTaken { get; } = [];
 
-    public void Show(NotificationContent content) => Shown.Add(content);
+    /// <summary>How many more notifications fail to show (something going wrong while announcing them).</summary>
+    public int FailNextShows { get; set; }
+
+    public void Show(NotificationContent content)
+    {
+        if (FailNextShows > 0)
+        {
+            FailNextShows--;
+            throw new HttpRequestException("test failure while showing");
+        }
+        Shown.Add(content);
+    }
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => MissingGroups.AddRange(names);
     public void CloseTaken(long ticketId, string? note = null)
     {
@@ -181,11 +192,23 @@ internal sealed partial class FakeZendesk : IZendeskSession
     /// <summary>Every URL requested, in order.</summary>
     public System.Collections.Concurrent.ConcurrentQueue<string> Requested { get; } = new(); // requests may run side by side
 
+    /// <summary>URL part → how many more requests containing it fail with a server error (Zendesk having a bad moment).</summary>
+    private readonly Dictionary<string, int> _failing = [];
+
+    /// <summary>The next <paramref name="times"/> requests whose URL contains <paramref name="urlPart"/> fail (500).</summary>
+    public void FailNext(string urlPart, int times = 1) => _failing[urlPart] = times;
+
     public Task<ApiResponse> GetAsync(string url, CancellationToken ct)
     {
         Requested.Enqueue(url);
         if (NextAnswers.TryDequeue(out var answer))
             return Task.FromResult(answer);
+        lock (_failing)
+            if (_failing.FirstOrDefault(f => f.Value > 0 && url.Contains(f.Key, StringComparison.Ordinal)) is { Key: { } part })
+            {
+                _failing[part]--;
+                return Task.FromResult(new ApiResponse(500, "{\"error\":\"test failure\"}", null));
+            }
         var uri = new Uri(url);
         var path = uri.AbsolutePath;
         var query = Uri.UnescapeDataString(uri.Query);

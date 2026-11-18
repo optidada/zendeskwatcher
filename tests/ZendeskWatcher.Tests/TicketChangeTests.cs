@@ -71,6 +71,18 @@ public class TicketChangeTests
     }
 
     [Fact]
+    public async Task A_reply_without_text_says_it_was_a_file_or_image()
+    {
+        _zendesk.AddAssigned(505, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(505, Customer, ""); // only a screenshot: Zendesk sends no text
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal("**Jane Customer** sent a file or image", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
     public async Task My_tickets_client_has_Options_too_for_important()
     {
         _zendesk.Organizations[70] = "Contoso";

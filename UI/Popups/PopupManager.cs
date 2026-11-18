@@ -170,6 +170,7 @@ public sealed class PopupManager
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
         _visible.Add(popup);
         _shownAt[popup] = DateTime.UtcNow;
+        Log.Info($"Notification shown ({_visible.Count} on screen): {content.LogName}");
         _awayWatch.Start();
         UpdateTurns();
 
@@ -220,6 +221,7 @@ public sealed class PopupManager
     {
         _visible.Remove(popup);
         _shownAt.Remove(popup);
+        Log.Info($"Notification closed ({popup.Outcome}): {popup.Content.LogName}");
         UpdateTurns();
         _onClosed(popup.Content, popup.Outcome);
         Act(popup.Content, popup.Outcome, popup.ClickedLink);
@@ -365,6 +367,8 @@ public sealed class PopupManager
     {
         // Presenting or full screen counts as away: the ones on screen hide (and wait), new ones wait in line, and
         // afterwards it's like coming back (a summary instead of many, outdated ones dropped).
+        foreach (var popup in _visible)
+            popup.NoteClickable();
         var busy = !CanShowPopups();
         if (busy != _wasBusy)
         {
@@ -429,7 +433,7 @@ public sealed class PopupManager
             var keepItems = (await CheckAsync(oldItems, deep: true)).ToHashSet(ReferenceEqualityComparer.Instance);
             foreach (var item in oldItems.Where(c => !keepItems.Contains(c)))
             {
-                Log.Info($"No longer needed, closed: {item.Title}");
+                Log.Info($"No longer needed, closed: {item.LogName}");
                 ticker.Remove(item, PopupForm.Result.None);
             }
         }
@@ -440,7 +444,7 @@ public sealed class PopupManager
         var stillNeeded = (await CheckAsync(old.Select(p => p.Content).ToList(), deep: true)).ToHashSet(ReferenceEqualityComparer.Instance);
         foreach (var popup in old.Where(p => !stillNeeded.Contains(p.Content) && _visible.Contains(p)))
         {
-            Log.Info($"No longer needed, closed: {popup.Content.Title}");
+            Log.Info($"No longer needed, closed: {popup.Content.LogName}");
             popup.Dismiss(PopupForm.Result.None);
         }
     }

@@ -62,7 +62,7 @@ public static class GroupWorkloadCache
     }
 
     private static async Task<(DateTime At, List<Ticket> Tickets)> ReadPersonAsync(ZendeskClient client, long userId) =>
-        (DateTime.UtcNow, await client.GetOpenTicketsAssignedToAsync(userId, CancellationToken.None));
+        (DateTime.UtcNow, Slim(await client.GetOpenTicketsAssignedToAsync(userId, CancellationToken.None)));
 
     /// <summary>Not tied to one caller's cancellation: the read is shared, so it runs to the end.</summary>
     private static async Task<Entry> ReadAsync(ZendeskClient client, long groupId)
@@ -70,6 +70,13 @@ public static class GroupWorkloadCache
         var members = client.GetGroupMembersAsync(groupId, CancellationToken.None);
         var tickets = client.GetAssignedOpenTicketsAsync(groupId, CancellationToken.None);
         await Task.WhenAll(members, tickets);
-        return new Entry(DateTime.UtcNow, [.. (await members).Where(u => u.Role != "end-user").DistinctBy(u => u.Id)], await tickets);
+        return new Entry(DateTime.UtcNow, [.. (await members).Where(u => u.Role != "end-user").DistinctBy(u => u.Id)], Slim(await tickets));
     }
+
+    /// <summary>
+    /// Only what the counts read (<see cref="TeamWorkload.Count"/>): the subject, the customer's message, tags and the rest
+    /// aren't kept (a few KB per group instead of hundreds, held while the app runs).
+    /// </summary>
+    internal static List<Ticket> Slim(List<Ticket> tickets) =>
+        [.. tickets.Select(t => new Ticket { Id = t.Id, AssigneeId = t.AssigneeId, Status = t.Status, CustomStatusId = t.CustomStatusId, Priority = t.Priority })];
 }

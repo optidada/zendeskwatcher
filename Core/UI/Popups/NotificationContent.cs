@@ -17,6 +17,12 @@ public sealed record NotificationContent(
     string? Priority = null,
     string? Context = null)
 {
+    /// <summary>
+    /// How it's named in the log: kind and ticket number, never the subject or text (the log goes along with feedback);
+    /// app messages and lists by their title ("7 unassigned tickets already waiting").
+    /// </summary>
+    public string LogName => TicketId is { } id ? $"{Kind} #{id}" : $"{Kind} \"{Title}\"";
+
     /// <summary>What a click does; defaults to opening the ticket, or Zendesk when there is no ticket.</summary>
     public string? Action { get; init; }
 

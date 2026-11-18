@@ -3,6 +3,16 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.3
+
+- **No notification lost when Zendesk hiccups**: if a request fails in the middle of a check (Zendesk busy, or the app's browser restarting), whatever wasn't notified yet comes with the next check. Before, such a ticket could be skipped for good: new tickets, "Already taken", tickets newly assigned to you or CC'd, and customer replies on colleagues' tickets.
+- **The copy buttons show their tooltips**: point at the copy icons on a notification to see what each copies.
+- **A reply without text says so**: a customer who sends only a screenshot or a file shows "sent a file or image" instead of empty quotes.
+- **Steadier connection**: when the app's hidden browser stops answering, it restarts once instead of several times in a row, and a browser that couldn't start tries again with the next check instead of waiting for an app restart. A colleague's name that couldn't be read is asked again later instead of showing "User 123".
+- **Notifications always close**: a notification on its way out can no longer get stuck on screen, and closed ones free their memory. The Catch up spinner on the Account page stops when you get signed out.
+- **Less customer data in the log**: the log names tickets by number and says "the customer", never subjects or customers' names (the log goes along with Send feedback). It also notes when a notification shows, is clicked and closes, to help find problems.
+- **Less memory** for Team workload (Insights) and "Who could take it": only the few details they count are kept.
+
 ## 1.9.2
 
 - **How it works explains what's on a notification**: a new topic, "On a notification", right after Notifications, covers Take it, who could take it instead, "Taken by Anna", the copy icons and Options ▾ on the client line. Groups now just covers which tickets you hear about, and Summaries comes right after.

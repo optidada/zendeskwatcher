@@ -154,7 +154,7 @@ public sealed class Notifier : INotificationSink
     private void Snooze(NotificationContent content)
     {
         var minutes = Math.Clamp(Settings.SnoozeMinutes, 1, 24 * 60);
-        Log.Info($"Snoozed for {minutes} min: {content.Title}");
+        Log.Info($"Snoozed for {minutes} min: {content.LogName}");
         var timer = new System.Windows.Forms.Timer { Interval = minutes * 60_000 };
         timer.Tick += (_, _) =>
         {
@@ -183,7 +183,7 @@ public sealed class Notifier : INotificationSink
             {
                 if ((await check([content], true)).Count == 0)
                 {
-                    Log.Info($"Snoozed notification no longer needed, not shown again: {content.Title}");
+                    Log.Info($"Snoozed notification no longer needed, not shown again: {content.LogName}");
                     return;
                 }
             }
@@ -515,7 +515,7 @@ public sealed class Notifier : INotificationSink
     {
         if (IsDuplicate(content))
         {
-            Log.Info($"Skipped a duplicate notification: {content.Title}");
+            Log.Info($"Skipped a duplicate notification: {content.LogName}");
             return;
         }
         if (content.RequestedByUser)

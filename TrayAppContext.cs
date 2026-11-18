@@ -410,6 +410,10 @@ public sealed class TrayAppContext : ApplicationContext
             catch (AuthRequiredException)
             {
                 Log.Info("Sign-in required");
+                // A Catch up asked for can't run until signed in again: the Account page's spinner stops.
+                _catchUpRequested = false;
+                _catchUpDone?.TrySetResult();
+                _catchUpDone = null;
                 _tray.SetStatus("Sign-in required", TrayState.Off, iconHint: "click this icon to sign in");
                 WatchStatus.Stopped("Not checking: your Zendesk session expired. Sign in on the Account page.");
                 PromptSignIn();

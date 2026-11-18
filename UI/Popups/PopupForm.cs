@@ -207,7 +207,7 @@ public sealed class PopupForm : Form
     internal static string TicketNumberText(long id) => id.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Says what the two copy buttons do while the mouse is on them.</summary>
-    private readonly ToolTip _tips = new() { InitialDelay = 400 };
+    private readonly ToolTip _tips = new() { InitialDelay = 400, ShowAlways = true }; // the window never takes focus: without ShowAlways no tip shows
     private Font? _iconFont, _hashFont;
 
     /// <param name="scale">Screen DPI scale.</param>
@@ -413,6 +413,26 @@ public sealed class PopupForm : Form
         wait.Start();
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsWindowEnabled(IntPtr hWnd);
+
+    private bool _clickable = true;
+
+    /// <summary>
+    /// Windows disables all of the app's windows while a dialog is open (a disabled one ignores every click) and enables
+    /// them again afterwards. Logged when it changes (checked once a second by the manager), in case one stays disabled.
+    /// </summary>
+    internal void NoteClickable()
+    {
+        if (!IsHandleCreated || IsDisposed)
+            return;
+        var clickable = IsWindowEnabled(Handle);
+        if (clickable == _clickable)
+            return;
+        _clickable = clickable;
+        Log.Info($"Notification {(clickable ? "takes clicks again" : "disabled by Windows (a dialog is open?)")}: {_content.LogName}");
+    }
+
     public void Dismiss(Result outcome)
     {
         if (_phase == Phase.Leaving)
@@ -461,8 +481,14 @@ public sealed class PopupForm : Form
                 if (pOut >= 1)
                 {
                     _timer.Stop();
-                    Finished?.Invoke(this);
-                    Close();
+                    try
+                    {
+                        Finished?.Invoke(this);
+                    }
+                    finally
+                    {
+                        Close(); // always: one stuck in "leaving" ignores every click
+                    }
                     return;
                 }
                 break;
@@ -1144,6 +1170,9 @@ public sealed class PopupForm : Form
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
+        // Clicks are rare: each is logged, so a notification that "doesn't react" can be told apart in the log (the
+        // click never came, or it came while the notification was already leaving).
+        Log.Info($"Notification clicked ({e.Button}, {_phase}{(_held ? ", held" : "")}): {_content.LogName}");
         if (Peek != PeekEdge.None && _tuck > 0.3f)
             return; // still sliding out: a click on the tab only brings it out
         if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location) || _dismissRect.Contains(e.Location))
@@ -1289,6 +1318,9 @@ public sealed class PopupForm : Form
             _smallFont.Dispose();
             _bodyBoldFont.Dispose();
             _clientFont.Dispose();
+            _iconFont?.Dispose();
+            _hashFont?.Dispose();
+            _tips.Dispose(); // also takes its tip off the screen
         }
         base.Dispose(disposing);
     }

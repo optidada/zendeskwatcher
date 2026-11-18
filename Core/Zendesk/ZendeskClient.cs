@@ -603,9 +603,13 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         {
             user = (await GetAsync<UserResponse>($"/api/v2/users/{userId}.json", ct)).User;
         }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden)
+        {
+            user = null; // gone or not allowed: that won't change, remember it
+        }
         catch (HttpRequestException)
         {
-            user = null;
+            return null; // e.g. Zendesk busy or the browser restarting: asked again next time, not "User 123" until a restart
         }
 
         _users[userId] = user;
