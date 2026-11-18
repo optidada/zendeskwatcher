@@ -241,7 +241,8 @@ internal sealed partial class FakeZendesk : IZendeskSession
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
         if (AssigneeQuery().Match(query) is { Success: true } assignee) // Colleagues: an agent's recently updated tickets
-            return Tickets.Values.Where(t => t.AssigneeId == long.Parse(assignee.Groups[1].Value)).OrderByDescending(t => t.UpdatedAt).ToList();
+            return Tickets.Values.Where(t => t.AssigneeId == long.Parse(assignee.Groups[1].Value) && (t.IsOpen || !query.Contains("status<solved")))
+                .OrderByDescending(t => t.UpdatedAt).ToList();
         var match = GroupQuery().Match(query);
         if (query.Contains("-assignee:none") && CreatedQuery().Match(query) is { Success: true } created && match.Success) // tickets taken quickly
         {

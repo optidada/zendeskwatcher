@@ -3,6 +3,12 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.24
+
+- **Fairer "Who could take it"** (▾ next to Take it): someone's open tickets now count in every group, not just the ticket's. Before, a busy colleague with nothing in that group showed as "nothing open".
+- **No managers suggested**: people with no unsolved tickets at all aren't offered.
+- **Waiting tickets shown**: each suggestion also says how many pending, on-hold, escalated and scheduled tickets they have, like "2 open, 5 waiting".
+
 ## 1.8.23
 
 - **Updates install by themselves**: when the app starts, a new version installs in a few seconds and then says what's new. "Restart to update" is only needed for a version that comes out while the app runs.

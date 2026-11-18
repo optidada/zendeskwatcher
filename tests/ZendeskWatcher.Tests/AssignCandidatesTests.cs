@@ -45,11 +45,48 @@ public class AssignCandidatesTests
     }
 
     [Fact]
+    public async Task Busy_counts_open_tickets_in_every_group_and_people_without_any_are_left_out()
+    {
+        File.Delete(AppPaths.StateFile);
+        GroupWorkloadCache.Clear();
+        var settings = new Settings
+        {
+            Subdomain = "test", WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }],
+            WorkdayStartHour = 0, WorkdayEndHour = 24, WorkDays = [.. Enum.GetValues<DayOfWeek>()]
+        };
+        var zendesk = new FakeZendesk();
+        zendesk.Users[zendesk.Me.Id] = zendesk.Me;
+        zendesk.Users[Busy] = new User { Id = Busy, Name = "Bea Busy", Role = "agent", IanaTimeZone = "Europe/Berlin" };
+        zendesk.Users[Free] = new User { Id = Free, Name = "Fred Free", Role = "agent", IanaTimeZone = "Europe/Berlin" };
+        zendesk.Users[Idle] = new User { Id = Idle, Name = "Ida Manager", Role = "admin", IanaTimeZone = "Europe/Berlin" };
+        zendesk.GroupMembers[10] = [zendesk.Me.Id, Busy, Free, Idle];
+        zendesk.AddAssigned(200, "normal", assignee: Free).GroupId = 10; // Fred: 1 in Tier 2…
+        for (var i = 0; i < 4; i++)
+            zendesk.AddAssigned(300 + i, "normal", assignee: Busy).GroupId = 20; // …Bea: none in Tier 2, 4 elsewhere
+        var waiting = zendesk.AddAssigned(310, "normal", assignee: Busy);
+        (waiting.GroupId, waiting.Status) = (20, "pending");
+        zendesk.Reply(200, Free, "Looking");
+        zendesk.Reply(300, Busy, "On it");
+        var solved = zendesk.AddAssigned(320, "normal", assignee: Idle); // the manager: active, but nothing unsolved
+        (solved.GroupId, solved.Status) = (20, "solved");
+        zendesk.Reply(320, Idle, "Approved");
+        zendesk.AddUnassigned(500);
+
+        var watcher = new TicketWatcher(settings, new ZendeskClient(settings, zendesk), new RecordingNotifier());
+        await watcher.InitializeAsync(CancellationToken.None);
+        var (candidates, _) = await watcher.FindCandidatesAsync(500, CancellationToken.None);
+
+        Assert.Equal(["Fred Free", "Bea Busy"], candidates.Select(c => c.Name)); // not the one without tickets
+        Assert.Equal((4, 1), (candidates[1].Open, candidates[1].Waiting));
+    }
+
+    [Fact]
     public void Menu_line_says_load_and_activity()
     {
         var now = DateTimeOffset.UtcNow;
         Assert.Equal("Maria · 4 open, 1 P1/P2 · active 5 min ago", AssignCandidates.Line(new AssignCandidate(1, "Maria", 4, 1, now.AddMinutes(-5)), now));
         Assert.Equal("Kim · nothing open · in working hours", AssignCandidates.Line(new AssignCandidate(2, "Kim", 0, 0, null), now));
+        Assert.Equal("Kim · nothing open, 6 waiting · in working hours", AssignCandidates.Line(new AssignCandidate(2, "Kim", 0, 0, null, 6), now));
     }
 
     [Fact]

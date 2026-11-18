@@ -787,7 +787,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     }
 
     /// <summary>Colleague id → when their activity was read, and their latest change or comment then (null: none in 3 h).</summary>
-    private readonly Dictionary<long, (DateTimeOffset ReadAt, DateTimeOffset? Last, bool Known)> _activity = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, (DateTimeOffset ReadAt, DateTimeOffset? Last, bool Known)> _activity = new(); // also read by "Who could take it", several at a time
     private static readonly TimeSpan RememberActivity = TimeSpan.FromMinutes(15);
 
     /// <summary>Zendesk didn't send ticket metrics: colleague activity is read from ticket histories (until checking restarts).</summary>
@@ -888,7 +888,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             return true;
         var now = DateTimeOffset.UtcNow;
         if (_activity.TryGetValue(me.Id, out var read) && now - read.ReadAt >= RememberMyActivity)
-            _activity.Remove(me.Id);
+            _activity.TryRemove(me.Id, out _);
         var (known, last) = await LastActiveAsync(me.Id, now, ct);
         if (!known || last is not { } at || now - at >= TicketRules.ActiveWithin)
             return true;

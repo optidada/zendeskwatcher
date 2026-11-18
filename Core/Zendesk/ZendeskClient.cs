@@ -561,6 +561,10 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     public Task<List<Ticket>> GetAssignedOpenTicketsAsync(long groupId, CancellationToken ct) =>
         ExportTicketsAsync($"group:{groupId} -assignee:none status<solved", ct);
 
+    /// <summary>All open tickets assigned to an agent, in any group (who could take a ticket: their whole workload).</summary>
+    public Task<List<Ticket>> GetOpenTicketsAssignedToAsync(long userId, CancellationToken ct) =>
+        ExportTicketsAsync($"assignee:{userId} status<solved", ct);
+
     /// <summary>
     /// Search export: up to 1,000 tickets per request instead of the normal search's 100 (and not capped at 1,000 in
     /// all), for searches that return many tickets. Same index and lag as the normal search; allowed for agents.

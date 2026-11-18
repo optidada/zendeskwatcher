@@ -34,7 +34,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 "If a colleague took it first, you're told who has it. If someone takes it (or it's solved) while the notification " +
                 "is still up, it says so (“Taken by Anna”, “Solved”) for a few seconds and closes, within a few minutes.",
                 "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people in the ticket's group who are " +
-                "in their working hours and did something in Zendesk in the last 3 hours, least busy first. You're asked before " +
+                "in their working hours and did something in Zendesk in the last 3 hours, least busy first. Busy counts their open " +
+                "tickets in all groups, not just this one; “waiting” is pending, on-hold, escalated and scheduled. People with no " +
+                "unsolved tickets at all (managers, say) aren't suggested. You're asked before " +
                 "it's assigned.",
                 "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
                 "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
