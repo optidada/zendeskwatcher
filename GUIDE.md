@@ -55,7 +55,7 @@ when the app starts and when your working day starts, and any time from the tray
 
 Besides the classic list in the corner, notifications can wait as tabs at the screen edge (Peek), be summed up in a
 small pill at the top, scroll by in a ticker, or pop up one at a time like a game achievement. Choose on
-**Look & sound**.
+**Look & sound**. With more than one monitor, they appear on the one you're working on (where the mouse is).
 
 | Pill | Ticker | Achievement |
 |---|---|---|
@@ -92,8 +92,13 @@ tickets are. Your own tickets notify you in any group.
 Control which clients you get notifications from. You hear about every client in your groups to begin with. Untick a
 client to mute it, or use **Options ▾** to make one Important (always notifies, stays until you close it), only urgent,
 muted until your shift ends or your next shift, or give it its own sound. **Options ▾** on a group's row sets it
-for all its clients at once. Point at a client's name to see a card with the products Zendesk lists for it; the filter finds products too
+for all its clients at once. Point at a client's name to see a card with who usually handles its tickets ("Usually: Maria S. 12 ·
+Alex K. 5 · you 3": who they're assigned to now) and the products Zendesk lists for it; the filter finds products too
 and says which one matched. Zendesk's product list is often out of date, so treat it as a hint.
+**All · Worked with · Not worked with** shows only the clients you've had a ticket from in that group in the last 90
+days ("you 6" after the name), or only the others. It only changes what's shown, so a quick setup is: Not worked with,
+untick the group, tick back the few you want. On a "Ticket updated" notification, **Options ▾** only offers Normal and
+Important: your own tickets always notify.
 
 ![Clients](docs/images/settings-clients.png)
 

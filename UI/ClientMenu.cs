@@ -16,7 +16,10 @@ internal static class ClientMenu
 
     /// <param name="current">The client with its current choice; the chosen one comes back as a copy.</param>
     /// <param name="sounds">Sound names to offer (Clients page); null for none (notifications).</param>
-    public static ContextMenuStrip Build(ClientChoice current, Action<ClientChoice> chosen, IReadOnlyList<(ToastSound Sound, string Name)>? sounds = null)
+    /// <param name="ownTicket">On one of my own (or CC'd) tickets: only what applies there (Normal, Important), and a
+    /// greyed line that these always notify (muting and only urgent are for new and colleagues' tickets).</param>
+    public static ContextMenuStrip Build(ClientChoice current, Action<ClientChoice> chosen, IReadOnlyList<(ToastSound Sound, string Name)>? sounds = null,
+        bool ownTicket = false)
     {
         var now = DateTimeOffset.UtcNow;
         var menu = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true };
@@ -39,6 +42,12 @@ internal static class ClientMenu
         var own = current.Mode == ClientMode.Muted ? ClientMode.Normal : current.Mode;
         Item("Normal", own == ClientMode.Normal, c => WithMode(c, ClientMode.Normal));
         Item("Important ★  – always, stays until closed", own == ClientMode.Important, c => WithMode(c, ClientMode.Important));
+        if (ownTicket)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(new ToolStripMenuItem("Your own tickets always notify: muting is for new and colleagues' tickets") { Enabled = false });
+            return Finish(menu);
+        }
         Item("Only urgent  – P1 and P2", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
         menu.Items.Add(new ToolStripSeparator());
         var muted = current.IsMutedAt(now);
@@ -82,6 +91,12 @@ internal static class ClientMenu
             menu.Items.Add(sound);
         }
 
+        return Finish(menu);
+    }
+
+    /// <summary>Themed, and gone after it closes.</summary>
+    private static ContextMenuStrip Finish(ContextMenuStrip menu)
+    {
         var palette = Theme.Current;
         ThemedMenu.Apply(menu, palette);
         foreach (var sub in menu.Items.OfType<ToolStripMenuItem>().Where(i => i.HasDropDownItems))

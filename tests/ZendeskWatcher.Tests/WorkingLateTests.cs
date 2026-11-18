@@ -61,6 +61,16 @@ public class WorkingLateTests
     }
 
     [Fact]
+    public async Task The_notice_shows_once_a_day_also_after_the_app_restarts()
+    {
+        IWorked(minutesAgo: 5);
+        await StartAsync();
+        await StartAsync(); // restarted (an update, a new build): reads the saved state
+
+        Assert.Single(_notices);
+    }
+
+    [Fact]
     public async Task Inactive_for_30_minutes_outside_my_hours_stays_quiet()
     {
         IWorked(minutesAgo: 45);

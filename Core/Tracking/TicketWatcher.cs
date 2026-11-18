@@ -872,9 +872,6 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     /// <summary>How fresh my own activity must be read for "working late" (shorter than colleagues': it's about me now).</summary>
     private static readonly TimeSpan RememberMyActivity = TimeSpan.FromMinutes(5);
 
-    /// <summary>The local date the "Working late?" notice was last shown: once per evening.</summary>
-    private DateTime _workingLateNoticeShown;
-
     /// <summary>
     /// Off work for "only during my working hours": outside my hours, unless I'm working late (Notifications → Working
     /// hours → Also outside them, while I'm active in Zendesk): I changed or commented on a ticket in the last 30 minutes, as for colleagues
@@ -892,9 +889,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var (known, last) = await LastActiveAsync(me.Id, now, ct);
         if (!known || last is not { } at || now - at >= TicketRules.ActiveWithin)
             return true;
-        if (_workingLateNoticeShown != DateTime.Today)
+        if (_state.WorkingLateNoticeShown.Date != DateTime.Today) // once a day, also after a restart (saved with the state)
         {
-            _workingLateNoticeShown = DateTime.Today;
+            _state.WorkingLateNoticeShown = DateTime.Today;
+            _state.Save();
             Log.Info("Working late: active in Zendesk outside my hours, notifying as during them");
             notifier.Show(new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "Working late?",
                 "You're active in Zendesk after your hours, so notifications come as during your shift, until you've been " +
@@ -1061,7 +1059,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     /// <summary>
     /// Adds the client: "Client: Contoso", ★ and "until dismissed"
-    /// for important clients, the client's own sound, and on new tickets and colleagues' tickets the "Options ▾" menu.
+    /// for important clients, the client's own sound, and the "Options ▾" menu (on own tickets only Important).
     /// </summary>
     /// <param name="sla">Where the SLA clock starts and which target applies (first reply or follow-up); null: no deadline.</param>
     /// <param name="customerTexts">What the customer wrote, oldest first, for the priority guess (only with it on); null: no guess.</param>
@@ -1111,9 +1109,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             Client = settings.ShowSlaDeadlines && slaType != Sla.StandardKey ? $"{name} · {Sla.Name(slaType, _state.Sla)}" : name,
             ClientId = orgId,
             ClientName = name,
-            MuteTarget = group is not null && content.Kind is NotificationKind.NewTicket or NotificationKind.HelpColleague
-                ? MenuTarget(choice, orgId, name, group.Id)
-                : null
+            // Own/CC tickets too (in any group), but their Options ▾ only offers what applies there (Important), see ClientMenu.Build.
+            MuteTarget = content.Kind == NotificationKind.MyTicket
+                ? MenuTarget(choice, orgId, name, group?.Id ?? ticket.GroupId ?? 0)
+                : group is not null && content.Kind is NotificationKind.NewTicket or NotificationKind.HelpColleague
+                    ? MenuTarget(choice, orgId, name, group!.Id)
+                    : null
         };
     }
 

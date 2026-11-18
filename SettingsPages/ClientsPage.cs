@@ -14,6 +14,9 @@ internal sealed class ClientsPage : SettingsPage
     private readonly GroupsPage _groups;
     private readonly ClientsView _clients = new(ListWidth);
     private readonly InputBox _filter = new(ListWidth, "Filter by client or product…", searchIcon: true);
+
+    /// <summary>Which clients show (a view, like the name filter): "worked with" = a ticket of mine in the group in 90 days.</summary>
+    private readonly ChoicePills _worked = new("All", "Worked with", "Not worked with") { Margin = new Padding(0, 8, 0, 0) };
     private readonly Label _hint = Theme.Label("", Theme.Small, Theme.TextMuted);
     private readonly Button _reload = Theme.SecondaryButton("Reload");
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
@@ -30,6 +33,7 @@ internal sealed class ClientsPage : SettingsPage
         _clients.Host.Margin = new Padding(0, 10, 0, 10);
         _clients.Host.Visible = true;
         card.Body.Controls.Add(_filter);
+        card.Body.Controls.Add(_worked);
         card.Body.Controls.Add(_clients.Host);
 
         // Full card width, so the Reload button sits at the right edge.
@@ -54,6 +58,7 @@ internal sealed class ClientsPage : SettingsPage
         Panel.Controls.Add(card);
 
         _filter.TextChanged += (_, _) => _clients.Filter(_filter.Text);
+        _worked.SelectedIndexChanged += (_, _) => _clients.FilterWorked((ClientsView.Worked)_worked.SelectedIndex);
         _clients.Changed += Changed;
         _clients.HintChanged += () =>
         {
@@ -79,7 +84,7 @@ internal sealed class ClientsPage : SettingsPage
             if (reload)
                 ClientsView.ClearCache();
             // Also while the page is hidden: signed in, the clients load in the background when they're missing or
-            // over a day old, so the page is ready when opened (nothing is requested while they're fresh).
+            // over 15 minutes old (only what changed: usually 1 request per group), so the page is ready when opened.
             if (Panel.Visible || Context.Client is not null)
                 Refresh();
         };
@@ -132,6 +137,7 @@ internal sealed class ClientsPage : SettingsPage
         {
             _reload.Enabled = Context.Client is not null;
             _reload.SetBusy(true, "Loading\u2026");
+            _clients.MeId = Context.Me?.Id;
             await _clients.ShowAsync(_groups.MonitoredGroups(), Context.Client, Context.Current().Subdomain);
         }
         catch (Exception ex)

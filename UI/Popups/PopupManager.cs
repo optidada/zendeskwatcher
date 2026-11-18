@@ -54,7 +54,47 @@ public sealed class PopupManager
         _onClosed = onClosed;
         _onCopy = onCopy;
         _awayWatch.Tick += (_, _) => WatchAway();
+        // A monitor plugged in or out, or the resolution changed: back in place (on the primary one if theirs is gone).
+        var ui = SynchronizationContext.Current;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) =>
+        {
+            if (ui is null)
+                OnDisplaysChanged();
+            else
+                ui.Post(_ => OnDisplaysChanged(), null);
+        };
     }
+
+    /// <summary>The monitors changed: the notifications on screen move into the (possibly new) work area.</summary>
+    private void OnDisplaysChanged()
+    {
+        try
+        {
+            SyncPill();
+            if (_visible.Count == 0)
+                return;
+            var settings = _lastSettings;
+            var scale = DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
+            var position = EffectivePosition(settings);
+            var area = PopupForm.WorkArea(NotificationScreen.Current);
+            var margin = _peek != PopupForm.PeekEdge.None ? 0 : (int)(16 * scale);
+            foreach (var popup in _visible)
+                popup.RestX = RestXFor(position, area, popup.Width, margin);
+            Layout(position, scale);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not move the notifications after the monitors changed", ex);
+        }
+    }
+
+    /// <summary>Where a notification rests horizontally in this work area for this position.</summary>
+    private static int RestXFor(PopupPosition position, Rectangle area, int width, int margin) => position switch
+    {
+        PopupPosition.LeftCenter => area.Left + margin,
+        PopupPosition.TopCenter or PopupPosition.BottomCenter or PopupPosition.Center => area.Left + (area.Width - width) / 2,
+        _ => area.Right - width - margin
+    };
 
     public void Show(NotificationContent content, Settings settings) => Show(content, settings, overLimit: false);
 
@@ -106,6 +146,9 @@ public sealed class PopupManager
             SyncPill();
             return;
         }
+        // Nothing on screen yet: this one, and the ones that join it, go to the monitor you're working on.
+        if (_visible.Count == 0 && (_ticker?.Count ?? 0) == 0)
+            NotificationScreen.FollowMouse();
         if (settings.Stacking == PopupStacking.Ticker)
         {
             ShowInTicker(content, settings);
@@ -113,12 +156,12 @@ public sealed class PopupManager
         }
 
         var palette = PopupPalette.For(settings.ActiveNotificationTheme);
-        var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
+        var screen = NotificationScreen.Current;
         var size = Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
         var scale = DpiScale() * size; // margins and gaps grow with the notifications
 
         var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size,
-            settings.Stacking == PopupStacking.Achievement ? AchievementStyle.Decoration : null);
+            settings.Stacking == PopupStacking.Achievement ? AchievementStyle.Decoration : null, NotificationScreen.FontRatio);
         popup.StartHidden = settings.Stacking == PopupStacking.Pill && _pill is not { Expanded: true }; // the pill shows it
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
@@ -267,7 +310,7 @@ public sealed class PopupManager
         }
         _ticker.PauseWhenAway = settings.PausePopupsWhenAway;
         _ticker.Add(content, settings.DisplaySecondsFor(content), PopupPalette.For(settings.ActiveNotificationTheme), settings.ActiveNotificationTheme,
-            DpiScale(), Math.Clamp(settings.NotificationSize, 100, 200) / 100f, TickerBar.AtTop(settings));
+            DpiScale(), Math.Clamp(settings.NotificationSize, 100, 200) / 100f, TickerBar.AtTop(settings), NotificationScreen.FontRatio);
         _awayWatch.Start();
         Announce(content, settings);
     }
@@ -424,7 +467,7 @@ public sealed class PopupManager
     /// </summary>
     private void Layout(PopupPosition position, float scale)
     {
-        var area = PopupForm.WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]);
+        var area = PopupForm.WorkArea(NotificationScreen.Current);
         var margin = (int)(16 * scale);
         var gap = (int)(10 * scale);
 
@@ -648,11 +691,8 @@ public sealed class PopupManager
         }
     }
 
-    private static float DpiScale()
-    {
-        using var g = Graphics.FromHwnd(IntPtr.Zero);
-        return g.DpiX / 96f;
-    }
+    /// <summary>The scaling of the monitor notifications appear on (each monitor its own: laptop 150 %, big one 100 %).</summary>
+    private static float DpiScale() => NotificationScreen.Scale;
 
     [DllImport("shell32.dll")]
     private static extern int SHQueryUserNotificationState(out int state);

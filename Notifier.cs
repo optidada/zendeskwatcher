@@ -485,7 +485,7 @@ public sealed class Notifier : INotificationSink
         }
         var (updateTitle, who, said, updateClient) = Updates[pick % Updates.Length];
         return [new NotificationContent(kind, "Ticket updated", $"#{123457 + pick * 11} {updateTitle}", $"**{who}**\n“{said}”",
-            TicketId: 123457 + pick * 11, Priority: "normal") { Action = ActionNone, Client = updateClient, SlaDue = DateTimeOffset.UtcNow.AddMinutes(190),
+            TicketId: 123457 + pick * 11, Priority: "normal") { Action = ActionNone, Client = updateClient, MuteTarget = SampleClient(updateClient), SlaDue = DateTimeOffset.UtcNow.AddMinutes(190),
             EventTime = DateTimeOffset.UtcNow.AddMinutes(-4) }];
     }
 

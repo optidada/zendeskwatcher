@@ -19,6 +19,9 @@ internal sealed class PillHost : Form
     private string _text = "";
     private PopupPalette? _palette;
     private float _s = 1;
+
+    /// <summary>Drawn for its monitor's scaling (a bitmap): Windows mustn't resize it.</summary>
+    protected override void OnDpiChanged(DpiChangedEventArgs e) => e.Cancel = true;
     private Color _accent = Color.Gray;
     private bool _expanded;
     private bool _held;
@@ -209,7 +212,7 @@ internal sealed class PillHost : Form
         if (_palette is null)
             return;
         using var bitmap = Draw(_text, _palette, _accent, _s, _expanded, _hover);
-        var area = PopupForm.WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]);
+        var area = PopupForm.WorkArea(NotificationScreen.Current);
         var location = new Point(area.Left + (area.Width - bitmap.Width) / 2, area.Top + PillMargin(_s));
         Bounds = new Rectangle(location, bitmap.Size);
         SetBitmap(bitmap, location);

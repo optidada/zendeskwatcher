@@ -20,6 +20,9 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     private const int MaxPages = 10;
     private const int MaxRateLimitRetries = 3;
 
+    /// <summary>How often a read that hit a Zendesk server error (502/503/504) is tried again.</summary>
+    private const int MaxServerErrorRetries = 2;
+
     /// <summary>
     /// Until when every request waits (UTC ticks): Zendesk answered "too many requests". Shared by all clients in the
     /// app, so the whole app pauses (the checks, Settings, the menus), not just the request that was limited.
@@ -56,6 +59,54 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 
     /// <summary>When the requests of the last minute were sent (all clients), for the log when Zendesk says it's busy.</summary>
     private static readonly Queue<DateTimeOffset> RecentRequests = new();
+
+    /// <summary>
+    /// The app's own limit, also without Zendesk's rate-limit headers (the browser session gets none): at most this many
+    /// requests in any minute, all clients together. Normal use is 3-4, the busiest real minute ~55 (start with Catch up
+    /// and a full Clients load), so it only ever stops a runaway. A request over it waits, it isn't dropped.
+    /// </summary>
+    public const int LocalLimitPerMinute = 60;
+
+    /// <summary>The limit in use: tests lift it (they send hundreds of requests to a fake Zendesk within seconds).</summary>
+    internal static int LocalLimit { get; set; } = LocalLimitPerMinute;
+
+    private static DateTime _localLimitLogged;
+
+    /// <summary>
+    /// Takes a place in the last minute's requests (<paramref name="recent"/>, oldest first) if there's room: null.
+    /// Otherwise how long until the oldest is a minute old (nothing is taken).
+    /// </summary>
+    internal static TimeSpan? TakeLocalSlot(Queue<DateTimeOffset> recent, DateTimeOffset now, int limit)
+    {
+        while (recent.Count > 0 && now - recent.Peek() > TimeSpan.FromMinutes(1))
+            recent.Dequeue();
+        if (recent.Count < limit)
+        {
+            recent.Enqueue(now);
+            return null;
+        }
+        return recent.Peek() + TimeSpan.FromMinutes(1) - now + TimeSpan.FromMilliseconds(50);
+    }
+
+    /// <summary>Waits while <see cref="LocalLimitPerMinute"/> requests went out in the last minute, then takes a place.</summary>
+    private static async Task WaitForLocalLimitAsync(string caller, CancellationToken ct)
+    {
+        while (true)
+        {
+            TimeSpan? wait;
+            lock (RecentRequests)
+                wait = TakeLocalSlot(RecentRequests, DateTimeOffset.UtcNow, LocalLimit);
+            if (wait is not { } delay)
+                return;
+            if (DateTime.UtcNow - _localLimitLogged > TimeSpan.FromMinutes(1))
+            {
+                _localLimitLogged = DateTime.UtcNow;
+                Log.Info($"Local limit: {LocalLimitPerMinute} Zendesk requests in the last minute; {caller} waits {delay.TotalSeconds:0} s " +
+                         $"(requests by purpose: {string.Join(", ", RequestsByPurpose.OrderByDescending(r => r.Value).Take(5).Select(r => $"{r.Key} {r.Value}"))})");
+            }
+            await Task.Delay(delay, ct);
+        }
+    }
 
     private static int RequestsInLastMinute()
     {
@@ -422,16 +473,70 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// how many tickets each had, most first. Zendesk doesn't tie organizations to groups, so the tickets tell.
     /// <see cref="ClientChoice.NoClientId"/> stands for tickets without one. Reads them all with search export (1,000 per
     /// request; the normal search stopped at 500, so busy groups' lists were incomplete). With each client's products
-    /// (<see cref="Organization.Products"/>, from the same request as the names).
+    /// (<see cref="Organization.Products"/>, from the same request as the names), and who the tickets are assigned to
+    /// (<see cref="ClientHandler"/>, most first; names from the user cache, the unknown ones looked up 100 at a time).
     /// </summary>
-    public async Task<List<(long Id, string Name, int Tickets, List<string> Products)>> GetGroupClientsAsync(long groupId, CancellationToken ct)
+    public async Task<List<(long Id, string Name, int Tickets, List<string> Products, List<ClientHandler> Handlers)>> GetGroupClientsAsync(long groupId, CancellationToken ct) =>
+        (await GetGroupClientsAsync(groupId, null, null, ct)).Clients;
+
+    /// <summary>
+    /// A group's tickets of the last 90 days as records (no content): with <paramref name="previous"/> (at most
+    /// <see cref="DigestMaxAge"/> old) only those updated since then (minus 10 minutes: search lags a little), merged in;
+    /// those older than the look-back dropped. Read: how many tickets came from Zendesk.
+    /// </summary>
+    public async Task<(GroupDigest Digest, int Read, bool Incremental)> ReadGroupDigestAsync(long groupId, GroupDigest? previous, CancellationToken ct)
     {
         var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
-        var tickets = await ExportTicketsAsync($"group:{group} created>{DateTime.UtcNow.AddDays(-ClientLookBackDays):yyyy-MM-dd}", ct);
+        var readAt = DateTimeOffset.UtcNow;
+        var cutoff = readAt.AddDays(-ClientLookBackDays);
+        var incremental = previous is not null && readAt - previous.ReadAt <= DigestMaxAge;
+        var read = incremental
+            ? await ExportTicketsAsync($"group:{group} updated>{previous!.ReadAt.AddMinutes(-10).UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct)
+            : await ExportTicketsAsync($"group:{group} created>{cutoff.UtcDateTime:yyyy-MM-dd}", ct);
+        var byId = incremental ? previous!.Tickets.ToDictionary(t => t.Id) : [];
+        foreach (var t in read)
+            byId[t.Id] = new TicketDigest(t.Id, t.OrganizationId, t.AssigneeId, t.CreatedAt);
+        return (new GroupDigest(readAt, byId.Values.Where(t => t.CreatedAt > cutoff).ToList()), read.Count, incremental);
+    }
+
+    /// <summary>
+    /// A full read is due when the last one is older than this. Reading what changed is never more than a full read
+    /// (people open Clients seldom, maybe once a month), and past the look-back nothing of the old read is left anyway.
+    /// </summary>
+    public static readonly TimeSpan DigestMaxAge = TimeSpan.FromDays(ClientLookBackDays);
+
+    /// <summary>
+    /// The same, reading only what changed: with <paramref name="previous"/> (the group's tickets as last read, at most
+    /// <see cref="DigestMaxAge"/> old) only the tickets updated since then (minus 10 minutes: search lags a little) are
+    /// read, usually 1 request instead of several pages, merged in, and those older than the look-back dropped. New
+    /// tickets and reassignments are updates, so they come along. Returns the new digest for next time.
+    /// <paramref name="known"/>: clients' names and products as last loaded, so only new clients are looked up (Reload
+    /// passes none: everything fresh).
+    /// </summary>
+    public async Task<(List<(long Id, string Name, int Tickets, List<string> Products, List<ClientHandler> Handlers)> Clients, GroupDigest Digest)>
+        GetGroupClientsAsync(long groupId, GroupDigest? previous, IReadOnlyDictionary<long, (string Name, List<string> Products)>? known, CancellationToken ct)
+    {
+        known ??= new Dictionary<long, (string, List<string>)>();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var (digest, read, incremental) = await ReadGroupDigestAsync(groupId, previous, ct);
+        var tickets = digest.Tickets;
+        var readAt = digest.ReadAt;
+        var exported = clock.Elapsed;
         var counts = tickets.GroupBy(t => t.OrganizationId ?? ClientChoice.NoClientId).ToDictionary(g => g.Key, g => g.Count());
+        // Per client: assignee -> tickets (the current assignee; unassigned ones don't count).
+        var assigned = tickets.Where(t => t.AssigneeId is not null).GroupBy(t => t.OrganizationId ?? ClientChoice.NoClientId)
+            .ToDictionary(g => g.Key, g => g.GroupBy(t => t.AssigneeId!.Value).ToDictionary(a => a.Key, a => a.Count()));
+        var assignees = assigned.Values.SelectMany(a => a.Keys).Distinct().ToList();
+        var agentsFrom = clock.Elapsed;
+        await PrefetchUsersAsync(assignees, ct);
+        var names = new Dictionary<long, string>();
+        foreach (var id in assignees)
+            names[id] = await GetUserNameAsync(id, ct); // cached by now
+        var agentsTime = clock.Elapsed - agentsFrom;
 
         // Names in batches of 100 (show_many); cached with the ones notifications use.
-        var unknown = counts.Keys.Where(id => id != ClientChoice.NoClientId && !_organizations.ContainsKey(id)).ToList();
+        var unknown = counts.Keys.Where(id => id != ClientChoice.NoClientId && !_organizations.ContainsKey(id) && !known.ContainsKey(id)).ToList();
+        var namesFrom = clock.Elapsed;
         foreach (var chunk in unknown.Chunk(100))
         {
             try
@@ -445,14 +550,33 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
                 Log.Error("Could not read organization names", ex);
             }
         }
+        // Where the time goes (a big group takes ~40 s): the export pages, the client names, the agents' names.
+        Log.Info($"Clients of group {groupId}: {tickets.Count} tickets, " +
+                 (incremental ? $"{read} updated since {previous!.ReadAt.ToLocalTime():g} read" : $"all read in {Math.Max(1, (read + 999) / 1000)} export page(s)") +
+                 $" {exported.TotalSeconds:0.0} s · " +
+                 $"{counts.Count} clients, {unknown.Count} names looked up ({(unknown.Count + 99) / 100} request(s)) {(clock.Elapsed - namesFrom).TotalSeconds:0.0} s · " +
+                 $"{assignees.Count} agents {agentsTime.TotalSeconds:0.0} s · total {clock.Elapsed.TotalSeconds:0.0} s");
 
-        return counts
+        var clients = counts
             .Select(kv => (Id: kv.Key, Name: kv.Key == ClientChoice.NoClientId ? ClientChoice.NoClientName
-                : _organizations.GetValueOrDefault(kv.Key)?.Name is { Length: > 0 } name ? name : $"Organization {kv.Key}", Tickets: kv.Value,
-                Products: _organizations.GetValueOrDefault(kv.Key)?.Products ?? []))
+                : _organizations.GetValueOrDefault(kv.Key)?.Name is { Length: > 0 } name ? name
+                : known.TryGetValue(kv.Key, out var was) && was.Name.Length > 0 ? was.Name : $"Organization {kv.Key}", Tickets: kv.Value,
+                Products: _organizations.GetValueOrDefault(kv.Key)?.Products ?? (known.TryGetValue(kv.Key, out var had) ? had.Products : []),
+                Handlers: assigned.GetValueOrDefault(kv.Key) is { } by
+                    ? by.Select(a => new ClientHandler(a.Key, names[a.Key], a.Value)).OrderByDescending(h => h.Tickets)
+                        .ThenBy(h => h.Name, StringComparer.CurrentCultureIgnoreCase).ToList()
+                    : []))
             .OrderByDescending(c => c.Tickets).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+        return (clients, new GroupDigest(readAt, tickets));
     }
+
+    /// <summary>
+    /// A client's tickets in a group created in the last <see cref="ClientLookBackDays"/> days, any status (search
+    /// export, 1,000 per request): who handled them, for "handled 12 of their tickets" in Take it ▾.
+    /// </summary>
+    public Task<List<Ticket>> GetClientTicketsInGroupAsync(long groupId, long organizationId, CancellationToken ct) =>
+        ExportTicketsAsync($"group:{groupId} organization:{organizationId} created>{DateTime.UtcNow.AddDays(-ClientLookBackDays):yyyy-MM-dd}", ct);
 
     /// <summary>A group's tickets created in the last <paramref name="days"/> days, any status (up to 500, newest first).</summary>
     public Task<List<Ticket>> GetRecentGroupTicketsAsync(long groupId, int days, CancellationToken ct)
@@ -613,11 +737,9 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             // Zendesk said it's busy (here or in another request): nothing is sent until its wait time is over.
             if (PausedUntil - DateTimeOffset.UtcNow is { Ticks: > 0 } pause)
                 await Task.Delay(pause, ct);
+            await WaitForLocalLimitAsync(caller, ct); // also notes this request in the last minute's
             Interlocked.Increment(ref _requestCount);
             Interlocked.Increment(ref _requestTotal);
-            lock (RecentRequests)
-                RecentRequests.Enqueue(DateTimeOffset.UtcNow);
-            RequestsInLastMinute(); // drops the older ones
             RequestsByPurpose.AddOrUpdate(caller, 1, (_, n) => n + 1);
             RequestsByReason.AddOrUpdate(Reason.Value ?? "other", 1, (_, n) => n + 1);
             var waited = System.Diagnostics.Stopwatch.StartNew();
@@ -644,6 +766,16 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
                          $"{RequestsInLastMinute()} requests in the last minute · {response.LimitInfo ?? "no limit headers"} · {Truncate(response.Body, 200)}");
                 PauseUntil(DateTimeOffset.UtcNow + wait);
                 continue; // waits at the top of the loop, like every other request
+            }
+
+            // Zendesk's own hiccup ("503 Database timeout" deep in a big export, 502/504): a read is tried again after
+            // 3 s, then 6 s, instead of failing the whole list. Changes (assigning) are never repeated.
+            if (method is null && response.Status is 502 or 503 or 504 && attempt < MaxServerErrorRetries)
+            {
+                var wait = TimeSpan.FromSeconds(3 * (attempt + 1));
+                Log.Info($"Zendesk had a hiccup ({response.Status}, {caller}): trying again in {wait.TotalSeconds:0} s · {Truncate(response.Body, 120)}");
+                await Task.Delay(wait, ct);
+                continue;
             }
 
             if (!response.IsSuccess)

@@ -66,6 +66,9 @@ public sealed class TrayIcon : IDisposable
     /// <param name="iconHint">Only in the icon's tooltip, e.g. "click this icon to sign in" (in the menu it would be confusing).</param>
     public void SetStatus(string text, TrayState? state = null, string? iconHint = null) => _ui.Post(_ =>
     {
+        // The app is quitting: a check that just finished mustn't touch the removed icon (it crashed the exit).
+        if (_disposed)
+            return;
         _statusItem.Text = text;
         var tooltip = iconHint is null ? $"Zendesk Watcher\n{text}" : $"Zendesk Watcher\n{text} \u2013 {iconHint}";
         _tray.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
@@ -107,8 +110,12 @@ public sealed class TrayIcon : IDisposable
         _tray.Icon = frames[_pulseFrame];
     }
 
+    /// <summary>Removed (the app is quitting).</summary>
+    private volatile bool _disposed;
+
     public void Dispose()
     {
+        _disposed = true;
         _pulseTimer.Dispose();
         _pulseDelay.Dispose();
         _pinTimer.Dispose();

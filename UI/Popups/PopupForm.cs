@@ -213,7 +213,9 @@ public sealed class PopupForm : Form
     /// <param name="scale">Screen DPI scale.</param>
     /// <param name="size">The user's notification size (1 = 100%): text, buttons and spacing grow together.</param>
     /// <param name="decoration">A badge column and heading prefix ("Achievement unlocked"); null for none.</param>
-    internal PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f, PopupDecoration? decoration = null)
+    /// <param name="fontRatio">Text size on a monitor whose scaling isn't the main one's (<see cref="NotificationScreen.FontRatio"/>).</param>
+    internal PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f, PopupDecoration? decoration = null,
+        float fontRatio = 1f)
     {
         _content = content;
         _decoration = decoration;
@@ -223,7 +225,9 @@ public sealed class PopupForm : Form
         _accent = palette.Accent(content.Priority, content.Kind);
 
         var family = FontExists(palette.FontFamily) ? palette.FontFamily : (palette.Terminal ? "Consolas" : "Segoe UI");
-        // Font sizes are in points (Windows applies the DPI); only the user's size is added here.
+        // Font sizes are in points (Windows applies the main monitor's DPI); the user's size and, on a monitor with
+        // another scaling, the difference are added here.
+        size *= fontRatio;
         _headingFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
         _titleFont = new Font(family, (palette.FontSize + (palette.Terminal ? 0.5f : 1.5f)) * size, FontStyle.Bold);
         _bodyFont = new Font(family, palette.FontSize * size);
@@ -249,6 +253,12 @@ public sealed class PopupForm : Form
     }
 
     // ------------------------------------------------------------------ window behaviour
+
+    /// <summary>
+    /// Drawn for its monitor's scaling from the start: sliding in across the edge from a monitor with another scaling
+    /// mustn't let Windows resize it halfway.
+    /// </summary>
+    protected override void OnDpiChanged(DpiChangedEventArgs e) => e.Cancel = true;
 
     protected override bool ShowWithoutActivation => true;
 
@@ -552,7 +562,7 @@ public sealed class PopupForm : Form
     /// </summary>
     private void ClipToScreen(Point location)
     {
-        var area = WorkArea(Screen.PrimaryScreen ?? Screen.AllScreens[0]); // not over the taskbar
+        var area = WorkArea(NotificationScreen.Current); // not over the taskbar
         var visible = Rectangle.Intersect(new Rectangle(location, Size), area);
         visible.Offset(-location.X, -location.Y);
         if (visible == _clip)
@@ -1140,14 +1150,8 @@ public sealed class PopupForm : Form
             Dismiss(Result.Dismiss);
         else if (_muteRect.Contains(e.Location))
         {
-            var menu = ClientMenu.Build(_content.MuteTarget!, choice =>
-            {
-                ClientChosen?.Invoke(this, choice);
-                Dismiss(Result.Dismiss);
-            });
-            _menuOpen = true;
-            menu.Closed += (_, _) => { _menuOpen = false; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
-            menu.Show(this, new Point(_muteRect.Left, _muteRect.Bottom));
+            if (!JustClosed(_clientMenuClosedAt)) // a second click on Options closes its menu, not reopens it
+                OpenClientMenu();
         }
         else if (_copyIdRect.Contains(e.Location) && _content.TicketId is { } ticketId)
         {
@@ -1172,7 +1176,10 @@ public sealed class PopupForm : Form
         else if (_takenNote is null && _snoozeRect.Contains(e.Location))
             Dismiss(SecondButton);
         else if (_takenNote is null && !_whoRect.IsEmpty && _whoRect.Contains(e.Location))
-            ShowWhoMenu();
+        {
+            if (!JustClosed(_whoMenuClosedAt)) // a second click on ▾ closes its menu, not reopens it
+                ShowWhoMenu();
+        }
         else if (_takenNote is null && HasExtraButton && _takeRect.Contains(e.Location))
             Dismiss(Result.Take);
         else
@@ -1183,6 +1190,29 @@ public sealed class PopupForm : Form
         }
     }
 
+    /// <summary>When the Options or ▾ menu last closed (Environment.TickCount64).</summary>
+    private long _clientMenuClosedAt, _whoMenuClosedAt;
+
+    /// <summary>
+    /// The menu closed a moment ago: the click on its button closed it (a click outside a menu closes it before the
+    /// button sees the click), so the button mustn't open it again.
+    /// </summary>
+    private static bool JustClosed(long closedAt) => Environment.TickCount64 - closedAt < 250;
+
+    /// <summary>Options ▾ on the client line: the client's menu (mute, important, only urgent, sound).</summary>
+    internal void OpenClientMenu()
+    {
+        var menu = ClientMenu.Build(_content.MuteTarget!, choice =>
+        {
+            ClientChosen?.Invoke(this, choice);
+            Dismiss(Result.Dismiss);
+        }, ownTicket: _content.Kind == NotificationKind.MyTicket);
+        _menuOpen = true;
+        menu.Closed += (_, _) => { _menuOpen = false; _clientMenuClosedAt = Environment.TickCount64; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
+        menu.Show(this, new Point(_muteRect.Left, _muteRect.Bottom));
+        NotificationScreen.KeepOnScreen(menu, this); // never on the other monitor
+    }
+
     /// <summary>
     /// Who could take it: the menu under the ▾ (the countdown waits while it's open). A colleague picked and confirmed:
     /// the notification closes and the app assigns the ticket to them (counted like Take it).
@@ -1191,7 +1221,7 @@ public sealed class PopupForm : Form
     {
         var ticketId = _content.TicketId!.Value;
         // In the lower half of the screen it opens upwards (it grows when the colleagues are in), else downwards.
-        var screen = WorkArea(Screen.FromControl(this));
+        var screen = WorkArea(NotificationScreen.Current);
         var up = PointToScreen(new Point(0, _whoRect.Bottom)).Y > screen.Top + screen.Height / 2;
         ContextMenuStrip? menu = null;
         menu = AssignMenu.Build(ticketId, _content.IsSample, candidate =>
@@ -1205,10 +1235,14 @@ public sealed class PopupForm : Form
             ClickedLink = new RichText.Link(NotificationActions.Assign(candidate.UserId, candidate.Name), ticketId);
             Dismiss(Result.Take);
         }, () => Open(menu!));
-        void Open(ContextMenuStrip m) => m.Show(this, up ? new Point(_whoRect.Right, _whoRect.Top) : new Point(_whoRect.Right, _whoRect.Bottom),
-            up ? ToolStripDropDownDirection.AboveLeft : ToolStripDropDownDirection.BelowLeft);
+        void Open(ContextMenuStrip m)
+        {
+            m.Show(this, up ? new Point(_whoRect.Right, _whoRect.Top) : new Point(_whoRect.Right, _whoRect.Bottom),
+                up ? ToolStripDropDownDirection.AboveLeft : ToolStripDropDownDirection.BelowLeft);
+            NotificationScreen.KeepOnScreen(m, this); // also when it grows with the colleagues: never on the other monitor
+        }
         _menuOpen = true;
-        menu.Closed += (_, _) => { _menuOpen = false; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
+        menu.Closed += (_, _) => { _menuOpen = false; _whoMenuClosedAt = Environment.TickCount64; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
         Open(menu);
     }
 

@@ -23,6 +23,15 @@ public sealed class Group
     public string Name { get; set; } = "";
 }
 
+/// <summary>What the Clients page keeps of a ticket (no content): enough to count clients and who handles them.</summary>
+public sealed record TicketDigest(long Id, long? OrganizationId, long? AssigneeId, DateTimeOffset CreatedAt);
+
+/// <summary>A group's tickets of the last 90 days as last read, and when: the next read only asks what changed since.</summary>
+public sealed record GroupDigest(DateTimeOffset ReadAt, List<TicketDigest> Tickets);
+
+/// <summary>An agent with a client's tickets in a group (assigned to them now), for "Usually: Maria S. 12" on the Clients page.</summary>
+public sealed record ClientHandler(long Id, string Name, int Tickets);
+
 public sealed class Ticket
 {
     public long Id { get; set; }

@@ -3,6 +3,21 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.0
+
+- **Notifications on the monitor you're working on**: with two or more monitors, notifications (and the pill, ticker and glow) appear where your mouse is, not always on the main monitor. The ones that follow join them there, so a stack never splits. They're drawn sharp and the right size for each monitor's own scaling, and their menus (Options ▾, ▾ next to Take it) stay on the same monitor.
+- **"Who could take it" says who knows the client**: each suggestion under ▾ next to Take it adds "handled 12 of their tickets" when that colleague has the client's tickets in the group (last 90 days). It counts in the order too: knowing the client is worth up to 3 open tickets, so someone who knows it comes first unless they're clearly busier, and is never skipped for being a bit busier.
+- **Who usually handles a client**: point at a client's name on the Clients page (under Groups) and its card says who their tickets in that group are assigned to, most first, and you: "Usually: Maria S. 12 · Alex K. 5 · you 3". Handy for a ticket from a client you don't know: you can see who to ask. The client list loads once more after the update (about 40 s for a busy group), then in seconds.
+- **Clients you've worked with**: the Clients page can show only the clients you've had a ticket from in the last 90 days, or only the others (All · Worked with · Not worked with), and yours show "you 6" after their name. Handy for setting up: show "Not worked with", untick the group, tick back the few to keep.
+- **Clients page loads in seconds and is up to date**: after the first time, only the tickets that changed since the last load are read (a busy group took ~40 s, now usually one quick request), each time you open the page (if 15 minutes have passed), so new clients from today's tickets are there. The list shows at once while it updates. Reload still reads everything.
+- **Options ▾ on your own tickets' notifications**: make a client Important from a "Ticket updated" notification too. Muting isn't offered there: your own tickets always notify.
+- **"Who could take it" suggests people who work the group** (▾ next to Take it): only colleagues with unsolved tickets in the ticket's group are offered, so a Tier 2 ticket suggests Tier 2 agents, not members who work elsewhere or managers.
+- **Quicker the second time**: the suggestions' workloads are remembered for 15 minutes (until someone assigns a ticket), so opening ▾ again reads almost nothing from Zendesk.
+- **A safety limit on requests**: the app never sends more than 60 requests to Zendesk in a minute (normal is 3-4). If a bug ever made it run away, it slows down instead of using the team's shared Zendesk budget.
+- **Fewer empty client lists**: when Zendesk has a hiccup ("database timeout") while the Clients page loads a big group, the app tries again after a few seconds instead of giving up, and a group is loaded only once at a time.
+- **"Working late?" once a day**: it no longer comes again after the app restarts or updates the same evening.
+- **A second click closes the menu**: clicking Options ▾ or the ▾ next to Take it again closes its menu instead of opening it once more.
+
 ## 1.8.24
 
 - **Fairer "Who could take it"** (▾ next to Take it): someone's open tickets now count in every group, not just the ticket's. Before, a busy colleague with nothing in that group showed as "nothing open".

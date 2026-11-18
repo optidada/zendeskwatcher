@@ -33,11 +33,14 @@ internal sealed class HowItWorksPage : SettingsPage
                 "no group and no assignee.",
                 "If a colleague took it first, you're told who has it. If someone takes it (or it's solved) while the notification " +
                 "is still up, it says so (“Taken by Anna”, “Solved”) for a few seconds and closes, within a few minutes.",
-                "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people in the ticket's group who are " +
-                "in their working hours and did something in Zendesk in the last 3 hours, least busy first. Busy counts their open " +
-                "tickets in all groups, not just this one; “waiting” is pending, on-hold, escalated and scheduled. People with no " +
-                "unsolved tickets at all (managers, say) aren't suggested. You're asked before " +
-                "it's assigned.",
+                "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people who work the ticket's group " +
+                "(they have unsolved tickets in it; members who work elsewhere, or managers, aren't suggested), are in their " +
+                "working hours and did something in Zendesk in the last 3 hours, least busy first. Busy counts their tickets in " +
+                "all groups; “waiting” is pending, on-hold, escalated and scheduled. “Handled 12 of their tickets”: the client's " +
+                "tickets in that group in the last 90 days assigned to them now. It counts in the order: each one makes them " +
+                "half an open ticket less busy, up to 3 open tickets, so someone who knows the client comes first unless " +
+                "they're clearly busier. " +
+                "You're asked before it's assigned.",
                 "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
                 "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
                 "the others stay quiet and aren't counted. If one is raised while still unassigned, it comes then as “Priority " +
@@ -53,7 +56,8 @@ internal sealed class HowItWorksPage : SettingsPage
             "your monitored groups, new ones too. Mute the clients you don't handle, and make sure you never miss the important ones.",
             "On the [[Groups → Clients|Clients]] page, untick a client (or a whole group) to mute it, or use Options ▾ for more. " +
             "Options ▾ on a group's row sets it for all its clients at once, and Options ▾ on a notification's client line " +
-            "does the same for one client.",
+            "does the same for one client. On your own and CC'd tickets it only offers Normal and Important: those always " +
+            "notify, so muting and Only urgent don't apply there.",
             [
                 "Important ★: always notifies, also outside your hours and for priorities you left out, and stays until you close it.",
                 "Only urgent: notifies just for Urgent (P1) and High (P2).",
@@ -62,7 +66,11 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Muting and “only urgent” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
                 "whatever the client.",
                 "The list comes from the last 90 days of tickets in your monitored groups.",
-                "Point at a client's name to see its card: its tickets in the last 90 days and its products, as the client's " +
+                "All · Worked with · Not worked with shows only the clients you've had a ticket from in that group in the " +
+                "last 90 days (“you 6” after the name), or only the others. It only changes what's shown: a group's tick " +
+                "box and Options ▾ then apply to those, e.g. Not worked with, untick the group, tick back the few to keep.",
+                "Point at a client's name to see its card: its tickets in the last 90 days, who usually handles them (the people " +
+                "they're assigned to now, most first, and you), and its products, as the client's " +
                 "Products field in Zendesk lists them. The filter finds " +
                 "products too, and says which one matched. That field is often out of date, and bundled products aren't listed, " +
                 "so a client missing from the results may still have the product."
@@ -123,6 +131,8 @@ internal sealed class HowItWorksPage : SettingsPage
             [
                 "Styles: a list, Peek (waits as a tab at the screen edge), a pill at the top center that sums them up, a ticker " +
                 "along the screen edge, or Achievement (one at a time, with a short tune).",
+                "With more than one monitor, notifications appear on the one you're working on (where the mouse is). The " +
+                "ones that follow join them there until all are gone; then the next ones again go where the mouse is.",
                 "Glow at the screen edge: urgent tickets, SLAs breached or due within 15 minutes and important clients make the " +
                 "screen edges pulse briefly, so you notice them even when you look away.",
                 "A sound per kind of notification, and a volume for all of them (this app only).",

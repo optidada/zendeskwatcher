@@ -36,6 +36,9 @@ public sealed class WatchState
     /// <summary>When Catch up last ran (local time), so it runs by itself once per working day.</summary>
     public DateTime LastCatchUp { get; set; }
 
+    /// <summary>The local date "Working late?" was last shown: once a day, also across restarts and updates.</summary>
+    public DateTime WorkingLateNoticeShown { get; set; }
+
     /// <summary>The baseline hit the size of a CC'd/followed list (30): older open ones may be missing from the count.</summary>
     public bool CcBaselineFull { get; set; }
 

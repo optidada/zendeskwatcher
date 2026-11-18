@@ -42,7 +42,7 @@ input for 10 minutes), with one check right away when they're back. Fixed; not c
 | Only when a snoozed notification is due | 1 ticket lookup, to check it still needs attention (e.g. still unassigned), plus 1 audit request to see whether it was answered since |
 | Only for notifications that waited long (15 min, e.g. while the agent was away) | 1 ticket lookup (`show_many`, up to 100 at once), plus 1 audit request per notification about a ticket change (comments only for colleagues' tickets) |
 | Catch up (when the app starts, when the working day starts, and on request) | 1 `show_many` for the agent's own and CC'd tickets, 1 search per covered group, the activity lookup above once per colleague, then 1 comments request per ticket updated since the agent last worked (own and CC'd tickets, and colleagues' tickets only when that colleague is away), 1 per own Escalated ticket; up to 3 at a time. Comments instead of the full history: who wrote what is all Catch up needs (measured: about 5 s instead of 7 for the same result). Unassigned tickets come from the check that just ran; when there are more than 3, they're only counted, not looked up one by one |
-| Only when the agent opens "Who could take it" (▾ next to Take it) | 1 ticket lookup, the group's members and 1 search export for its assigned open tickets (up to 1,000 per request; shared with Insights and reused for 5 minutes), and the activity lookup above for up to 8 colleagues (least busy first, remembered 15 minutes), plus 1 search export per active one for their unsolved tickets in all groups |
+| Only when the agent opens "Who could take it" (▾ next to Take it) | 1 ticket lookup, the group's members and 1 search export for its assigned open tickets (up to 1,000 per request; shared with Insights and reused for 15 minutes), and the activity lookup above for up to 8 colleagues (least busy first, remembered 15 minutes), plus 1 search export per active one for their unsolved tickets in all groups (reused for 15 minutes), and 1 search export for the client's tickets in the group in the last 90 days, for "handled 12 of their tickets" (reused for 24 hours; up to 7 days it's used at once while read again in the background) |
 | Once at start | the custom ticket statuses (`/api/v2/custom_statuses.json`), to show them by name |
 | Experimental features (off by default) | when switched on: 90 days of tickets per monitored group (1 search, up to 5 pages each), every 6 hours |
 
@@ -50,11 +50,15 @@ input for 10 minutes), with one check right away when they're back. Fixed; not c
 averages, November 2026): about **3 requests per minute** while working, fewer while away; more for a moment while
 the agent has the Settings window or Insights open or runs Catch up. Fewer groups and default settings mean fewer. A check takes a few seconds. Also: user names and organizations are cached for the session. The lists the
 Settings window shows (the group list, the agent's group memberships and open tickets for group suggestions, the
-members of the covered groups, and the clients of the monitored groups from 90 days of tickets, read with search export: up to 1,000 per request) are loaded when needed
+members of the covered groups, and the clients of the monitored groups from 90 days of tickets, read with search export: up to 1,000 per request,
+with the names of the agents those tickets are assigned to: from the 7-day user cache, unknown ones 100 per request; after the first
+read only the tickets updated since the last one are asked for, usually 1 request, and only new clients' names are looked up) are loaded when needed
 and reused for 24 hours. Insights → Team workload reads the members and open tickets of the chosen monitored group (or all of them), at most
 every 10 minutes while that page is open: 1 members request and 1 search export per group (Zendesk's export endpoint
 for bigger result sets: up to 1,000 tickets per request instead of 100), plus the custom statuses; a group read for "Who could take it" in the last 5 minutes isn't read again. The update check is once a day (GitHub, not Zendesk). Zendesk rate limits are respected:
-on HTTP 429 the whole app pauses (every request, not just the limited one) for the time `Retry-After` asks. The app
+on HTTP 429 the whole app pauses (every request, not just the limited one) for the time `Retry-After` asks. It also
+limits itself, without needing Zendesk's headers: at most 60 requests in any minute per app (normal use is 3-4); a
+request over that waits until the minute rolls on, it isn't dropped. The app
 logs its own request count every 10 minutes. All its requests are small, read-only reads, apart from the assign on an
 explicit click. Planned with the move to an OAuth client: pausing as soon as more than half of the account's
 per-minute limit is in use (from Zendesk's rate-limit headers, which the current browser-session requests don't get).
@@ -71,7 +75,7 @@ per-minute limit is in use (from Zendesk's rate-limit headers, which the current
 - **Stored on disk** (only in the agent's Windows profile, `%LOCALAPPDATA%`):
   - settings (subdomain, chosen groups, preferences), with a backup copy of the previous version,
   - ticket IDs, status and timestamps already seen (no subjects or other ticket content),
-  - the lists the Settings window shows (groups, group members, clients: names only), reused for 24 hours,
+  - the lists the Settings window shows (groups, group members, clients: names, and per client the agents its tickets are assigned to with a count), reused for 24 hours (clients: updated with what changed when Settings opens after 15 minutes; per ticket of the last 90 days only its number, client, assignee and creation date),
   - a log with ticket IDs and subjects, names and change types, but never comment text,
   - the embedded browser profile with the login cookies. API responses are not cached (`no-store`), and the cache
     is cleared at every start.

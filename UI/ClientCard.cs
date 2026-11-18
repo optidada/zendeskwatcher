@@ -4,7 +4,7 @@ namespace ZendeskWatcher.UI;
 
 /// <summary>
 /// A client's card on the Clients page, shown while pointing at the client's name: the name, its tickets in the last
-/// 90 days, and the products Zendesk lists as wrapped chips (the ones matching the filter highlighted), with a word on
+/// 90 days, who usually handles them, and the products Zendesk lists as wrapped chips (the ones matching the filter highlighted), with a word on
 /// how reliable that list is. Opens beside the name (right, or left when there's no room), never over it; never takes
 /// the focus. Only what the list already loaded: no extra requests.
 /// </summary>
@@ -14,6 +14,7 @@ internal sealed class ClientCard : Form
 
     private string _name = "";
     private string? _tickets;
+    private string? _usually;
     private List<string> _products = [];
     private HashSet<string> _matched = [];
 
@@ -41,9 +42,11 @@ internal sealed class ClientCard : Form
     }
 
     /// <summary>Shows the card for a client beside <paramref name="name"/> (the name's rectangle on screen).</summary>
-    public void ShowFor(Form owner, Rectangle name, string client, int tickets, int lookBackDays, IReadOnlyList<string>? products, IEnumerable<string> matched)
+    public void ShowFor(Form owner, Rectangle name, string client, int tickets, int lookBackDays, IReadOnlyList<string>? products, IEnumerable<string> matched,
+        string? usually = null)
     {
         _name = client;
+        _usually = usually;
         _tickets = tickets > 0 ? $"{tickets} ticket{(tickets == 1 ? "" : "s")} in the last {lookBackDays} days" : null;
         _products = [.. (products ?? []).Where(p => p.Trim().Length > 0).Select(p => p.Trim()).Distinct().Order(StringComparer.CurrentCultureIgnoreCase)];
         _matched = matched.ToHashSet(StringComparer.CurrentCultureIgnoreCase);
@@ -93,6 +96,14 @@ internal sealed class ClientCard : Form
             if (g is not null)
                 TextRenderer.DrawText(g, _tickets, Theme.Small, new Rectangle(left, y, width, small), Theme.TextMuted, Line);
             y += small;
+        }
+        if (_usually is not null)
+        {
+            y += P(2);
+            var usuallyHeight = TextRenderer.MeasureText(_usually, Theme.Small, new Size(width, 0), Wrapped).Height;
+            if (g is not null)
+                TextRenderer.DrawText(g, _usually, Theme.Small, new Rectangle(left, y, width, usuallyHeight), Theme.Text, Wrapped);
+            y += usuallyHeight;
         }
 
         y += P(10);

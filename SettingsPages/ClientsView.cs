@@ -1,3 +1,4 @@
+using ZendeskWatcher.Tracking;
 using ZendeskWatcher.UI;
 using ZendeskWatcher.Zendesk;
 
@@ -13,7 +14,26 @@ internal sealed class ClientsView
 {
     /// <summary>A group's clients: id, name, tickets in the last 90 days.</summary>
     /// <param name="Products">From the client's "Products" field in Zendesk; often out of date (a hint, never a rule).</param>
-    internal sealed record Client(long Id, string Name, int Tickets, List<string>? Products = null);
+    /// <param name="Handlers">Who the client's tickets in the group are assigned to, most first (none in older caches).</param>
+    internal sealed record Client(long Id, string Name, int Tickets, List<string>? Products = null, List<ClientHandler>? Handlers = null);
+
+    /// <summary>
+    /// "Usually: Maria S. 12 · Alex K. 5 · you 3": the top 3 assignees of the client's tickets, and you (as "you") even when
+    /// you're not among them. Null when no ticket is assigned.
+    /// </summary>
+    internal static string? UsuallyLine(IReadOnlyList<ClientHandler>? handlers, long? me)
+    {
+        if (handlers is not { Count: > 0 })
+            return null;
+        var top = handlers.Take(3).ToList();
+        if (me is { } id && !top.Any(h => h.Id == id) && handlers.FirstOrDefault(h => h.Id == id) is { } mine)
+            top.Add(mine);
+        var shortNames = TeamWorkload.ShortNames(top.Where(h => h.Id != me).Select(h => h.Name));
+        return "Usually: " + string.Join(" · ", top.Select(h => $"{(h.Id == me ? "you" : shortNames[h.Name])} {h.Tickets}"));
+    }
+
+    /// <summary>The signed-in agent (for "you" on the client card); null when unknown.</summary>
+    public long? MeId { get; set; }
 
     /// <summary>A client matches the filter by its name or one of its products.</summary>
     internal static bool Matches(Client client, string filter) =>
@@ -27,6 +47,8 @@ internal sealed class ClientsView
     private static string TipFor(Client c)
     {
         var tip = c.Tickets > 0 ? $"{c.Name} · {c.Tickets} ticket{(c.Tickets == 1 ? "" : "s")} in the last {ZendeskClient.ClientLookBackDays} days" : c.Name;
+        if (UsuallyLine(c.Handlers, null) is { } usually)
+            tip += $"\n{usually}";
         if (c.Products is { Count: > 0 } products)
             tip += $"\nProducts in Zendesk: {string.Join(" · ", products)}\n(may be out of date; bundled products aren't listed)";
         return tip;
@@ -189,7 +211,7 @@ internal sealed class ClientsView
                 MutedUntil = Same(c => (c.IsMuted, c.MutedUntil)) ? first!.MutedUntil : null,
                 Sound = Same(c => c.Sound) ? first!.Sound : null
             };
-            ClientMenu.Build(all, chosen =>
+            var menu = ClientMenu.Build(all, chosen =>
             {
                 var modeChanged = chosen.Mode != all.Mode || chosen.IsMuted != all.IsMuted || chosen.MutedUntil != all.MutedUntil;
                 var soundChanged = chosen.Sound != all.Sound;
@@ -204,8 +226,8 @@ internal sealed class ClientsView
                 _list.Invalidate();
                 UpdateHint();
                 Changed?.Invoke();
-            }, AppearancePage.SoundOptions.Where(o => o.Value != ToastSound.Silent).Select(o => (o.Value, o.Label)).Prepend((ToastSound.Silent, "Silent")).ToList())
-            .Show(at);
+            }, AppearancePage.SoundOptions.Where(o => o.Value != ToastSound.Silent).Select(o => (o.Value, o.Label)).Prepend((ToastSound.Silent, "Silent")).ToList());
+            menu.Show(at);
         };
         Host.Controls.Add(_message);
         Host.Controls.Add(_scrollBar);
@@ -226,6 +248,7 @@ internal sealed class ClientsView
         var text = group.People.Count == 1 ? "1 client" : $"{group.People.Count} clients";
         return text + (muted > 0 ? $" · {muted} muted" : "") + (customized > 0 ? $" · {customized} customized" : "");
     }
+
 
     private ClientMode ModeOf(long id) => _choices.GetValueOrDefault(id)?.ModeAt(DateTimeOffset.UtcNow) ?? ClientMode.Normal;
 
@@ -262,6 +285,20 @@ internal sealed class ClientsView
         return text.Length == 0 ? null : (text, choice.ModeAt(now) == ClientMode.Important);
     }
 
+    /// <summary>
+    /// After the name: "you 6" when I've had their tickets in the group (90 days), and the product that matched the
+    /// filter when the name didn't.
+    /// </summary>
+    private string? NoteFor(Client c)
+    {
+        var parts = new List<string>();
+        if (MeId is { } me && c.Handlers?.FirstOrDefault(h => h.Id == me) is { } mine)
+            parts.Add($"you {mine.Tickets}");
+        if (!c.Name.Contains(_filter, StringComparison.CurrentCultureIgnoreCase) && MatchedProducts(c, _filter) is { Count: > 0 } why)
+            parts.Add(string.Join(", ", why));
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+
     /// <summary>The group a client is shown under first (for showing an unticked one there before the list loads).</summary>
     private long GroupOf(long clientId) =>
         _shown.FirstOrDefault(s => s.Clients.Any(c => c.Id == clientId)).Group?.Id ?? 0;
@@ -275,7 +312,7 @@ internal sealed class ClientsView
             return;
         _card ??= new ClientCard();
         _card.ShowFor(window, at.Name, at.Client.Name, at.Client.Tickets, ZendeskClient.ClientLookBackDays, at.Client.Products,
-            MatchedProducts(at.Client, _filter));
+            MatchedProducts(at.Client, _filter), UsuallyLine(at.Client.Handlers, MeId));
     }
 
     private void ScrollTo(int position)
@@ -307,11 +344,13 @@ internal sealed class ClientsView
         UpdateHint();
     }
 
-    public void Apply(Settings settings) =>
+    public void Apply(Settings settings)
+    {
         settings.Clients = _choices.Values
             .Where(c => !c.IsDefaultAt(DateTimeOffset.UtcNow))
             .Select(c => c.Copy())
             .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
+    }
 
     /// <summary>Sorts the list into its sections again (after Save or Discard), scrolled to the top.</summary>
     public void Resort()
@@ -368,20 +407,39 @@ internal sealed class ClientsView
         _cache = null;
         _old = ("", []);
         ListCache.Clear(CacheName);
+        _digests = null; // Reload reads everything again, not just what changed
+        ClientHistory.Clear();
     }
 
-    private const string CacheName = "clients-products"; // renamed when products came: older cached lists have none
+    private const string CacheName = "clients-handlers"; // renamed when products, then assignees came: older cached lists have none
 
-    /// <summary>Groups whose clients are being fetched right now (a second request joins the first).</summary>
-    private static readonly Dictionary<(long Group, ZendeskClient Client), Task<List<Client>?>> Loading = [];
+    /// <summary>
+    /// Groups whose clients are being fetched right now, per Zendesk account (a second request joins the first, also
+    /// from a new connection after Save: a big group takes ~40 s, and loading it twice made it slower still).
+    /// </summary>
+    private static readonly Dictionary<(long Group, string Subdomain), Task<List<Client>?>> Loading = [];
 
-    /// <summary>A group's clients from Zendesk; null when they couldn't be loaded.</summary>
-    private static Task<List<Client>?> LoadGroupAsync(long groupId, ZendeskClient client)
+
+    /// <summary>Opened again after this, the list reads what changed (new clients from today's tickets come in).</summary>
+    private static readonly TimeSpan RefreshAfter = TimeSpan.FromMinutes(15);
+
+    /// <summary>Each group's tickets as last read (per account), so the next load only reads what changed.</summary>
+    private static (string Subdomain, Dictionary<long, GroupDigest> Groups)? _digests;
+
+    private static Dictionary<long, GroupDigest> DigestsFor(string subdomain)
     {
-        if (Loading.TryGetValue((groupId, client), out var running))
+        if (_digests is not { } d || d.Subdomain != subdomain)
+            _digests = (subdomain, ClientHistory.Load(subdomain)); // shared with "Only clients I've worked with"
+        return _digests.Value.Groups;
+    }
+
+    /// <summary>A group's clients from Zendesk (only what changed since the last read); null when they couldn't be loaded.</summary>
+    private static Task<List<Client>?> LoadGroupAsync(long groupId, ZendeskClient client, string subdomain)
+    {
+        if (Loading.TryGetValue((groupId, subdomain), out var running))
             return running;
         var task = Fetch();
-        Loading[(groupId, client)] = task;
+        Loading[(groupId, subdomain)] = task;
         return task;
 
         async Task<List<Client>?> Fetch()
@@ -389,8 +447,23 @@ internal sealed class ClientsView
             await Task.Yield(); // registered in Loading before it can finish
             try
             {
-                return (await client.GetGroupClientsAsync(groupId, CancellationToken.None))
-                    .Select(c => new Client(c.Id, c.Name, c.Tickets, c.Products)).ToList();
+                var digests = DigestsFor(subdomain);
+                // Names and products as last loaded (this group's list, fresh or older): only new clients are looked up.
+                var known = new Dictionary<long, (string Name, List<string> Products)>();
+                void Remember(Dictionary<long, List<Client>> groups)
+                {
+                    if (groups.TryGetValue(groupId, out var was))
+                        foreach (var c in was)
+                            known.TryAdd(c.Id, (c.Name, c.Products ?? []));
+                }
+                if (_cache is { } fresh && fresh.Subdomain == subdomain)
+                    Remember(fresh.Groups);
+                if (_old.Subdomain == subdomain)
+                    Remember(_old.Groups);
+                var (clients, digest) = await client.GetGroupClientsAsync(groupId, digests.GetValueOrDefault(groupId), known, CancellationToken.None);
+                digests[groupId] = digest;
+                ClientHistory.Save(subdomain, digests);
+                return clients.Select(c => new Client(c.Id, c.Name, c.Tickets, c.Products, c.Handlers)).ToList();
             }
             catch (Exception ex)
             {
@@ -400,7 +473,7 @@ internal sealed class ClientsView
             }
             finally
             {
-                Loading.Remove((groupId, client));
+                Loading.Remove((groupId, subdomain));
             }
         }
     }
@@ -423,10 +496,11 @@ internal sealed class ClientsView
         {
             if (_cache is null && ListCache.Load<Dictionary<long, List<Client>>>(CacheName, subdomain, anyAge: true) is { } saved)
                 _cache = (subdomain, saved.At, saved.Value); // from an earlier run
-            // Over a day old: shown while the clients load again, and kept for a group that fails to load.
+            // Over 15 minutes old: shown at once while what changed is read (usually one quick request), and kept for a
+            // group that fails to load. Only when the page is opened: people come here seldom.
             if (_old.Subdomain != subdomain)
                 _old = (subdomain, []);
-            var expired = _cache is { } aged && aged.Subdomain == subdomain && DateTime.UtcNow - aged.At > GroupsPage.CacheLifetime;
+            var expired = _cache is { } aged && aged.Subdomain == subdomain && DateTime.UtcNow - aged.At > RefreshAfter;
             if (expired)
                 _old = (subdomain, _cache!.Value.Groups);
             if (_cache is not { } cache || cache.Subdomain != subdomain || expired)
@@ -447,7 +521,7 @@ internal sealed class ClientsView
                 SetHint("Loading…");
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 // All groups at once (the app sends a few requests side by side).
-                var results = await Task.WhenAll(missing.Select(async group => (group.Id, Clients: await LoadGroupAsync(group.Id, client))));
+                var results = await Task.WhenAll(missing.Select(async group => (group.Id, Clients: await LoadGroupAsync(group.Id, client, subdomain))));
                 foreach (var (id, clients) in results)
                 {
                     if (clients is not null)
@@ -489,6 +563,32 @@ internal sealed class ClientsView
         if (text == _filter)
             return;
         _filter = text;
+        Refilter();
+    }
+
+    /// <summary>Which clients show: all, the ones I've worked with, or the others (a view only: nothing is muted by it).</summary>
+    public enum Worked { All, Mine, NotMine }
+
+    private Worked _worked;
+
+    /// <summary>
+    /// Shows all clients, only the ones I've had a ticket from in the group (90 days), or only the others. Like the name
+    /// filter it only changes what's shown, so a group's tick box and Options ▾ then apply to those: e.g. "Not worked
+    /// with", untick the group, tick back the few to keep.
+    /// </summary>
+    public void FilterWorked(Worked worked)
+    {
+        if (worked == _worked)
+            return;
+        _worked = worked;
+        Refilter();
+    }
+
+    /// <summary>The client passes the worked-with filter (in the group it's listed under).</summary>
+    private bool ShowsWorked(Client c) => _worked == Worked.All || (MeId is { } me && c.Handlers?.Any(h => h.Id == me) == true) == (_worked == Worked.Mine);
+
+    private void Refilter()
+    {
         _list.ForgetFilteredFolds();
         if (_lastGroups.Count > 0)
             Arrange(_lastGroups, _inView);
@@ -505,15 +605,12 @@ internal sealed class ClientsView
             foreach (var c in clients.Where(c => _choices.ContainsKey(c.Id) && c.Tickets > 0))
                 _choices[c.Id].Name = c.Name; // keep the stored name current
 
-        var visible = Layout(_shown, _choices.Values.ToList(), _filter);
+        var visible = Layout(_shown, _choices.Values.ToList(), _filter, ShowsWorked);
         _clientById = visible.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToDictionary(c => c.Id);
         HideCard();
-        _list.Filtering = _filter.Length > 0;
+        _list.Filtering = _filter.Length > 0 || _worked != Worked.All;
         _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
-            s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, TipFor(c),
-                // Matched by a product, not the name: that product after the name says why it's in the list.
-                Note: !c.Name.Contains(_filter, StringComparison.CurrentCultureIgnoreCase) && MatchedProducts(c, _filter) is { Count: > 0 } why
-                    ? string.Join(", ", why) : null)).ToList(),
+            s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, TipFor(c), Note: NoteFor(c))).ToList(),
             StartOpen: s.Changed)).ToList()); // groups with muted or customized clients start open
         if (!keepScroll)
             _scroll = 0;
@@ -521,6 +618,8 @@ internal sealed class ClientsView
 
         if (groups.Count == 0)
             ShowMessage("Tick groups on the Groups page first: their clients show here.");
+        else if (visible.Count == 0 && _worked != Worked.All && _filter.Length == 0 && _shown.Any(s => s.Clients.Count > 0))
+            ShowMessage(_worked == Worked.Mine ? "You haven't had tickets from these groups' clients in the last 90 days." : "You've worked with all of them.");
         else if (visible.Count == 0 && _filter.Length > 0 && _shown.Any(s => s.Clients.Count > 0))
             ShowMessage($"No client matches \"{_filter}\".");
         else if (visible.Count == 0)
@@ -537,14 +636,14 @@ internal sealed class ClientsView
     /// contains it (and groups with any).
     /// </summary>
     internal static List<(string Title, List<Client> Clients, bool Changed)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
-        IReadOnlyList<ClientChoice> choices, string filter = "")
+        IReadOnlyList<ClientChoice> choices, string filter = "", Func<Client, bool>? shows = null)
     {
         var now = DateTimeOffset.UtcNow;
         var byId = choices.ToDictionary(c => c.Id);
         bool Changed(Client c) => byId.GetValueOrDefault(c.Id) is { } choice && !choice.IsDefaultAt(now);
         return sections
-            .Select(s => (s.Group, Clients: filter.Length == 0 ? s.Clients
-                : s.Clients.Where(c => Matches(c, filter)).ToList()))
+            .Select(s => (s.Group, Clients: filter.Length == 0 && shows is null ? s.Clients
+                : s.Clients.Where(c => Matches(c, filter) && (shows?.Invoke(c) ?? true)).ToList()))
             .Where(s => s.Clients.Count > 0)
             .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed)))
             .ToList();

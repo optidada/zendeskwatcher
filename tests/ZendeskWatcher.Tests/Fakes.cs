@@ -22,6 +22,7 @@ internal static class TestSetup
         Directory.CreateDirectory(dir);
         Environment.SetEnvironmentVariable(AppPaths.DataDirVariable, dir);
         ZendeskWatcher.Tracking.TicketWatcher.TestMode = true; // no minute's wait before the ticket history is read
+        ZendeskClient.LocalLimit = int.MaxValue; // tests send hundreds of requests a second to the fake Zendesk
     }
 
     /// <summary>
@@ -249,8 +250,14 @@ internal sealed partial class FakeZendesk : IZendeskSession
             var since = DateTimeOffset.Parse(created.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
             return Tickets.Values.Where(t => t.AssigneeId is not null && t.CreatedAt > since && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
         }
-        if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets
-            return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))).ToList();
+        if (UpdatedQuery().Match(query) is { Success: true } updated && match.Success && !query.Contains("assignee")) // Clients: what changed since the last read
+        {
+            var since = DateTimeOffset.Parse(updated.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            return Tickets.Values.Where(t => t.GroupId == long.Parse(match.Groups[1].Value) && t.UpdatedAt > since).ToList();
+        }
+        if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets (Take it ▾: one client's)
+            return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))
+                && (OrganizationQuery().Match(query) is not { Success: true } org || t.OrganizationId == long.Parse(org.Groups[1].Value))).ToList();
         if (query.Contains("-assignee:none") && match.Success) // Help colleagues: assigned tickets before solved, in a group
             return Tickets.Values.Where(t => t.AssigneeId is not null && t.IsOpen && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
         if (!match.Success || !query.Contains("assignee:none"))
@@ -274,6 +281,12 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     [GeneratedRegex(@"group:(\d+|none)")]
     private static partial Regex GroupQuery();
+
+    [GeneratedRegex(@"organization:(\d+)")]
+    private static partial Regex OrganizationQuery();
+
+    [GeneratedRegex(@"updated>([^\s&]+)")]
+    private static partial Regex UpdatedQuery();
 
     [GeneratedRegex(@"(?<!-)assignee:(\d+)")]
     private static partial Regex AssigneeQuery();

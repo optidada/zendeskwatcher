@@ -71,6 +71,21 @@ public class TicketChangeTests
     }
 
     [Fact]
+    public async Task My_tickets_client_has_Options_too_for_important()
+    {
+        _zendesk.Organizations[70] = "Contoso";
+        var ticket = _zendesk.AddAssigned(501, "normal", subject: "Search slow");
+        (ticket.OrganizationId, ticket.GroupId) = (70, 33); // a group I don't monitor
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(501, Customer, "Any news?");
+        await watcher.PollAsync(CancellationToken.None);
+
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal((70L, "Contoso", 33L), (shown.MuteTarget!.Id, shown.MuteTarget.Name, shown.MuteTarget.GroupId)); // its menu offers only Important
+    }
+
+    [Fact]
     public async Task Organization_is_the_client_and_the_requester_isnt_repeated()
     {
         _zendesk.Organizations[900] = "Acme Corp";

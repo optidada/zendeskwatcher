@@ -61,7 +61,7 @@ internal sealed class EdgeGlow : NativeWindow, IDisposable
     }
 
     /// <summary>
-    /// Pulses the glow once on the primary screen (where notifications appear); ignored while one is running or just
+    /// Pulses the glow once on the monitor notifications appear on (<see cref="NotificationScreen"/>); ignored while one is running or just
     /// after one (a burst of notifications glows once, not again and again).
     /// </summary>
     public static void Flash(Color color, Action? done = null)
@@ -73,7 +73,7 @@ internal sealed class EdgeGlow : NativeWindow, IDisposable
         }
         try
         {
-            _current = new EdgeGlow(color, Screen.PrimaryScreen ?? Screen.AllScreens[0], done);
+            _current = new EdgeGlow(color, NotificationScreen.Current, done);
         }
         catch (Exception ex)
         {
@@ -110,10 +110,7 @@ internal sealed class EdgeGlow : NativeWindow, IDisposable
         });
         try
         {
-            float scale;
-            using (var g = Graphics.FromHwnd(IntPtr.Zero))
-                scale = g.DpiX / 96f;
-            Draw(color, bounds, scale);
+            Draw(color, bounds, NotificationScreen.ScaleOf(screen)); // that monitor's own scaling
         }
         catch
         {
