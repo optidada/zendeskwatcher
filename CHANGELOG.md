@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.2
+
+- **How it works explains what's on a notification**: a new topic, "On a notification", right after Notifications, covers Take it, who could take it instead, "Taken by Anna", the copy icons and Options ▾ on the client line. Groups now just covers which tickets you hear about, and Summaries comes right after.
+
 ## 1.9.1
 
 - **"Working late?" sounds like an app message**: it uses the App messages sound and time on screen (Look & sound), not the one for your tickets.

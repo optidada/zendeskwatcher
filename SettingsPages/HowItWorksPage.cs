@@ -11,7 +11,7 @@ internal sealed class HowItWorksPage : SettingsPage
     /// <summary>A topic: what it's for (a short paragraph), where to change it, and the details as bullets.</summary>
     private sealed record Topic(string Title, string Purpose, string? Change, string[] Details);
 
-    /// <summary>One topic per Settings page, in the sidebar's order and with its name; then what spans several pages.</summary>
+    /// <summary>One topic per Settings page, in the sidebar's order and with its name (what a notification shows and summaries right after Notifications); then what spans several pages.</summary>
     private static readonly Topic[] Topics =
     [
         new("Account",
@@ -25,22 +25,11 @@ internal sealed class HowItWorksPage : SettingsPage
             ]),
         new("Groups",
             "This is where you choose which Zendesk groups you watch for new work. When a ticket lands in one of them and " +
-            "nobody has taken it yet, a notification shows who it's from, what they wrote, and when the first reply is due. " +
-            "Take it assigns it to you and opens it.",
+            "nobody has taken it yet, you get a notification ([[what's on it|How it works/On a notification]]).",
             "Tick groups on the Groups page. Your own tickets notify you in any group.",
             [
                 "Suggested groups are the ones you're a member of, or where your open tickets are. “(No group)” means tickets with " +
                 "no group and no assignee.",
-                "If a colleague took it first, you're told who has it. If someone takes it (or it's solved) while the notification " +
-                "is still up, it says so (“Taken by Anna”, “Solved”) for a few seconds and closes, within a few minutes.",
-                "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people who work the ticket's group " +
-                "(they have unsolved tickets in it; members who work elsewhere, or managers, aren't suggested), are in their " +
-                "working hours and did something in Zendesk in the last 3 hours, least busy first. Busy counts their tickets in " +
-                "all groups; “waiting” is pending, on-hold, escalated and scheduled. “Handled 12 of their tickets”: the client's " +
-                "tickets in that group in the last 90 days assigned to them now. It counts in the order: each one makes them " +
-                "half an open ticket less busy, up to 3 open tickets, so someone who knows the client comes first unless " +
-                "they're clearly busier. " +
-                "You're asked before it's assigned.",
                 "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
                 "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
                 "the others stay quiet and aren't counted. If one is raised while still unassigned, it comes then as “Priority " +
@@ -48,7 +37,6 @@ internal sealed class HowItWorksPage : SettingsPage
                 "The app checks every few minutes, so a ticket someone takes in between is never seen unassigned. With “Also when " +
                 "someone took it before I saw it” (Notifications → New tickets), those with the priorities you pick come anyway, as " +
                 "“Already taken”, saying who took it and how fast. Off by default; useful for leads who don't want to miss a P1.",
-                "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
                 "No group ticked yet: nothing comes, and Catch up reminds you each time the app starts."
             ]),
         new("Clients",
@@ -92,6 +80,34 @@ internal sealed class HowItWorksPage : SettingsPage
                 "notifications outside them are skipped and Catch up shows what still needs you. With “Also outside them, while " +
                 "I'm active in Zendesk”, they come as long as you changed or commented on a ticket in the last 30 minutes. " +
                 "Important clients always come."
+            ]),
+        new("On a notification",
+            "A ticket notification shows who it's from, what they wrote, and when the next reply is due, with buttons to act " +
+            "on it right away.",
+            null,
+            [
+                "Take it (new tickets) assigns the ticket to you and opens it. If a colleague took it first, you're told who has it.",
+                "The ▾ next to Take it suggests up to 3 colleagues who could take it instead: people who work the ticket's group " +
+                "(they have unsolved tickets in it; members who work elsewhere, or managers, aren't suggested), are in their " +
+                "working hours and did something in Zendesk in the last 3 hours, least busy first. Busy counts their tickets in " +
+                "all groups; “waiting” is pending, on-hold, escalated and scheduled. “Handled 12 of their tickets”: the client's " +
+                "tickets in that group in the last 90 days assigned to them now. It counts in the order: each one makes them " +
+                "half an open ticket less busy, up to 3 open tickets, so someone who knows the client comes first unless " +
+                "they're clearly busier. You're asked before it's assigned.",
+                "If someone takes it (or it's solved) while the notification is still up, it says so (“Taken by Anna”, “Solved”) " +
+                "for a few seconds and closes, within a few minutes.",
+                "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
+                "The two copy icons at the top copy the ticket (title, link, details) or just its number. " +
+                "[[Snooze|Behavior/Snooze]] brings it back later.",
+                "Options ▾ on the client line sets that client's choice ([[see Clients|How it works/Clients]])."
+            ]),
+        new("Summaries",
+            "When a lot happens at once, you get one notification with a list instead of a flood.",
+            null,
+            [
+                "While you were away: instead of more than 5 notifications that waited.",
+                "More than 5 new tickets in a group at once: one notification instead of one each.",
+                "Group added: when you start monitoring a group, the unassigned tickets already waiting there."
             ]),
         new("Colleagues",
             "Makes sure clients aren't left waiting when a colleague is off. If a client writes on a colleague's ticket while " +
@@ -208,14 +224,6 @@ internal sealed class HowItWorksPage : SettingsPage
                 "and In progress tickets, most urgent first, then the nearest SLA, then the longest untouched. Click a number to " +
                 "open it; with more, “+N more” opens all of them in Zendesk.",
                 "Up to 5 waiting clients and up to 3 unassigned tickets also come one by one: once a working day, or when you ask."
-            ]),
-        new("Summaries",
-            "When a lot happens at once, you get one notification with a list instead of a flood.",
-            null,
-            [
-                "While you were away: instead of more than 5 notifications that waited.",
-                "More than 5 new tickets in a group at once: one notification instead of one each.",
-                "Group added: when you start monitoring a group, the unassigned tickets already waiting there."
             ]),
         new("Priority levels",
             "What each priority means, as a reminder when the priority a client chose doesn't match the case.",
