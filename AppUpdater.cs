@@ -108,6 +108,48 @@ public sealed class AppUpdater
         }
     }
 
+    /// <summary>
+    /// At app start, before anything shows: a newer version found and downloaded within <paramref name="limit"/> is
+    /// installed right away (the app exits and the new version starts and says what's new). Any failure, a slow
+    /// connection (no network yet right after logon) or a version that already failed to install once: carry on with
+    /// this version; the usual check a couple of minutes later still offers it.
+    /// </summary>
+    /// <summary>The check at start answered "no newer version": the next scheduled check can wait a day.</summary>
+    public static bool UpToDateAtStart { get; private set; }
+
+    public void UpdateOnStart(TimeSpan limit)
+    {
+        if (!IsInstalled)
+            return;
+        try
+        {
+            var cts = new CancellationTokenSource(limit); // not disposed: a download that ran late may still read it
+            var check = Task.Run(() => CheckAndDownloadAsync(cts.Token));
+            if (!check.Wait(limit))
+                return;
+            if (!check.Result)
+            {
+                UpToDateAtStart = true;
+                return;
+            }
+            if (PendingVersion is not { } version)
+                return;
+            var tried = Path.Combine(AppPaths.DataDir, "update-tried.txt");
+            if (File.Exists(tried) && File.ReadAllText(tried).Trim() == version)
+            {
+                Log.Info($"Update {version} at start: it didn't install last time, so it waits for \"Restart to update\"");
+                return;
+            }
+            File.WriteAllText(tried, version);
+            Log.Info($"Installing update {version} at start");
+            ApplyAndRestart();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Update at start failed", ex is AggregateException { InnerException: { } inner } ? inner : ex);
+        }
+    }
+
     /// <summary>Exits, installs the pending update and starts the new version.</summary>
     public void ApplyAndRestart()
     {

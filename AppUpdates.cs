@@ -1,7 +1,8 @@
 namespace ZendeskWatcher;
 
 /// <summary>
-/// Update checks for the installed app: a couple of minutes after start, then daily, and on request. A downloaded
+/// Update checks for the installed app while it runs (the one at start: <see cref="AppUpdater.UpdateOnStart"/>):
+/// daily, a couple of minutes after start when that one couldn't answer, and on request. A downloaded
 /// update is announced once and installed by "Restart to update". Runs on the UI thread.
 /// </summary>
 public sealed class AppUpdates : IDisposable
@@ -32,8 +33,9 @@ public sealed class AppUpdates : IDisposable
         if (!_updater.IsInstalled)
             return;
 
-        // Once a couple of minutes after start, then once a day ("Check for updates" works any time).
-        _timer.Interval = 120_000;
+        // Once a day ("Check for updates" works any time). The check at start usually answered already; when it
+        // couldn't (no network yet right after logon, or an update that didn't install), a couple of minutes later.
+        _timer.Interval = AppUpdater.UpToDateAtStart ? (int)TimeSpan.FromHours(24).TotalMilliseconds : 120_000;
         _timer.Tick += async (_, _) =>
         {
             _timer.Interval = (int)TimeSpan.FromHours(24).TotalMilliseconds;

@@ -3,6 +3,12 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.8.23
+
+- **Updates install by themselves**: when the app starts, a new version installs in a few seconds and then says what's new. "Restart to update" is only needed for a version that comes out while the app runs.
+- **No "already running" after logon**: Windows starts its startup apps one by one, sometimes minutes after logon. If you've opened Zendesk Watcher yourself by then, the late start now ends quietly.
+- **Fewer update checks**: once at start and once a day, instead of an extra check two minutes after start.
+
 ## 1.8.22
 
 - **New sounds: Americana and Nature**: dark americana pieces (banjo road, slide guitar, hollow fingerpicking) and nature sounds (a quiet stream, wind chimes, a distant bird). Softer than the retro sounds. Choose them on Look & sound.

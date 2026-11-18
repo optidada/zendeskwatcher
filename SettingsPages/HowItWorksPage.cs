@@ -153,7 +153,7 @@ internal sealed class HowItWorksPage : SettingsPage
             "Keeps the app up to date, and lets you tell its makers what you think.",
             "On the [[Updates & feedback|Updates & feedback]] page.",
             [
-                "New versions download automatically and install when you restart the app; “Update ready” says what's new.",
+                "New versions install by themselves when the app starts (a few seconds) and then say what's new. One that comes out while it runs downloads in the background; “Update ready” offers to restart now.",
                 "[[Send feedback|Updates & feedback/Feedback]] emails what you write from your own Outlook, with the log if you tick it: ticket numbers and " +
                 "subjects, never comments. Without classic Outlook, an email opens for you to send.",
                 "[[Reset to defaults|Updates & feedback/Reset]] puts all settings back, except your account, groups and clients. Nothing changes until you save."
