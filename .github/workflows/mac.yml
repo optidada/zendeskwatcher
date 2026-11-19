@@ -65,12 +65,14 @@ jobs:
           name: ZendeskWatcher-mac
           path: ZendeskWatcher-mac.zip
 
-      # A fixed download link for testers: the "mac-preview" pre-release, replaced by every build of the mac branch.
-      # Installed Windows apps only look at full releases, so they never see it.
+      # A fixed download link for testers: the "mac-preview" pre-release in the public releases repo (so it works while
+      # this repo is private), replaced by every build of the mac branch. Installed Windows apps only look at full
+      # releases, so they never see it. RELEASES_TOKEN: Contents read/write on that repo only.
       - name: Publish the Mac preview
         if: github.ref == 'refs/heads/mac'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_REPO: optidada/zendeskwatcher-releases
         run: |
           {
             echo "**Test version for Mac, not a release.** Menu bar icon with the unassigned count, macOS notifications, groups in the menu."
@@ -80,5 +82,5 @@ jobs:
             echo "Then click the ticket icon in the menu bar: Zendesk account… → Sign in… → Groups to watch. Feedback: menu → Send feedback…"
           } > preview-notes.md
           gh release delete mac-preview --yes --cleanup-tag || true
-          gh release create mac-preview ZendeskWatcher-mac.zip --prerelease --target "$GITHUB_SHA" \
+          gh release create mac-preview ZendeskWatcher-mac.zip --prerelease \
             --title "Zendesk Watcher for Mac (test version, $(date -u +%Y-%m-%d))" --notes-file preview-notes.md

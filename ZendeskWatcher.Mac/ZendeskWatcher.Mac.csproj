@@ -15,7 +15,7 @@
     <AssemblyName>ZendeskWatcher</AssemblyName>
     <ApplicationTitle>Zendesk Watcher</ApplicationTitle>
     <ApplicationId>io.github.optidada.zendeskwatcher</ApplicationId>
-    <ApplicationDisplayVersion>1.8.1</ApplicationDisplayVersion>
+    <ApplicationDisplayVersion>1.9.4</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>12.0</SupportedOSPlatformVersion>
     <!-- One app for Apple silicon and Intel Macs. -->
