@@ -44,7 +44,7 @@ public sealed class SettingsForm : Form
         ("Account", false), ("Groups", false), ("Clients", true), ("Products", true), ("Notifications", false), ("Colleagues", true),
         ("Behavior", true), ("Look & sound", true), ("SLA", true), ("General", false), ("Updates & feedback", true), ("Insights", false), ("How it works", false), ("Experimental", false)
     ];
-    private const int GroupsIndex = 1, ClientsIndex = 2, NotificationsIndex = 4, HelpIndex = 5, SlaIndex = 8, GeneralIndex = 9;
+    private const int GroupsIndex = 1, ClientsIndex = 2, ProductsIndex = 3, NotificationsIndex = 4, HelpIndex = 5, SlaIndex = 8, GeneralIndex = 9;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
     private const int UpdatesIndex = GeneralIndex + 1;
@@ -117,6 +117,7 @@ public sealed class SettingsForm : Form
     [
         (0, null, "Sign in to Zendesk with your usual company login."),
         (1, null, "Tick the groups whose new tickets you want to hear about."),
+        (ProductsIndex, null, "Optional: pick your products. Skip to hear about all."),
         (NotificationsIndex, "Working hours", "Set your working hours: Catch up and quiet times go by them."),
         (HelpIndex, null, "Choose whose tickets you cover when colleagues are away."),
     ];
