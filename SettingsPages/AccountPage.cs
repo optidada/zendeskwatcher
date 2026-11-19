@@ -67,7 +67,7 @@ internal sealed class AccountPage : SettingsPage
 
         // Its own card, shown once signed in (it needs the app to be checking with this account).
         _catchUpCard = new Card("Catch up",
-            "What still needs you since you last worked: waiting customers, SLAs, unassigned tickets, and your tickets by status. " +
+            "What still needs you since you last worked: waiting clients, SLAs, unassigned tickets, and your tickets by status. " +
                 "It also comes when the app starts and when your day starts, and from the tray menu.", Kit.CardWidth);
         _catchUpCard.Body.Controls.Add(_catchUp);
         _catchUpCard.Visible = false;

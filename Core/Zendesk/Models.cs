@@ -9,6 +9,9 @@ public sealed class User
     public string? Email { get; set; }
     public string? Role { get; set; }
 
+    /// <summary>The user's Zendesk tags, e.g. "serviceaccountuser" on an integration account.</summary>
+    public List<string> Tags { get; set; } = [];
+
     /// <summary>Time zone as set on the profile, e.g. "Europe/Stockholm" (IANA) and "Stockholm" (Zendesk name).</summary>
     public string? IanaTimeZone { get; set; }
     public string? TimeZone { get; set; }
@@ -19,6 +22,15 @@ public sealed class Group
     public long Id { get; set; }
     public string Name { get; set; } = "";
 }
+
+/// <summary>What the Clients page keeps of a ticket (no content): enough to count clients and who handles them.</summary>
+public sealed record TicketDigest(long Id, long? OrganizationId, long? AssigneeId, DateTimeOffset CreatedAt);
+
+/// <summary>A group's tickets of the last 90 days as last read, and when: the next read only asks what changed since.</summary>
+public sealed record GroupDigest(DateTimeOffset ReadAt, List<TicketDigest> Tickets);
+
+/// <summary>An agent with a client's tickets in a group (assigned to them now), for "Usually: Maria S. 12" on the Clients page.</summary>
+public sealed record ClientHandler(long Id, string Name, int Tickets);
 
 public sealed class Ticket
 {
@@ -33,6 +45,9 @@ public sealed class Ticket
 
     /// <summary>The ticket's custom status (e.g. "In progress", "Escalated"), when the account uses them.</summary>
     public long? CustomStatusId { get; set; }
+
+    /// <summary>The customer's first message (Zendesk sends it with the ticket); shown under a new ticket's name.</summary>
+    public string? Description { get; set; }
     public List<long> FollowerIds { get; set; } = [];
     public List<long> EmailCcIds { get; set; } = [];
     public List<long> CollaboratorIds { get; set; } = [];
@@ -64,6 +79,15 @@ public sealed class Audit
     public long AuthorId { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public List<AuditEvent> Events { get; set; } = [];
+
+    /// <summary>How the change was made: channel "rule" for a Zendesk trigger or automation.</summary>
+    public AuditVia? Via { get; set; }
+}
+
+public sealed class AuditVia
+{
+    public string? Channel { get; set; }
+    public JsonElement? Source { get; set; }
 }
 
 public sealed class AuditEvent
@@ -74,11 +98,37 @@ public sealed class AuditEvent
     public JsonElement? PreviousValue { get; set; }
     public bool? Public { get; set; }
 
+    /// <summary>Set on events a trigger added to someone's update (channel "rule").</summary>
+    public AuditVia? Via { get; set; }
+
     // Text for comments; some events (chat, calls) send an object here instead, which is ignored rather than failing the read.
     [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
     public string? PlainBody { get; set; }
     [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
     public string? Body { get; set; }
+}
+
+/// <summary>
+/// One message on a ticket (public reply or internal note), from the comments list: just who wrote what and when,
+/// without the status changes, trigger actions and metadata a full history (<see cref="Audit"/>) carries.
+/// </summary>
+public sealed class TicketComment
+{
+    public long Id { get; set; }
+    public string? Type { get; set; }
+    public long AuthorId { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public bool? Public { get; set; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
+    public string? PlainBody { get; set; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(TextOnlyConverter))]
+    public string? Body { get; set; }
+}
+
+internal sealed class CommentsResponse : PagedResponse
+{
+    public List<TicketComment> Comments { get; set; } = [];
+    public List<User>? Users { get; set; }
 }
 
 /// <summary>Reads a string; any other JSON value (object, array, number) becomes null instead of an error.</summary>
@@ -116,6 +166,15 @@ public sealed class Organization
     public long Id { get; set; }
     public string? Name { get; set; }
     public Dictionary<string, JsonElement>? OrganizationFields { get; set; }
+
+    /// <summary>
+    /// The products in the client's "Products" field (key <c>products</c>, names separated by commas), in its order. Often
+    /// out of date, and products that come in a bundle or platform aren't listed: a hint to look at, never a rule.
+    /// </summary>
+    public List<string> Products => ParseProducts(OrganizationFields?.GetValueOrDefault("products") is { ValueKind: JsonValueKind.String } v ? v.GetString() : null);
+
+    public static List<string> ParseProducts(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? [] : [.. text.Split([',', ';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct()];
 }
 
 /// <summary>One of the account's organization fields, e.g. "Plan" (a dropdown with options) or "SLA" (text).</summary>
@@ -145,7 +204,27 @@ internal sealed class GroupMembershipsResponse : PagedResponse { public List<Gro
 internal sealed class TicketResponse { public Ticket? Ticket { get; set; } }
 internal sealed class TicketsResponse : PagedResponse { public List<Ticket> Tickets { get; set; } = []; }
 internal sealed class SearchResponse : PagedResponse { public List<Ticket> Results { get; set; } = []; }
-internal sealed class AuditsResponse : PagedResponse { public List<Audit> Audits { get; set; } = []; }
+internal sealed class AuditsResponse : PagedResponse
+{
+    public List<Audit> Audits { get; set; } = [];
+
+    /// <summary>The audits' authors, sent along (include=users): no lookup of each one afterwards.</summary>
+    public List<User>? Users { get; set; }
+}
+
+/// <summary>Tickets with their metrics sideloaded (include=metric_sets); null when Zendesk didn't send them.</summary>
+internal sealed class TicketsWithMetricsResponse : PagedResponse
+{
+    public List<Ticket> Tickets { get; set; } = [];
+    public List<TicketMetricSet>? MetricSets { get; set; }
+}
+
+/// <summary>A ticket's metrics: here only when its assignee last changed or commented on it.</summary>
+public sealed class TicketMetricSet
+{
+    public long TicketId { get; set; }
+    public DateTimeOffset? AssigneeUpdatedAt { get; set; }
+}
 
 /// <summary>Zendesk uses either offset paging (next_page) or cursor paging (meta.has_more + links.next).</summary>
 internal abstract class PagedResponse

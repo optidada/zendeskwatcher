@@ -11,6 +11,12 @@ public sealed class WatchState
     /// <summary>Unassigned ticket id -> the last time it was seen in a group's unassigned list.</summary>
     public Dictionary<long, DateTimeOffset> SeenUnassigned { get; set; } = [];
 
+    /// <summary>Unassigned tickets kept quiet for a priority not chosen -> that priority, to notify once one is raised.</summary>
+    public Dictionary<long, string> QuietPriority { get; set; } = [];
+
+    /// <summary>Tickets someone took before the app saw them unassigned, already looked at -> when (Notifications → New tickets).</summary>
+    public Dictionary<long, DateTimeOffset> TakenQuickly { get; set; } = [];
+
     /// <summary>Groups whose current unassigned tickets were recorded silently on their first poll.</summary>
     public HashSet<long> BaselinedGroups { get; set; } = [];
 
@@ -29,6 +35,9 @@ public sealed class WatchState
 
     /// <summary>When Catch up last ran (local time), so it runs by itself once per working day.</summary>
     public DateTime LastCatchUp { get; set; }
+
+    /// <summary>The local date "Working late?" was last shown: once a day, also across restarts and updates.</summary>
+    public DateTime WorkingLateNoticeShown { get; set; }
 
     /// <summary>The baseline hit the size of a CC'd/followed list (30): older open ones may be missing from the count.</summary>
     public bool CcBaselineFull { get; set; }
@@ -63,11 +72,27 @@ public sealed class WatchState
         return new WatchState();
     }
 
+    /// <summary>
+    /// Writes the state (via a temp file, so a crash never leaves half a file). Another program, e.g. a virus scanner, can
+    /// hold the file for a moment just after it was written: then it's tried again a few times, briefly.
+    /// </summary>
     public void Save()
     {
         var temp = AppPaths.StateFile + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(temp, AppPaths.StateFile, overwrite: true);
+        var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.WriteAllText(temp, json);
+                File.Move(temp, AppPaths.StateFile, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 5)
+            {
+                Thread.Sleep(50 * attempt); // 50, 100, 150, 200 ms
+            }
+        }
     }
 }
 

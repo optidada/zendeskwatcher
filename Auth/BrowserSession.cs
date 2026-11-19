@@ -104,6 +104,9 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     /// <summary>Points the session at a Zendesk account, e.g. https://yourcompany.zendesk.com.</summary>
     public void Configure(string baseUrl) => _baseUrl = baseUrl.TrimEnd('/');
 
+    /// <summary>Whether tickets keep the start of the customer's first message (Look &amp; sound → Show the comment text).</summary>
+    public bool KeepDescriptions { get; set; } = true;
+
     private string MeUrl => $"{_baseUrl}/api/v2/users/me.json";
 
     /// <summary>
@@ -145,16 +148,24 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
             _gate.Release();
         }
 
+        var browser = _web; // the one this request runs in
         try
         {
             return await FetchAsync(url, ct, method, jsonBody).WaitAsync(RequestTimeout, ct);
         }
         catch (TimeoutException)
         {
-            // The hidden browser stopped answering (e.g. stuck while waking up): start over with a fresh one.
-            Log.Error("Browser session: the hidden browser did not respond; restarting it");
+            // The hidden browser stopped answering (e.g. stuck while waking up): start over with a fresh one. Several
+            // requests time out together then: only the first restarts it, the others would throw the fresh one away.
             await _gate.WaitAsync(CancellationToken.None);
-            try { ResetBrowser(); }
+            try
+            {
+                if (ReferenceEquals(_web, browser))
+                {
+                    Log.Error("Browser session: the hidden browser did not respond; restarting it");
+                    ResetBrowser();
+                }
+            }
             finally { _gate.Release(); }
             throw new HttpRequestException("The embedded browser did not respond and was restarted.");
         }
@@ -318,12 +329,33 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         Log.Info("Browser session: cookies cleared");
     }
 
-    private Task EnsureInitializedAsync() => _initialization ??= InitializeAsync();
+    /// <summary>Starts the browser once; a start that failed (e.g. its folder still held by a closing copy) is tried again next time.</summary>
+    private async Task EnsureInitializedAsync()
+    {
+        var starting = _initialization ??= InitializeAsync();
+        try
+        {
+            await starting;
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(_initialization, starting))
+            {
+                _initialization = null;
+                Log.Error("Browser session: the hidden browser could not start; trying again with the next request", ex);
+            }
+            throw;
+        }
+    }
 
     private async Task InitializeAsync()
     {
         // As light as it can be: no GPU (the hidden page only runs fetch(), the sign-in renders fine in software), and
         // none of the browser's background work (component and safe-browsing updates, sync, extensions).
+        // Tried and left out (measured 2026-11-15, ~185 MB private for all browser processes): NetworkServiceInProcess2
+        // saves ~16 MB but the first request then hangs until its 60 s timeout; --in-process-gpu saves ~10 MB at most
+        // (the browser process grows), within the run-to-run noise; --js-flags=--lite-mode and disabling features
+        // (Translate, OptimizationHints, SpareRenderer…) changed nothing measurable.
         var options = new CoreWebView2EnvironmentOptions(
             "--disable-gpu --disable-background-networking --disable-component-update --disable-sync --disable-extensions");
         var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"), options);
@@ -422,7 +454,7 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
     }
 
     private bool IsOnZendesk() =>
-        Uri.TryCreate(_web.CoreWebView2.Source, UriKind.Absolute, out var current) &&
+        Uri.TryCreate(_web.CoreWebView2?.Source, UriKind.Absolute, out var current) && // null: restarted meanwhile, not started yet
         Uri.TryCreate(_baseUrl, UriKind.Absolute, out var expected) &&
         string.Equals(current.Host, expected.Host, StringComparison.OrdinalIgnoreCase);
 
@@ -479,15 +511,13 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         ct.ThrowIfCancellationRequested();
 
         // The response as an object (one copy of the text, not JSON inside JSON), trimmed to the fields the app reads.
-        var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.Script + "(body); " +
-                       "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body }; })";
+        var toResult = ".then(async r => { let body = await r.text(); if (r.ok) body = " + ResponseSlimming.ScriptFor(KeepDescriptions) + "(body); " +
+                       "return { status: r.status, retryAfter: r.headers.get('Retry-After'), body: body, " +
+                       // Refused: which limit (Zendesk's rate-limit headers), so the log can say.
+                       "limits: r.ok ? null : [...r.headers].filter(h => /rate-?limit/i.test(h[0])).map(h => h[0] + ': ' + h[1]).join('; ') }; })";
         var script = method is null
             ? $"fetch({JsonSerializer.Serialize(url)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" + toResult
-            : $"fetch({JsonSerializer.Serialize(MeUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
-              ".then(r => r.json()).then(me => " +
-              $"fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
-              "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': (me.user && me.user.authenticity_token) || '' }, " +
-              $"body: {JsonSerializer.Serialize(jsonBody ?? "")} }}))" + toResult;
+            : ChangeScript(MeUrl, url, method, jsonBody ?? "") + toResult;
 
         var parameters = JsonSerializer.Serialize(new { expression = script, awaitPromise = true, returnByValue = true });
         var resultJson = await _web.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", parameters);
@@ -508,7 +538,26 @@ public sealed class BrowserSession : IZendeskSession, IDisposable
         if (status == 200 && url.Contains("/api/v2/users/me.json", StringComparison.Ordinal) && !IsAgent(body))
             status = 401;
 
-        return new ApiResponse(status, body, retryAfter);
+        var limits = value.TryGetProperty("limits", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() : null;
+        return new ApiResponse(status, body, retryAfter, string.IsNullOrEmpty(limits) ? null : limits);
+    }
+
+    /// <summary>
+    /// The JavaScript for a change (PUT/POST), up to the response: it needs Zendesk's CSRF token, which users/me returns.
+    /// The token is kept in the page (window.__zwCsrf) after the first one, so Take it is one round trip, not two. A
+    /// reload (sign-in, recovery) forgets it; refused (401/403/422): a fresh token, and the change is tried once more.
+    /// </summary>
+    internal static string ChangeScript(string meUrl, string url, string method, string jsonBody)
+    {
+        var token = "(fresh => (!fresh && window.__zwCsrf) ? Promise.resolve(window.__zwCsrf) : " +
+                    $"fetch({JsonSerializer.Serialize(meUrl)}, {{ credentials: 'same-origin', cache: 'no-store', headers: {{ 'Accept': 'application/json' }} }})" +
+                    ".then(r => r.json()).then(me => (window.__zwCsrf = (me.user && me.user.authenticity_token) || ''))) ";
+        var change = $"(t => fetch({JsonSerializer.Serialize(url)}, {{ method: {JsonSerializer.Serialize(method)}, credentials: 'same-origin', cache: 'no-store', " +
+                     "headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': t }, " +
+                     $"body: {JsonSerializer.Serialize(jsonBody)} }})) ";
+        return $"(() => {{ const token = {token}; const change = {change}; " +
+               "return token(false).then(change).then(r => (r.status === 401 || r.status === 403 || r.status === 422) " +
+               "? token(true).then(change) : r); })()";
     }
 
     private static bool IsAgent(string meJson)

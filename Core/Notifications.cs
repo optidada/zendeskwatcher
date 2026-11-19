@@ -24,6 +24,10 @@ public interface INotificationSink
 {
     void Show(NotificationContent content);
     void ShowMissingGroups(IReadOnlyCollection<string> names);
+
+    /// <summary>A new ticket someone has taken meanwhile: its notification closes quietly (on screen or waiting).</summary>
+    /// <param name="note">What to say while it closes ("Taken by Anna", "Solved"); null: just close.</param>
+    void CloseTaken(long ticketId, string? note = null) { }
 }
 
 /// <summary>What a click on a notification does.</summary>
@@ -45,6 +49,11 @@ public static class NotificationActions
     public const string SearchPrefix = "search:";
 
     public static string Search(string query) => SearchPrefix + query;
+
+    /// <summary>Assigns the ticket to a colleague: "assign:", their user id, ":" and their name.</summary>
+    public const string AssignPrefix = "assign:";
+
+    public static string Assign(long userId, string name) => $"{AssignPrefix}{userId}:{name}";
 
     /// <summary>Opens a web page: "url:" and the address (e.g. the release notes).</summary>
     public const string UrlPrefix = "url:";

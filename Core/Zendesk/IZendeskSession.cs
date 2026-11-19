@@ -1,7 +1,8 @@
 namespace ZendeskWatcher.Zendesk;
 
 /// <summary>The raw result of an API request.</summary>
-public sealed record ApiResponse(int Status, string Body, TimeSpan? RetryAfter)
+/// <param name="LimitInfo">On a refused request: Zendesk's rate-limit headers ("x-rate-limit: 700; …"), for the log.</param>
+public sealed record ApiResponse(int Status, string Body, TimeSpan? RetryAfter, string? LimitInfo = null)
 {
     public bool IsSuccess => Status is >= 200 and < 300;
 }

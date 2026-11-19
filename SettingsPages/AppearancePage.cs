@@ -18,7 +18,11 @@ internal sealed class AppearancePage : SettingsPage
         new(ToastSound.SongBouncy, "Nostalgic – Bouncy"), new(ToastSound.SongGroove, "Nostalgic – Groove"),
         new(ToastSound.SongCelebration, "Nostalgic – Celebration"),
         new(ToastSound.SongQuest, "Nostalgic – Quest"), new(ToastSound.SongTurbo, "Nostalgic – Turbo"),
-        new(ToastSound.SongStarfield, "Nostalgic – Starfield")
+        new(ToastSound.SongStarfield, "Nostalgic – Starfield"),
+        new(ToastSound.AmericanaBanjoRoad, "Americana – Banjo road"), new(ToastSound.AmericanaSlide, "Americana – Slide"),
+        new(ToastSound.AmericanaHollow, "Americana – Hollow"),
+        new(ToastSound.NatureStream, "Nature – Stream"), new(ToastSound.NatureWindChimes, "Nature – Wind chimes"),
+        new(ToastSound.NatureBirdsong, "Nature – Birdsong")
     ];
 
     private readonly ThemeTile[] _themeTiles =
@@ -45,6 +49,10 @@ internal sealed class AppearancePage : SettingsPage
     private readonly ChoiceBox _ccSound = Kit.Combo(SoundOptions);
     private readonly ChoiceBox _summarySound = Kit.Combo(SoundOptions);
     private readonly ChoiceBox _appSound = Kit.Combo(SoundOptions);
+    /// <summary>The app's volume for all its sounds: segmented buttons above the list, so it doesn't look like one more kind of notification.</summary>
+    private readonly ChoicePills _volume = new("25%", "50%", "75%", "100%");
+    private static readonly int[] VolumeSteps = [25, 50, 75, 100];
+    private int SelectedVolume => VolumeSteps[Math.Clamp(_volume.SelectedIndex, 0, VolumeSteps.Length - 1)];
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
     private readonly ToggleSwitch _edgeGlow = new("Glow at the screen edge for Urgent, important clients and SLA breaches");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
@@ -52,6 +60,10 @@ internal sealed class AppearancePage : SettingsPage
     private readonly Button _testHelp = Theme.SecondaryButton("Colleague");
     private readonly Button _testBurst = Theme.SecondaryButton("Several");
     private readonly ToolTip _tips = new();
+
+    /// <summary>The ▶ buttons; the one whose sound plays shows ■ until it ends (checked while one plays).</summary>
+    private readonly List<PlayButton> _playButtons = [];
+    private readonly System.Windows.Forms.Timer _soundWatch = new() { Interval = 150 };
 
     public AppearancePage(SettingsContext context)
         : base(context, "Look & sound", "How notifications look and sound. Try it uses your choices, even before saving.")
@@ -91,6 +103,16 @@ internal sealed class AppearancePage : SettingsPage
         Panel.Controls.Add(style);
 
         var sound = new Card("Sound", "App messages are things like \"Update ready\" or \"Sign in again\".", Kit.CardWidth);
+        // Volume first, for all sounds (this app only, like its slider in Windows' Volume mixer); a line, then each kind's sound.
+        var volumeLabel = Theme.Label("Volume");
+        volumeLabel.Margin = new Padding(0, 0, 12, 0);
+        var volumeNote = Theme.Label("all sounds, this app only", Theme.Small, Theme.TextMuted);
+        volumeNote.Margin = new Padding(10, 0, 0, 0);
+        var volumeRow = Kit.Row(volumeLabel, _volume, volumeNote);
+        volumeRow.Margin = new Padding(0, 4, 0, 10);
+        sound.Body.Controls.Add(volumeRow);
+        var line = new Panel { Height = 1, Width = Kit.CardWidth - 44, BackColor = Theme.Border, Margin = new Padding(0, 0, 0, 8) };
+        sound.Body.Controls.Add(line);
         var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface };
         AddSoundRow(grid, 0, "New tickets", _newSound);
         AddSoundRow(grid, 1, "My tickets", _mySound);
@@ -124,6 +146,7 @@ internal sealed class AppearancePage : SettingsPage
             radio.CheckedChanged += (_, _) => { UpdateStyleOptions(); Changed(); };
         TrackChanges(_position, _stacking, _size, _newSound, _mySound, _ccSound, _helpSound,
             _summarySound, _appSound, _commentText);
+        _volume.SelectedIndexChanged += (_, _) => Changed();
     }
 
     public override bool IsSubPage => true; // under Notifications: how they look and sound
@@ -136,6 +159,8 @@ internal sealed class AppearancePage : SettingsPage
         Kit.Select(_ccSound, settings.CcTicketStyle.Sound);
         Kit.Select(_summarySound, settings.SummaryStyle.Sound);
         Kit.Select(_appSound, settings.AppMessageStyle.Sound);
+        // The nearest step (a value from an edited file, e.g. 60, shows as 50%).
+        _volume.SelectedIndex = Array.IndexOf(VolumeSteps, VolumeSteps.MinBy(v => Math.Abs(v - settings.SoundVolume)));
         _commentText.Checked = settings.ShowCommentText;
         _edgeGlow.Checked = settings.EdgeGlow;
         _likeApp.Checked = settings.NotificationsLikeApp;
@@ -189,6 +214,7 @@ internal sealed class AppearancePage : SettingsPage
         s.Position = Kit.Selected<PopupPosition>(_position);
         s.Stacking = Kit.Selected<PopupStacking>(_stacking);
         s.NotificationSize = Kit.Selected<int>(_size);
+        s.SoundVolume = SelectedVolume;
     }
 
     public override void OnShowing() => UpdateStyleOptions(); // the app theme may have changed on the General page
@@ -237,7 +263,33 @@ internal sealed class AppearancePage : SettingsPage
         var play = new PlayButton { Margin = new Padding(0, 3, 10, 3), Anchor = AnchorStyles.Left };
         play.MatchHeight(sound);
         _tips.SetToolTip(play, "Play this sound");
-        play.Click += (_, _) => PopupManager.PlaySound(Kit.Selected<ToastSound>(sound));
+        play.PlayingChanged += (_, _) => _tips.SetToolTip(play, play.Playing ? "Stop" : "Play this sound");
+        _playButtons.Add(play);
+        play.Click += (_, _) =>
+        {
+            var stop = play.Playing;
+            if (stop)
+                PopupManager.StopSound();
+            foreach (var other in _playButtons)
+                other.Playing = false;
+            if (stop)
+                return;
+            SoundVolume.Apply(SelectedVolume); // as chosen, also before saving
+            PopupManager.PlaySound(Kit.Selected<ToastSound>(sound));
+            play.Playing = PopupManager.IsSoundPlaying;
+            _soundWatch.Enabled = play.Playing;
+        };
+        if (_playButtons.Count == 1)
+            Panel.Disposed += (_, _) => _soundWatch.Dispose();
+        if (_playButtons.Count == 1)
+            _soundWatch.Tick += (_, _) =>
+            {
+                if (PopupManager.IsSoundPlaying)
+                    return;
+                foreach (var button in _playButtons)
+                    button.Playing = false;
+                _soundWatch.Stop();
+            };
 
         grid.Controls.Add(text, 0, row);
         grid.Controls.Add(sound, 1, row);

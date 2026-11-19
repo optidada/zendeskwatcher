@@ -14,7 +14,7 @@ internal sealed class GeneralPage : SettingsPage
         new(NotificationTheme.WindowsNative, "Native")
     ];
     private readonly ToggleSwitch _startup = new("Start Zendesk Watcher when I sign in to Windows");
-    private readonly ToggleSwitch _startSummary = new("Catch up when Zendesk Watcher starts");
+    private readonly ToggleSwitch _startSummary = new("Catch up when Zendesk Watcher starts (first time each day)");
     public GeneralPage(SettingsContext context, string version)
         : base(context, "General", $"Zendesk Watcher {version}, by {Author}.")
     {

@@ -5,7 +5,7 @@ namespace ZendeskWatcher.SettingsPages;
 
 /// <summary>
 /// Clients (under Groups): the clients of the monitored groups, all Normal by default. A click on a client sets
-/// Important, Only urgent, Mute (for a while) or its own sound; "Mute ▾" on a notification does the same.
+/// Important, Only urgent, Mute (for a while) or its own sound; "Options ▾" on a notification does the same.
 /// </summary>
 internal sealed class ClientsPage : SettingsPage
 {
@@ -13,23 +13,27 @@ internal sealed class ClientsPage : SettingsPage
 
     private readonly GroupsPage _groups;
     private readonly ClientsView _clients = new(ListWidth);
-    private readonly InputBox _filter = new(ListWidth, "Find a client…  (Enter: next)", searchIcon: true);
+    private readonly InputBox _filter = new(ListWidth, "Filter by client or product…", searchIcon: true);
+
+    /// <summary>Which clients show (a view, like the name filter): "worked with" = a ticket of mine in the group in 90 days.</summary>
+    private readonly ChoicePills _worked = new("All", "Worked with", "Not worked with") { Margin = new Padding(0, 8, 0, 0) };
     private readonly Label _hint = Theme.Label("", Theme.Small, Theme.TextMuted);
     private readonly Button _reload = Theme.SecondaryButton("Reload");
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
 
     public ClientsPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Click a name for more: important, only urgent, or its own sound.")
+        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Options: important, only urgent, its own sound or mute for a while.")
     {
         _groups = groups;
         var card = new Card("Clients of your monitored groups",
             $"Clients from the last {ZendeskClient.ClientLookBackDays} days of tickets. Muting never affects your own or " +
-                $"CC'd tickets. Important clients notify even outside your hours and for priorities you unticked, and stay until " +
+                $"CC'd tickets. Important clients notify even outside your hours and for priorities you left out, and stay until " +
                 $"closed.", Kit.CardWidth);
         _clients.Host.Size = new Size(ListWidth, 280);
         _clients.Host.Margin = new Padding(0, 10, 0, 10);
         _clients.Host.Visible = true;
         card.Body.Controls.Add(_filter);
+        card.Body.Controls.Add(_worked);
         card.Body.Controls.Add(_clients.Host);
 
         // Full card width, so the Reload button sits at the right edge.
@@ -53,14 +57,8 @@ internal sealed class ClientsPage : SettingsPage
         card.Body.Controls.Add(footer);
         Panel.Controls.Add(card);
 
-        _filter.TextChanged += (_, _) => Find(next: false);
-        _filter.Box.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter)
-                return;
-            e.SuppressKeyPress = true; // no beep
-            Find(next: true);
-        };
+        _filter.TextChanged += (_, _) => _clients.Filter(_filter.Text);
+        _worked.SelectedIndexChanged += (_, _) => _clients.FilterWorked((ClientsView.Worked)_worked.SelectedIndex);
         _clients.Changed += Changed;
         _clients.HintChanged += () =>
         {
@@ -86,7 +84,7 @@ internal sealed class ClientsPage : SettingsPage
             if (reload)
                 ClientsView.ClearCache();
             // Also while the page is hidden: signed in, the clients load in the background when they're missing or
-            // over a day old, so the page is ready when opened (nothing is requested while they're fresh).
+            // over 15 minutes old (only what changed: usually 1 request per group), so the page is ready when opened.
             if (Panel.Visible || Context.Client is not null)
                 Refresh();
         };
@@ -112,6 +110,15 @@ internal sealed class ClientsPage : SettingsPage
     /// <summary>Monitored groups may have changed on the Groups page; the list fills the window, only it scrolls.</summary>
     public override void OnShowing()
     {
+        FitList();
+        Refresh();
+    }
+
+    public override void OnWindowResized() => FitList();
+
+    /// <summary>The list as tall as the window allows (at least 120 px), so the page itself doesn't scroll.</summary>
+    private void FitList()
+    {
         var content = Context.Content;
         Panel.PerformLayout();
         var available = content.ClientSize.Height - content.Padding.Vertical;
@@ -122,7 +129,6 @@ internal sealed class ClientsPage : SettingsPage
             _clients.Host.Height = height;
             Panel.PerformLayout();
         }
-        Refresh();
     }
 
     private async void Refresh()
@@ -131,9 +137,8 @@ internal sealed class ClientsPage : SettingsPage
         {
             _reload.Enabled = Context.Client is not null;
             _reload.SetBusy(true, "Loading\u2026");
+            _clients.MeId = Context.Me?.Id;
             await _clients.ShowAsync(_groups.MonitoredGroups(), Context.Client, Context.Current().Subdomain);
-            if (_filter.Text.Trim().Length > 0)
-                Find(next: false);
         }
         catch (Exception ex)
         {
@@ -145,11 +150,14 @@ internal sealed class ClientsPage : SettingsPage
         }
     }
 
-    /// <summary>Goes to a matching client and highlights it; the text turns orange when nothing matches.</summary>
-    private void Find(bool next) => _filter.Box.ForeColor = _clients.Find(_filter.Text, next) ? Theme.Text : Theme.Warning;
-
     /// <summary>After Save or Discard: clients move to their sections (Customized, groups, Muted).</summary>
     public void Resort() => _clients.Resort();
+
+    /// <summary>After Save or Discard: the filter starts empty again (all clients, in their new sections).</summary>
+    public void ClearFind() => _filter.Text = "";
+
+    /// <summary>For the screenshot tool: the list filtered by this text.</summary>
+    internal void ShowFilter(string text) => _filter.Text = text;
 
     /// <summary>A choice made from a notification while Settings is open.</summary>
     public void SetChoice(ClientChoice choice) => _clients.SetChoice(choice);

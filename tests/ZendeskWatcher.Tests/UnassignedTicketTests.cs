@@ -156,7 +156,7 @@ public class UnassignedTicketTests
         await watcher.PollAsync(CancellationToken.None);
 
         var shown = Assert.Single(TakeShown());
-        Assert.Equal("Now watching", shown.Heading);
+        Assert.Equal("Group added", shown.Heading);
         Assert.Equal("2 unassigned tickets already waiting", shown.Title);
         Assert.True(watcher.ShowedAlreadyWaiting);
         Assert.Equal(2, watcher.UnassignedCount);
@@ -174,6 +174,81 @@ public class UnassignedTicketTests
         Assert.Equal("Already waiting", shown.Heading);
         Assert.Equal(101, shown.TicketId);
         Assert.True(shown.CanTake);
+    }
+
+    [Fact]
+    public async Task Unticked_priorities_stay_quiet_until_raised()
+    {
+        _settings.NewTicketPriorities[10] = ["urgent", "high"];
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None);
+
+        // A Normal and a Low ticket: no notification, not counted.
+        var normal = _zendesk.AddUnassigned(103);
+        normal.Priority = "normal";
+        _zendesk.AddUnassigned(104).Priority = "low";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+        Assert.Equal(0, watcher.Snapshot().Unassigned);
+
+        // Raised to High while still unassigned: notifies then, once.
+        normal.Priority = "high";
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal("Priority raised", shown.Heading);
+        Assert.Equal(103, shown.TicketId);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+
+        // Ticking Low later isn't a raise: the waiting Low ticket doesn't notify now.
+        _settings.NewTicketPriorities[10] = ["urgent", "high", "low"];
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+        Assert.Equal(2, watcher.Snapshot().Unassigned);
+    }
+
+    [Fact]
+    public async Task A_P1_taken_before_any_check_saw_it_still_notifies_when_chosen()
+    {
+        _zendesk.Users[55] = new User { Id = 55, Name = "Anna Agent" };
+        _zendesk.Users[66] = new User { Id = 66, Name = "Bob Lead" };
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None); // the group's first look
+
+        // Off (the default): nothing, and no extra search.
+        _zendesk.AddTakenQuickly(201, "urgent", by: 55, to: 55);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown());
+
+        // P1 chosen: an urgent ticket taken between checks comes, once, saying who took it and how fast.
+        _settings.TakenQuicklyPriorities = ["urgent"];
+        _zendesk.AddTakenQuickly(202, "urgent", by: 66, to: 55);
+        _zendesk.AddTakenQuickly(203, "normal", by: 55, to: 55); // not a chosen priority
+        _zendesk.AddTakenQuickly(204, "urgent", by: 55, to: 55, createdAssigned: true); // nobody took it: it came assigned
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = TakeShown();
+        Assert.Equal([201L, 202L], shown.Select(n => n.TicketId!.Value).Order());
+        var assigned = shown.Single(n => n.TicketId == 202);
+        Assert.Equal("Already taken", assigned.Heading);
+        Assert.Contains("**Bob Lead** assigned it to **Anna Agent** after 1 min", assigned.Body);
+        Assert.Contains("**Anna Agent** took it after 1 min", shown.Single(n => n.TicketId == 201).Body);
+        Assert.False(assigned.CanTake);
+
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown()); // not again
+
+        // Solved straight away (solving gives it an assignee): found too, and the line says it's solved.
+        _zendesk.AddTakenQuickly(205, "urgent", by: 55, to: 55).Status = "solved";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.EndsWith("**Anna Agent** took it after 1 min · solved", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
+    public void Taken_line_says_who_and_how_fast()
+    {
+        Assert.Equal("**Anna** took it within a minute", TicketRules.TakenLine("Anna", null, false, TimeSpan.FromSeconds(20)));
+        Assert.Equal("**Bob** assigned it to **Anna** after 4 min", TicketRules.TakenLine("Anna", "Bob", false, TimeSpan.FromMinutes(4.5)));
+        Assert.Equal("Assigned to **Anna** by a rule after 1 h 5 min", TicketRules.TakenLine("Anna", null, true, TimeSpan.FromMinutes(65)));
     }
 
     [Fact]
@@ -196,6 +271,37 @@ public class UnassignedTicketTests
 
         await watcher.PollAsync(CancellationToken.None);
         Assert.Empty(TakeShown()); // not again on the next check
+    }
+
+    [Fact]
+    public async Task Notification_of_a_new_ticket_closes_once_someone_takes_it()
+    {
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None);
+        var taken = _zendesk.AddUnassigned(106);
+        var moved = _zendesk.AddUnassigned(107);
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal(2, TakeShown().Count);
+
+        // Still unassigned: stays, also when it left the monitored group (no longer in the search, but nobody took it).
+        moved.GroupId = 99;
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(_notifier.ClosedTaken);
+
+        _zendesk.Users[42] = new User { Id = 42, Name = "Anna Svensson", Role = "agent" };
+        taken.AssigneeId = 42;
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal([106L], _notifier.ClosedTaken);
+        Assert.Equal("Taken by Anna", _notifier.TakenNotes[106]);
+
+        moved.Status = "solved";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal([106L, 107L], _notifier.ClosedTaken);
+        Assert.Equal("Solved", _notifier.TakenNotes[107]);
+
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Equal(2, _notifier.ClosedTaken.Count); // once each
+        Assert.Empty(TakeShown());
     }
 
     [Fact]

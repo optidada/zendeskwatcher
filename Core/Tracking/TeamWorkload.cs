@@ -2,19 +2,23 @@ using ZendeskWatcher.Zendesk;
 
 namespace ZendeskWatcher.Tracking;
 
-/// <summary>A teammate's open tickets in the monitored groups (Insights → Right now → Your team).</summary>
+/// <summary>A teammate's open tickets in the monitored groups (Insights → Team workload).</summary>
 /// <param name="Open">Needs an agent: New or Open, also open-category custom statuses other than In progress.</param>
 /// <param name="UrgentOrHigh">Of the open and In progress ones, Urgent (P1) or High (P2).</param>
 /// <param name="Escalated">Escalated: custom statuses with "escalat" in the name (to Engineering, internally, …), whatever their category; all together.</param>
 /// <param name="Scheduled">Scheduled: a time is booked (a custom status matched by name), whatever its category.</param>
-/// <param name="Waiting">Pending or On-hold: waiting on the customer or someone else.</param>
+/// <param name="Pending">Pending or On-hold: waiting on the customer or someone else.</param>
 /// <param name="InProgress">In progress: a custom status matched by name, whatever its category.</param>
+/// <param name="Solved">Solved or Closed in the last <see cref="TeamWorkload.SolvedDays"/> days (not workload: done).</param>
 /// <param name="EscalatedBy">Escalated per status name (e.g. "Escalated to Engineering" → 2); null when not split up.</param>
-public sealed record WorkloadRow(long AssigneeId, string Name, int Open, int UrgentOrHigh, int Escalated, int Scheduled, int Waiting, bool IsMe,
-    int InProgress = 0, IReadOnlyDictionary<string, int>? EscalatedBy = null);
+public sealed record WorkloadRow(long AssigneeId, string Name, int Open, int UrgentOrHigh, int Escalated, int Scheduled, int Pending, bool IsMe,
+    int InProgress = 0, IReadOnlyDictionary<string, int>? EscalatedBy = null, int Solved = 0);
 
 public static class TeamWorkload
 {
+    /// <summary>The Solved column counts tickets solved in this many days.</summary>
+    public const int SolvedDays = 7;
+
     /// <summary>A custom status that means escalated, e.g. "Escalated to Engineering" or "Escalated internally" (matched by name).</summary>
     public static bool IsEscalatedStatus(string? label) => label?.Contains("escalat", StringComparison.OrdinalIgnoreCase) == true;
 
@@ -24,7 +28,7 @@ public static class TeamWorkload
 
     /// <summary>
     /// A short column heading for an escalated status: "Escalated to Engineering" → "Esc. Eng.", "Escalated internally" →
-    /// "Esc. Int." (the Your team table is narrow). Just "Escalated" when the name says nothing more.
+    /// "Esc. Int." (narrow columns). Just "Escalated" when the name says nothing more.
     /// </summary>
     public static string ShortEscalatedName(string label)
     {
@@ -39,22 +43,40 @@ public static class TeamWorkload
     }
 
     /// <summary>
+    /// Names for the narrow workload list: "Maria Svensson" → "Maria S.". Full names where two would look the same,
+    /// and single words ("You") as they are.
+    /// </summary>
+    public static Dictionary<string, string> ShortNames(IEnumerable<string> names)
+    {
+        var all = names.Distinct().ToList();
+        var shortOf = all.ToDictionary(n => n, n =>
+        {
+            var words = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return words.Length < 2 ? n : $"{words[0]} {char.ToUpper(words[^1][0])}.";
+        });
+        var taken = shortOf.Values.GroupBy(s => s, StringComparer.CurrentCultureIgnoreCase).Where(g => g.Count() > 1)
+            .Select(g => g.Key).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+        return shortOf.ToDictionary(kv => kv.Key, kv => taken.Contains(kv.Value) ? kv.Key : kv.Value);
+    }
+
+    /// <summary>
     /// Workload: every unsolved ticket counts, since a pending one can turn into work any minute. Open or In progress
     /// Urgent or High weighs 3, other open ones 2, Escalated, Scheduled, Pending and On-hold 1 each.
     /// </summary>
     public static int Score(WorkloadRow row) => 2 * (row.Open + row.InProgress) + row.UrgentOrHigh + Other(row);
 
     /// <summary>Escalated, Scheduled, Pending and On-hold together.</summary>
-    private static int Other(WorkloadRow row) => row.Escalated + row.Scheduled + row.Waiting;
+    private static int Other(WorkloadRow row) => row.Escalated + row.Scheduled + row.Pending;
 
     /// <summary>
-    /// Counts the tickets of each teammate (also the ones with none), busiest first (<see cref="Score"/>).
+    /// Counts the tickets of each teammate (also the ones with none), busiest first (<see cref="Score"/>): unsolved ones,
+    /// and the ones solved in the last <see cref="SolvedDays"/> days.
     /// A ticket found in two groups counts once. <paramref name="statusNames"/>: custom status id → its name (agents' label).
     /// </summary>
     public static List<WorkloadRow> Count(IEnumerable<Ticket> tickets, IReadOnlyDictionary<long, string> team, long meId,
         IReadOnlyDictionary<long, string>? statusNames = null)
     {
-        var counts = team.Keys.ToDictionary(id => id, _ => (Open: 0, InProgress: 0, Urgent: 0, Escalated: 0, Scheduled: 0, Waiting: 0));
+        var counts = team.Keys.ToDictionary(id => id, _ => (Open: 0, InProgress: 0, Urgent: 0, Escalated: 0, Scheduled: 0, Pending: 0, Solved: 0));
         var escalatedBy = team.Keys.ToDictionary(id => id, _ => new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
         foreach (var ticket in tickets.DistinctBy(t => t.Id))
         {
@@ -62,7 +84,9 @@ public static class TeamWorkload
                 continue;
             var name = ticket.CustomStatusId is { } status ? statusNames?.GetValueOrDefault(status) : null;
             var urgent = ticket.Priority is "urgent" or "high";
-            if (IsEscalatedStatus(name))
+            if (ticket.Status is "solved" or "closed")
+                c.Solved++;
+            else if (IsEscalatedStatus(name))
             {
                 c.Escalated++;
                 escalatedBy[id][name!] = escalatedBy[id].GetValueOrDefault(name!) + 1;
@@ -82,12 +106,54 @@ public static class TeamWorkload
                     c.Urgent++;
             }
             else if (ticket.Status is "pending" or "hold")
-                c.Waiting++;
+                c.Pending++;
             counts[id] = c;
         }
         return counts.Select(kv => new WorkloadRow(kv.Key, team[kv.Key], kv.Value.Open, kv.Value.Urgent, kv.Value.Escalated,
-                kv.Value.Scheduled, kv.Value.Waiting, kv.Key == meId, kv.Value.InProgress, escalatedBy[kv.Key]))
+                kv.Value.Scheduled, kv.Value.Pending, kv.Key == meId, kv.Value.InProgress, escalatedBy[kv.Key], kv.Value.Solved))
             .OrderByDescending(Score).ThenByDescending(r => r.Open + r.InProgress).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// Insights → Team workload, one line: "10 open (2 P1/P2) · 3 escalated · 6 waiting"; "nothing open" without tickets.
+    /// Open includes In progress; waiting is Pending and On-hold.
+    /// </summary>
+    public static string Summary(WorkloadRow row)
+    {
+        var open = row.Open + row.InProgress;
+        List<string> parts = [];
+        if (open > 0)
+            parts.Add(row.UrgentOrHigh > 0 ? $"{open} open ({row.UrgentOrHigh} P1/P2)" : $"{open} open");
+        if (row.Escalated > 0)
+            parts.Add($"{row.Escalated} escalated");
+        if (row.Scheduled > 0)
+            parts.Add($"{row.Scheduled} scheduled");
+        if (row.Pending > 0)
+            parts.Add($"{row.Pending} waiting");
+        return parts.Count == 0 ? "nothing open" : string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// Outside working hours (Notifications → Colleagues: the hours and days) in the person's Zendesk time zone; null
+    /// when they have none (then it can't be told).
+    /// </summary>
+    public static bool? OffWork(User? user, DateTimeOffset now, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays)
+    {
+        var zone = TicketRules.ResolveTimeZone(user?.IanaTimeZone) ?? TicketRules.ResolveTimeZone(user?.TimeZone);
+        return zone is null ? null : TicketRules.IsOutsideHours(TimeZoneInfo.ConvertTime(now, zone).DateTime, startHour, endHour, workDays);
+    }
+
+    /// <summary>
+    /// The order on Insights → Team workload: people in working hours (or with no time zone) first, off work last; within
+    /// each, busiest or least busy first (<see cref="Score"/>), then by name.
+    /// </summary>
+    public static List<WorkloadRow> Order(IEnumerable<WorkloadRow> rows, Func<long, bool> offWork, bool busiestFirst)
+    {
+        var byLoad = rows.OrderBy(r => offWork(r.AssigneeId));
+        var sorted = busiestFirst
+            ? byLoad.ThenByDescending(Score).ThenByDescending(r => r.Open + r.InProgress)
+            : byLoad.ThenBy(Score).ThenBy(r => r.Open + r.InProgress);
+        return sorted.ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 }

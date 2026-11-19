@@ -1,11 +1,13 @@
 # Installing Zendesk Watcher
 
+Once installed, the [guide](GUIDE.md) shows what the notifications and Settings pages look like.
+
 Zendesk Watcher sits in the Windows tray and notifies you about new unassigned tickets in the groups you pick, about
 changes on your own tickets, and about customers waiting on colleagues' tickets while those colleagues are off work or away.
 
 1. **Download** the installer:
-   [ZendeskWatcherApp-win-Setup.exe](https://github.com/optidada/zendeskwatcher/releases/latest/download/ZendeskWatcherApp-win-Setup.exe)
-   (always the newest version; release notes on the [latest release](https://github.com/optidada/zendeskwatcher/releases/latest) page). No GitHub account needed.
+   [ZendeskWatcherApp-win-Setup.exe](https://github.com/optidada/zendeskwatcher-releases/releases/latest/download/ZendeskWatcherApp-win-Setup.exe)
+   (always the newest version; release notes on the [latest release](https://github.com/optidada/zendeskwatcher-releases/releases/latest) page). No GitHub account needed.
 2. **Run it.** Windows may say *"Windows protected your PC"* because the installer isn't signed. Click
    **More info → Run anyway**.
 3. **Allow the .NET install if asked.** If your PC doesn't have the .NET 10 Desktop Runtime yet, Setup installs it,

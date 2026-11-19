@@ -39,6 +39,10 @@ internal sealed class TickerBar : Form
     private PopupPalette _palette = PopupPalette.For(NotificationTheme.Optimizely);
     private NotificationTheme _theme = NotificationTheme.Optimizely;
     private float _s = 1;
+    private float _fontRatio = 1;
+
+    /// <summary>Sized for its monitor: Windows mustn't resize it when the monitors' scaling changes under it.</summary>
+    protected override void OnDpiChanged(DpiChangedEventArgs e) => e.Cancel = true;
     private float _size = 1;
     private bool _top;
     private Font? _font;
@@ -111,9 +115,12 @@ internal sealed class TickerBar : Form
 
     /// <summary>Adds an item at the end of the line; the bar appears if it was hidden.</summary>
     /// <param name="seconds">Its stay time; 0 = until closed.</param>
-    public void Add(NotificationContent content, int seconds, PopupPalette palette, NotificationTheme theme, float dpi, float size, bool top)
+    /// <param name="fontRatio">Text size on a monitor whose scaling isn't the main one's (<see cref="NotificationScreen.FontRatio"/>).</param>
+    public void Add(NotificationContent content, int seconds, PopupPalette palette, NotificationTheme theme, float dpi, float size, bool top,
+        float fontRatio = 1f)
     {
-        var styleChanged = _palette != palette || Math.Abs(_s - dpi * size) > 0.001f || _top != top;
+        var styleChanged = _palette != palette || Math.Abs(_s - dpi * size) > 0.001f || _top != top || Math.Abs(_fontRatio - fontRatio) > 0.001f;
+        _fontRatio = fontRatio;
         _palette = palette;
         _theme = theme;
         _s = dpi * size;
@@ -124,8 +131,8 @@ internal sealed class TickerBar : Form
             _font?.Dispose();
             _badgeFont?.Dispose();
             var family = FontExists(palette.FontFamily) ? palette.FontFamily : palette.Terminal ? "Consolas" : "Segoe UI";
-            _font = new Font(family, palette.FontSize * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
-            _badgeFont = new Font(family, (palette.FontSize - 0.5f) * size, FontStyle.Bold);
+            _font = new Font(family, palette.FontSize * size * fontRatio, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
+            _badgeFont = new Font(family, (palette.FontSize - 0.5f) * size * fontRatio, FontStyle.Bold);
         }
         if (_items.Count == 0)
             _offset = 0; // comes in from the right edge
@@ -180,7 +187,7 @@ internal sealed class TickerBar : Form
                 Hide();
             return;
         }
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        var area = PopupForm.WorkArea(NotificationScreen.Current);
         Bounds = new Rectangle(area.Left, _top ? area.Top : area.Bottom - BarHeight, area.Width, BarHeight);
         if (!Visible)
             Show();
@@ -554,6 +561,7 @@ internal sealed class TickerBar : Form
             BeginInvoke(menu.Dispose);
         };
         menu.Show(this, at);
+        NotificationScreen.KeepOnScreen(menu, this); // never on the other monitor
     }
 
     // ------------------------------------------------------------------ developer helper

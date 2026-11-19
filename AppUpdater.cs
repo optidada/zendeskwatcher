@@ -9,7 +9,11 @@ namespace ZendeskWatcher;
 /// </summary>
 public sealed class AppUpdater
 {
-    public const string RepoUrl = "https://github.com/optidada/zendeskwatcher";
+    /// <summary>
+    /// Public repo holding only the installers, update feed and release notes (since 1.9.4), so the source repo can be
+    /// private. Versions up to 1.9.3 update from the source repo's releases.
+    /// </summary>
+    public const string RepoUrl = "https://github.com/optidada/zendeskwatcher-releases";
 
     private readonly UpdateManager _manager = new(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -24,23 +28,53 @@ public sealed class AppUpdater
 
     public string? PendingVersion => Pending?.TargetFullRelease.Version.ToString();
 
-    /// <summary>The first few bullet points of the pending release's notes (from CHANGELOG.md), one per line.</summary>
+    /// <summary>
+    /// What the update brings, from the release notes of every version between this one and the pending one (the
+    /// update's delta packages carry each version's notes): see <see cref="Highlights"/>.
+    /// </summary>
     public string? PendingHighlights
     {
         get
         {
-            var notes = Pending?.TargetFullRelease.NotesMarkdown;
-            if (string.IsNullOrWhiteSpace(notes))
+            if (Pending is not { } pending)
                 return null;
-            var bullets = notes.Split('\n')
-                .Select(l => l.Trim())
-                .Where(l => l.StartsWith("- ") || l.StartsWith("* "))
-                .Select(l => "• " + Headline(l[2..]))
-                .Take(3)
-                .ToList();
-            return bullets.Count > 0 ? string.Join("\n", bullets) : null;
+            var releases = pending.DeltasToTarget.Select(d => (d.Version.ToString(), (string?)d.NotesMarkdown))
+                .Append((pending.TargetFullRelease.Version.ToString(), pending.TargetFullRelease.NotesMarkdown));
+            return Highlights(releases, CurrentVersion);
         }
     }
+
+    /// <summary>At most this many lines in "Update ready".</summary>
+    private const int MaxHighlightLines = 4;
+
+    /// <summary>
+    /// The versions newer than <paramref name="current"/>: one version, its first 3 points; several, the first point of
+    /// each, newest first ("• 1.8.10: Catch up is easier to read"), then "… and N more versions" when they don't all fit.
+    /// </summary>
+    internal static string? Highlights(IEnumerable<(string Version, string? Notes)> releases, string current)
+    {
+        Version.TryParse(current, out var since);
+        var versions = releases
+            .Select(r => (Version: Version.TryParse(r.Version, out var v) ? v : null, Bullets: Bullets(r.Notes)))
+            .Where(r => r.Version is not null && (since is null || r.Version > since) && r.Bullets.Count > 0)
+            .DistinctBy(r => r.Version)
+            .OrderByDescending(r => r.Version)
+            .ToList();
+        if (versions.Count == 0)
+            return null;
+        if (versions.Count == 1)
+            return string.Join("\n", versions[0].Bullets.Take(3).Select(b => "• " + b));
+        var lines = versions.Take(MaxHighlightLines).Select(r => $"• {r.Version!.ToString(3)}: {r.Bullets[0]}").ToList();
+        if (versions.Count > MaxHighlightLines)
+            lines[^1] = $"… and {versions.Count - MaxHighlightLines + 1} more versions";
+        return string.Join("\n", lines);
+    }
+
+    private static List<string> Bullets(string? notes) => (notes ?? "").Split('\n')
+        .Select(l => l.Trim())
+        .Where(l => l.StartsWith("- ") || l.StartsWith("* "))
+        .Select(l => Headline(l[2..]))
+        .ToList();
 
     /// <summary>"**Take it**: long explanation" → "Take it"; other bullets are shortened to fit a notification.</summary>
     internal static string Headline(string bullet)
@@ -75,6 +109,48 @@ public sealed class AppUpdater
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// At app start, before anything shows: a newer version found and downloaded within <paramref name="limit"/> is
+    /// installed right away (the app exits and the new version starts and says what's new). Any failure, a slow
+    /// connection (no network yet right after logon) or a version that already failed to install once: carry on with
+    /// this version; the usual check a couple of minutes later still offers it.
+    /// </summary>
+    /// <summary>The check at start answered "no newer version": the next scheduled check can wait a day.</summary>
+    public static bool UpToDateAtStart { get; private set; }
+
+    public void UpdateOnStart(TimeSpan limit)
+    {
+        if (!IsInstalled)
+            return;
+        try
+        {
+            var cts = new CancellationTokenSource(limit); // not disposed: a download that ran late may still read it
+            var check = Task.Run(() => CheckAndDownloadAsync(cts.Token));
+            if (!check.Wait(limit))
+                return;
+            if (!check.Result)
+            {
+                UpToDateAtStart = true;
+                return;
+            }
+            if (PendingVersion is not { } version)
+                return;
+            var tried = Path.Combine(AppPaths.DataDir, "update-tried.txt");
+            if (File.Exists(tried) && File.ReadAllText(tried).Trim() == version)
+            {
+                Log.Info($"Update {version} at start: it didn't install last time, so it waits for \"Restart to update\"");
+                return;
+            }
+            File.WriteAllText(tried, version);
+            Log.Info($"Installing update {version} at start");
+            ApplyAndRestart();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Update at start failed", ex is AggregateException { InnerException: { } inner } ? inner : ex);
         }
     }
 

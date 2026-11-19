@@ -12,8 +12,21 @@ public sealed class Settings
     // What to watch
     public List<WatchedGroup> WatchedGroups { get; set; } = [];
 
-    /// <summary>How often Zendesk is checked (fixed: Zendesk search lags 1–3 minutes anyway).</summary>
-    public static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(60);
+    /// <summary>
+    /// How often Zendesk is checked (fixed). Every 3 minutes keeps the app's share of the account's API limit small
+    /// (it's shared with everyone and every integration); Zendesk's search lags 1–3 minutes anyway.
+    /// </summary>
+    public static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(3);
+
+    /// <summary>New unassigned tickets are also checked halfway between two checks (not while away): new work, P1s
+    /// especially, shows within about 1½ minutes, while the rest stays at <see cref="CheckInterval"/>.</summary>
+    public static readonly TimeSpan NewTicketsCheckInterval = TimeSpan.FromSeconds(90);
+
+    /// <summary>How often while you're away (<see cref="AwayForChecks"/>); a check runs as soon as you're back.</summary>
+    public static readonly TimeSpan AwayCheckInterval = TimeSpan.FromMinutes(10);
+
+    /// <summary>Screen locked, or no mouse or keyboard this long: away, for how often to check.</summary>
+    public static readonly TimeSpan AwayForChecks = TimeSpan.FromMinutes(10);
     public bool TrackMyTickets { get; set; } = true;
 
     /// <summary>Also notify about changes on tickets where I'm CC'd or a follower (same change types as my tickets).</summary>
@@ -28,6 +41,11 @@ public sealed class Settings
     public bool NotifyStatusChanges { get; set; } = true;
     public bool NotifyAssignmentChanges { get; set; } = true;
     public bool NotifyPriorityChanges { get; set; } = true;
+    /// <summary>
+    /// Also changes made automatically (Zendesk triggers/automations, service accounts like the auto-reply on new
+    /// tickets): off by default. Status changes notify either way (<see cref="Tracking.TicketRules.IsAutomaticChange"/>).
+    /// </summary>
+    public bool NotifyAutomaticChanges { get; set; }
 
     /// <summary>
     /// "Help colleagues": notify when a customer replies on a colleague's open ticket while the colleague is outside
@@ -116,6 +134,12 @@ public sealed class Settings
     /// <summary>New tickets and changes on my own and CC'd tickets only notify within my working hours; outside them they're skipped (colleagues' tickets: <see cref="HelpOnlyDuringMyHours"/>).</summary>
     public bool OnlyNotifyDuringMyHours { get; set; }
 
+    /// <summary>
+    /// With <see cref="OnlyNotifyDuringMyHours"/> (and the Colleagues page's "only while I'm working"): also outside my
+    /// hours while I'm active in Zendesk (a change or comment in the last 30 minutes). Off by default.
+    /// </summary>
+    public bool NotifyWhenWorkingLate { get; set; }
+
     private int? _myWorkdayStartHour, _myWorkdayEndHour;
 
     /// <summary>My own working hours (on <see cref="MyWorkDays"/>, this PC's time). Until chosen, the colleagues' hours (they were one setting before 1.3.13).</summary>
@@ -139,6 +163,40 @@ public sealed class Settings
 
     /// <summary>The ticket priorities, in Zendesk's words. Tickets without a priority count as "normal".</summary>
     public static readonly string[] AllPriorities = ["urgent", "high", "normal", "low"];
+
+    /// <summary>
+    /// New unassigned tickets: group id -> the priorities that notify and count (Notifications → New tickets). A group not
+    /// listed: all. One raised to a chosen priority while still unassigned notifies then; important clients always do.
+    /// </summary>
+    public Dictionary<long, List<string>> NewTicketPriorities { get; set; } = [];
+
+    /// <summary>
+    /// New tickets someone took between two checks, before the app saw them unassigned: with these priorities they notify
+    /// anyway ("Taken by Anna", Notifications → New tickets). Empty: off, the default. For managers who don't want to miss
+    /// a P1 even when it was assigned out within a minute.
+    /// </summary>
+    public List<string> TakenQuicklyPriorities { get; set; } = [];
+
+    /// <summary>The priorities of new unassigned tickets that notify in this group.</summary>
+    public IReadOnlyList<string> NewTicketPrioritiesFor(long groupId) =>
+        NewTicketPriorities.TryGetValue(groupId, out var chosen) && chosen.Count > 0 ? chosen : AllPriorities;
+
+    /// <summary>The priority choices in Settings (new tickets per group, ticket changes, Help colleagues), most to fewest;
+    /// null is all priorities.</summary>
+    public static readonly (string Label, string[]? Priorities)[] PriorityChoices =
+    [
+        ("All", null),
+        ("P1–P3", ["urgent", "high", "normal"]),
+        ("P1, P2", ["urgent", "high"]),
+        ("P1 only", ["urgent"])
+    ];
+
+    /// <summary>
+    /// The choice for a list of priorities: by the lowest one in it (a list from an older version with a gap, e.g. P1 and
+    /// P3, gets P1–P3). An empty list gets P1 only, the fewest there is.
+    /// </summary>
+    public static int PriorityChoiceIndex(IReadOnlyCollection<string> priorities) =>
+        priorities.Contains("low") ? 0 : priorities.Contains("normal") ? 1 : priorities.Contains("high") ? 2 : 3;
 
     /// <summary>Only changes on my tickets with these (current) priorities notify.</summary>
     public List<string> MyTicketPriorities { get; set; } = [.. AllPriorities];
@@ -251,6 +309,12 @@ public sealed class Settings
     /// <summary>Size of Zendesk Watcher's own notifications in percent (text, buttons and spacing together).</summary>
     public int NotificationSize { get; set; } = 100;
 
+    /// <summary>
+    /// The app's sound volume in percent (Look &amp; sound): half by default, so a notification doesn't startle someone
+    /// with headphones on loud; it only affects this app.
+    /// </summary>
+    public int SoundVolume { get; set; } = 50;
+
     /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
     public bool PausePopupsWhenAway { get; set; } = true;
 
@@ -269,7 +333,7 @@ public sealed class Settings
     /// <summary>
     /// A customer reply counts as handled once an agent answered it publicly (colleagues' tickets), and changes on
     /// your own / CC'd tickets once you've acted on the ticket yourself. Used by the checks above, Snooze, and
-    /// "Customer waiting" (no notification when a colleague already answered).
+    /// "Colleague's ticket" (no notification when a colleague already answered).
     /// </summary>
     public bool DropAnswered { get; set; } = true;
 
@@ -360,6 +424,7 @@ public sealed class Settings
         if (!Enum.IsDefined(Position)) Position = PopupPosition.BottomRight;
         if (!Enum.IsDefined(Stacking)) Stacking = PopupStacking.List;
         NotificationSize = Math.Clamp(NotificationSize, 100, 200);
+        SoundVolume = Math.Clamp(SoundVolume, 0, 100);
         if (!Enum.IsDefined(NewTicketStyle.Sound)) NewTicketStyle.Sound = ToastSound.Silent;
         if (!Enum.IsDefined(MyTicketStyle.Sound)) MyTicketStyle.Sound = ToastSound.Silent;
         if (!Enum.IsDefined(HelpStyle.Sound)) HelpStyle.Sound = ToastSound.Silent;
@@ -431,7 +496,7 @@ public enum ClientMode
     /// <summary>Only Urgent (P1) and High (P2) new tickets and colleagues' tickets notify.</summary>
     OnlyUrgent,
 
-    /// <summary>Always notify (also outside your hours and for priorities you unticked), stay until dismissed, ★ in the heading.</summary>
+    /// <summary>Always notify (also outside your hours and for priorities left out), stay until dismissed, ★ in the heading.</summary>
     Important
 }
 
@@ -497,7 +562,8 @@ public sealed class NotificationStyle
 
 /// <summary>Windows sounds, then chiptune jingles (added last: settings store the number).</summary>
 public enum ToastSound { Default, Mail, InstantMessage, Reminder, Sms, Silent, ChipBlip, ChipArpeggio, ChipBounce, ChipAlert, ChipFanfare,
-    SongBouncy, SongGroove, SongCelebration, SongQuest, SongTurbo, SongStarfield, SoftChime }
+    SongBouncy, SongGroove, SongCelebration, SongQuest, SongTurbo, SongStarfield, SoftChime,
+    AmericanaBanjoRoad, AmericanaSlide, AmericanaHollow, NatureStream, NatureWindChimes, NatureBirdsong }
 
 public enum ToastDisplay
 {

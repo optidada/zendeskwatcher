@@ -106,7 +106,7 @@ public class WaitingNotificationTests
         var summary = Notifier.AwaySummary(waiting, dropped: 4);
 
         Assert.Equal("While you were away", summary.Title);
-        Assert.Equal("8 new tickets\n1 update on your tickets\n2 customers waiting on colleagues' tickets\n" +
+        Assert.Equal("8 new tickets\n1 update on your tickets\n2 clients waiting on colleagues' tickets\n" +
                      "4 others are no longer needed (taken, solved or answered)", summary.Body);
         Assert.Equal(Notifier.ActionOpenZendesk, summary.ResolvedAction);
         Assert.False(summary.IsTicketNotification); // not counted in the statistics
@@ -156,7 +156,7 @@ public class WaitingNotificationTests
         _zendesk.Reply(500, Customer, "Anyone?");
         await watcher.PollAsync(CancellationToken.None);
         var shown = Assert.Single(notifier.Shown);
-        Assert.Equal("**Jane Customer** replied: Anyone?", shown.Body);
+        Assert.Equal("**Jane Customer**\n“Anyone?”", shown.Body);
         Assert.NotNull(shown.ChangedAt);
     }
 }

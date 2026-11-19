@@ -13,7 +13,8 @@ namespace ZendeskWatcher.SettingsPages;
 internal sealed class AssigneeList : Control
 {
     /// <param name="Zone">Their time zone (from Zendesk), for "working now"; null when unknown.</param>
-    public sealed record Person(long Id, string Name, string? Tip, TimeZoneInfo? Zone = null);
+    /// <param name="Note">Muted text after the name, e.g. the product a client matched the filter by.</param>
+    public sealed record Person(long Id, string Name, string? Tip, TimeZoneInfo? Zone = null, string? Note = null);
 
     /// <param name="Title">A heading (a region), or null for no heading.</param>
     /// <param name="Tag">The caller's own key for the group (e.g. the region).</param>
@@ -56,20 +57,34 @@ internal sealed class AssigneeList : Control
     /// <summary>Groups opened or folded (by title) since the window opened; the others use their StartOpen.</summary>
     private readonly Dictionary<string, bool> _open = [];
 
-    /// <summary>Opens a folded group (e.g. to show a client found by search).</summary>
-    public void Open(Group group)
+    /// <summary>
+    /// While a filter is on (Clients): every group starts open, and folding one lasts until the filter changes
+    /// (<see cref="ForgetFilteredFolds"/>); the folds from before the filter come back after.
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool Filtering { get; set; }
+
+    private readonly Dictionary<string, bool> _openWhileFiltering = [];
+
+    /// <summary>
+    /// The groups open or folded right now stay so when the list is built again (e.g. re-sorted after Save, or after
+    /// clearing customizations: a group that was open because it had some mustn't fold under the user's eyes).
+    /// </summary>
+    public void KeepFolds()
     {
-        if (group.Title is not { } title || IsOpen(group))
-            return;
-        _open[title] = true;
-        LayoutItems();
-        Invalidate();
+        foreach (var group in _groups.Where(g => g.Title is not null))
+            Folds[group.Title!] = IsOpen(group);
     }
+
+    /// <summary>Folds made while filtering are forgotten (the filter text changed).</summary>
+    public void ForgetFilteredFolds() => _openWhileFiltering.Clear();
+
+    private Dictionary<string, bool> Folds => Filtering ? _openWhileFiltering : _open;
 
     /// <summary>The groups as shown, with all their people (also in folded groups).</summary>
     public IReadOnlyList<Group> Groups => _groups;
 
-    private bool IsOpen(Group group) => GroupTick is null || group.Title is null || _open.GetValueOrDefault(group.Title, group.StartOpen);
+    private bool IsOpen(Group group) => GroupTick is null || group.Title is null || Folds.GetValueOrDefault(group.Title, Filtering || group.StartOpen);
 
     /// <summary>
     /// Optional: a short label at the right end of a row ("★ Important"), in the accent color when Accent. Used by the
@@ -84,26 +99,60 @@ internal sealed class AssigneeList : Control
     /// </summary>
     public event Action<Person, Point>? MenuRequested;
 
-    /// <summary>The people's rows in display order (a person in two groups has two), for "find".</summary>
-    public List<(Person Person, Rectangle Rect)> PersonRows() =>
-        _items.Where(i => i.Kind == ItemKind.Person).Select(i => (i.Person!, Rectangle.Round(i.Rect))).ToList();
+    /// <summary>
+    /// Optional, instead of the tooltip: the mouse came onto a person's name (with the name's rectangle on screen), or
+    /// left it (null). The Clients page shows its client card then.
+    /// </summary>
+    public event Action<Person?, Rectangle>? NamePointed;
 
-    /// <summary>A row drawn highlighted (the one "find" went to); empty for none.</summary>
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public Rectangle Highlighted
+    private Person? _pointedName;
+
+    /// <summary>The person whose name is under <paramref name="p"/>, and the name's rectangle (on this control).</summary>
+    private (Person Person, Rectangle Name)? NameAt(Point p)
     {
-        get => _highlighted;
-        set
-        {
-            if (value == _highlighted)
-                return;
-            Invalidate(_highlighted);
-            _highlighted = value;
-            Invalidate(_highlighted);
-        }
+        if (HitTest(p) is not { Kind: ItemKind.Person, Person: { } person } item)
+            return null;
+        var s = DpiScale;
+        var x = (int)(item.Rect.X + 1 + 24 * s); // after the tick box
+        var width = Math.Min(TextRenderer.MeasureText(item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width, (int)(item.Rect.Right - x - 90 * s));
+        var name = new Rectangle(x, (int)item.Rect.Y, Math.Max(0, width), (int)item.Rect.Height);
+        return name.Contains(p) ? (person, name) : null;
     }
 
-    private Rectangle _highlighted;
+    private void UpdatePointedName(Point p)
+    {
+        if (NamePointed is null)
+            return;
+        var at = NameAt(p);
+        if (at?.Person == _pointedName)
+            return;
+        _pointedName = at?.Person;
+        NamePointed(at?.Person, at is { } a ? RectangleToScreen(a.Name) : Rectangle.Empty);
+    }
+
+    /// <summary>
+    /// Optional: "Options ▾" on each group's row (or a right-click on it) asks for a menu for the whole group, at that
+    /// point (screen coordinates). Used by the Clients page: one choice for all the group's clients.
+    /// </summary>
+    public event Action<Group, Point>? GroupMenuRequested;
+
+    private const string GroupOptionsText = "Options  ▾";
+
+    /// <summary>Where a group row's "Options ▾" is.</summary>
+    private Rectangle GroupOptionsRect(Item fold)
+    {
+        var rect = Rectangle.Round(fold.Rect);
+        var width = TextRenderer.MeasureText(GroupOptionsText, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+        var right = rect.Right - (int)(10 * DpiScale);
+        return new Rectangle(right - width, rect.Y, width, rect.Height);
+    }
+
+    /// <summary>The mouse is on the hovered group row's "Options ▾" (it turns to the accent color).</summary>
+    private bool _hoverOnGroupOptions;
+
+    /// <summary>One person per line instead of two columns (Clients: room for "Options ▾" on every row).</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool SingleColumn { get; set; }
 
     /// <param name="isCovered">Whether a person is ticked.</param>
     /// <param name="setCovered">Ticks or unticks a person.</param>
@@ -124,7 +173,6 @@ internal sealed class AssigneeList : Control
     public void SetGroups(List<Group> groups)
     {
         _groups = groups;
-        _highlighted = Rectangle.Empty;
         _clock.Enabled = groups.Any(g => g.People.Any(p => p.Zone is not null));
         _hover = null;
         _tips.SetToolTip(this, null);
@@ -170,13 +218,14 @@ internal sealed class AssigneeList : Control
                 items.Add(new Item(ItemKind.None, new RectangleF(titleWidth + allWidth, y, noneWidth, height), "None", group));
                 y += height;
             }
-            var width = (Width - indent - 8 * s) / 2;
+            var columns = SingleColumn ? 1 : 2;
+            var width = (Width - indent - 8 * s * (columns - 1)) / columns;
             for (var i = 0; i < group.People.Count; i++)
             {
                 var rowHeight = 26 * s;
-                var x = indent + (i % 2 == 0 ? 0 : width + 8 * s);
+                var x = indent + i % columns * (width + 8 * s);
                 items.Add(new Item(ItemKind.Person, new RectangleF(x, y, width, rowHeight), group.People[i].Name, group, group.People[i]));
-                if (i % 2 == 1 || i == group.People.Count - 1)
+                if (i % columns == columns - 1 || i == group.People.Count - 1)
                     y += rowHeight;
             }
             first = false;
@@ -229,21 +278,28 @@ internal sealed class AssigneeList : Control
                     break;
 
                 case ItemKind.Person:
-                    if (rect == _highlighted)
+                    // With a menu (Clients): every row ends in "Options ▾" (or its choice with ▾); the row under the
+                    // mouse is shaded and its ▾ text turns to the accent color.
+                    var offersMenu = MenuRequested is not null && Active;
+                    var hovered = offersMenu && item == _hover;
+                    if (hovered)
                     {
-                        using var mark = new SolidBrush(Theme.AccentSoft);
-                        using var markPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
-                        g.FillPath(mark, markPath);
+                        using var row = new SolidBrush(Theme.Window);
+                        using var rowPath = Theme.RoundedRect(new RectangleF(rect.X - 4 * s, rect.Y + 1, rect.Width + 4 * s, rect.Height - 2), 4 * s);
+                        g.FillPath(row, rowPath);
                     }
                     var box = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s);
                     DrawBox(g, box, _isCovered(item.Person!.Id), item == _hover, s);
                     var text = new Rectangle((int)(box.Right + 8 * s), rect.Y, rect.Width - (int)(24 * s), rect.Height);
-                    if (Badge?.Invoke(item.Person.Id) is { } badge)
+                    var badge = Badge?.Invoke(item.Person.Id);
+                    if (offersMenu)
+                        badge = badge is { } b ? (b.Text + "  ▾", b.Accent || hovered) : ("Options  ▾", hovered);
+                    if (badge is { } shownBadge)
                     {
-                        var badgeWidth = TextRenderer.MeasureText(badge.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+                        var badgeWidth = TextRenderer.MeasureText(shownBadge.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
                         var badgeRight = rect.Right - (int)(10 * s);
-                        TextRenderer.DrawText(g, badge.Text, Theme.Small, new Rectangle(badgeRight - badgeWidth, rect.Y, badgeWidth, rect.Height),
-                            !Active ? Theme.TextMuted : badge.Accent ? Theme.Accent : Theme.TextMuted,
+                        TextRenderer.DrawText(g, shownBadge.Text, Theme.Small, new Rectangle(badgeRight - badgeWidth, rect.Y, badgeWidth, rect.Height),
+                            !Active ? Theme.TextMuted : shownBadge.Accent ? Theme.Accent : Theme.TextMuted,
                             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
                         text.Width = badgeRight - badgeWidth - (int)(8 * s) - text.X;
                     }
@@ -262,6 +318,15 @@ internal sealed class AssigneeList : Control
                     }
                     TextRenderer.DrawText(g, item.Text, Font, text, Active ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    if (item.Person.Note is { Length: > 0 } personNote)
+                    {
+                        // "Contoso  · Configured Commerce": muted, in the room left after the name.
+                        var nameWidth = TextRenderer.MeasureText(g, item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
+                        var noteRect = new Rectangle(text.X + nameWidth, text.Y, text.Width - nameWidth, text.Height);
+                        if (noteRect.Width > 30 * s)
+                            TextRenderer.DrawText(g, "· " + personNote, Theme.Small, noteRect, Theme.TextMuted,
+                                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                    }
                     break;
 
                 case ItemKind.GroupTick:
@@ -282,17 +347,26 @@ internal sealed class AssigneeList : Control
                     var titleWidth = TextRenderer.MeasureText(item.Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
                     TextRenderer.DrawText(g, item.Text, Font, new Rectangle(titleX, rect.Y, titleWidth + 2, rect.Height), Active ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    var noteRight = rect.Right;
+                    if (GroupMenuRequested is not null && Active)
+                    {
+                        // "Options ▾" at the right end: choices for all the group's clients (Clients page).
+                        var options = GroupOptionsRect(item);
+                        TextRenderer.DrawText(g, GroupOptionsText, Theme.Small, options, item == _hover && _hoverOnGroupOptions ? Theme.Accent : Theme.TextMuted,
+                            TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                        noteRight = options.Left - (int)(8 * s);
+                    }
                     if (GroupNote?.Invoke(item.Group) is { Length: > 0 } note)
-                        TextRenderer.DrawText(g, note, Theme.Small, new Rectangle(titleX + titleWidth + 4, rect.Y, Math.Max(0, rect.Right - titleX - titleWidth - 4), rect.Height),
-                            Theme.TextMuted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                        TextRenderer.DrawText(g, note, Theme.Small, new Rectangle(titleX + titleWidth + 4, rect.Y, Math.Max(0, noteRight - titleX - titleWidth - 4), rect.Height),
+                            Theme.TextMuted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
                     break;
                 }
 
                 case ItemKind.Legend:
-                    // "● working now   ○ off work: you hear about their customers' replies", with the same dots.
+                    // "● working now   ○ off work: you hear about their clients' replies", with the same dots.
                     var x = item.Rect.X + 6 * s;
                     var middle = item.Rect.Y + item.Rect.Height / 2;
-                    foreach (var (working, label) in new[] { (true, "working now"), (false, "off work: you hear about their customers' replies") })
+                    foreach (var (working, label) in new[] { (true, "working now"), (false, "off work: you hear about their clients' replies") })
                     {
                         DrawDot(g, x, middle, working, s);
                         var width = TextRenderer.MeasureText(label, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
@@ -349,18 +423,26 @@ internal sealed class AssigneeList : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        UpdatePointedName(e.Location);
         var hit = HitTest(e.Location);
-        if (hit == _hover)
+        var onOptions = hit is { Kind: ItemKind.Fold } && GroupMenuRequested is not null && GroupOptionsRect(hit).Contains(e.Location);
+        if (hit == _hover && onOptions == _hoverOnGroupOptions)
             return;
+        _hoverOnGroupOptions = onOptions;
         _hover = hit;
         Cursor = hit is not null && Active ? Cursors.Hand : Cursors.Default;
-        _tips.SetToolTip(this, hit?.Person?.Tip);
+        _tips.SetToolTip(this, NamePointed is null ? hit?.Person?.Tip : null); // with a card instead: no tooltip
         Invalidate();
     }
 
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
+        if (_pointedName is not null)
+        {
+            _pointedName = null;
+            NamePointed?.Invoke(null, Rectangle.Empty);
+        }
         _hover = null;
         _tips.SetToolTip(this, null);
         Invalidate();
@@ -486,7 +568,7 @@ internal sealed class AssigneeList : Control
     {
         if (group.Title is not { } title)
             return;
-        _open[title] = !IsOpen(group);
+        Folds[title] = !IsOpen(group);
         _hover = null;
         LayoutItems();
         Invalidate();
@@ -518,6 +600,13 @@ internal sealed class AssigneeList : Control
             return; // read-only (signed out): groups still open and fold
         if (IsInteractive(hit))
             _focusKey = KeyOf(hit); // the keyboard continues from the clicked row
+        // A group's "Options ▾" (or a right-click on its row): the menu for all its clients.
+        if (hit.Kind == ItemKind.Fold && GroupMenuRequested is not null && Active &&
+            (e.Button == MouseButtons.Right || GroupOptionsRect(hit).Contains(e.Location)))
+        {
+            GroupMenuRequested(hit.Group, PointToScreen(new Point(GroupOptionsRect(hit).Left, Rectangle.Round(hit.Rect).Bottom)));
+            return;
+        }
         // With a menu: the name (or a right-click) opens it, the check box toggles.
         if (hit.Kind == ItemKind.Person && MenuRequested is not null &&
             (e.Button == MouseButtons.Right || e.X > hit.Rect.X + 24 * DpiScale))

@@ -27,8 +27,11 @@ public sealed class PopupManager
     /// <summary>A notification really appeared (not when it only joins the line; dropped ones never do).</summary>
     public Action<NotificationContent>? Shown { get; set; }
 
-    /// <summary>A choice from "Mute ▾" on a notification's client line.</summary>
+    /// <summary>A choice from "Options ▾" on a notification's client line.</summary>
     public Action<NotificationContent, ClientChoice>? ClientChosen { get; set; }
+
+    /// <summary>The ticket number was copied from a notification (it stays open).</summary>
+    public Action<NotificationContent>? CopiedId { get; set; }
 
     /// <summary>Which of these notifications are still needed (bool: also read the ticket's changes). Set by the notifier.</summary>
     public Func<IReadOnlyList<NotificationContent>, bool, Task<List<NotificationContent>>>? StillNeeded { get; set; }
@@ -51,19 +54,80 @@ public sealed class PopupManager
         _onClosed = onClosed;
         _onCopy = onCopy;
         _awayWatch.Tick += (_, _) => WatchAway();
+        // A monitor plugged in or out, or the resolution changed: back in place (on the primary one if theirs is gone).
+        var ui = SynchronizationContext.Current;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) =>
+        {
+            if (ui is null)
+                OnDisplaysChanged();
+            else
+                ui.Post(_ => OnDisplaysChanged(), null);
+        };
     }
+
+    /// <summary>The monitors changed: the notifications on screen move into the (possibly new) work area.</summary>
+    private void OnDisplaysChanged()
+    {
+        try
+        {
+            SyncPill();
+            if (_visible.Count == 0)
+                return;
+            var settings = _lastSettings;
+            var scale = DpiScale() * Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
+            var position = EffectivePosition(settings);
+            var area = PopupForm.WorkArea(NotificationScreen.Current);
+            var margin = _peek != PopupForm.PeekEdge.None ? 0 : (int)(16 * scale);
+            foreach (var popup in _visible)
+                popup.RestX = RestXFor(position, area, popup.Width, margin);
+            Layout(position, scale);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not move the notifications after the monitors changed", ex);
+        }
+    }
+
+    /// <summary>Where a notification rests horizontally in this work area for this position.</summary>
+    private static int RestXFor(PopupPosition position, Rectangle area, int width, int margin) => position switch
+    {
+        PopupPosition.LeftCenter => area.Left + margin,
+        PopupPosition.TopCenter or PopupPosition.BottomCenter or PopupPosition.Center => area.Left + (area.Width - width) / 2,
+        _ => area.Right - width - margin
+    };
 
     public void Show(NotificationContent content, Settings settings) => Show(content, settings, overLimit: false);
 
     /// <summary>Closes (uncounted) notifications that say the same as <paramref name="content"/>, on screen or waiting.</summary>
-    public void CloseSame(NotificationContent content)
+    public void CloseSame(NotificationContent content) => CloseWhere(other =>
+        other.Kind == content.Kind && other.TicketId == content.TicketId && other.Title == content.Title && other.Body == content.Body);
+
+    /// <summary>Closes (uncounted) the new-ticket notifications of a ticket someone took, on screen or waiting.</summary>
+    /// <param name="note">"Taken by Anna": a notification on screen says so for a few seconds before closing; null: closes at once.</param>
+    public void CloseNewTicket(long ticketId, string? note = null)
     {
-        bool Same(NotificationContent other) =>
-            other.Kind == content.Kind && other.TicketId == content.TicketId && other.Title == content.Title && other.Body == content.Body;
-        _pending.RemoveAll(w => Same(w.Content));
-        foreach (var popup in _visible.Where(p => Same(p.Content)).ToList())
+        bool Match(NotificationContent c) => c.Kind == NotificationKind.NewTicket && c.TicketId == ticketId && !c.IsSample;
+        if (note is null)
+        {
+            CloseWhere(Match);
+            return;
+        }
+        _pending.RemoveAll(w => Match(w.Content)); // not shown yet: nothing to say
+        foreach (var popup in _visible.Where(p => Match(p.Content)).ToList())
+            popup.ShowTaken(note);
+        _ticker?.RemoveWhere(Match);
+        SyncPill();
+    }
+
+    /// <summary>Notifications on screen, waiting in line or in the ticker (for tests).</summary>
+    internal int OpenCount => _visible.Count + _pending.Count + (_ticker?.Count ?? 0);
+
+    private void CloseWhere(Func<NotificationContent, bool> match)
+    {
+        _pending.RemoveAll(w => match(w.Content));
+        foreach (var popup in _visible.Where(p => match(p.Content)).ToList())
             popup.Dismiss(PopupForm.Result.None);
-        _ticker?.RemoveWhere(Same);
+        _ticker?.RemoveWhere(match);
         SyncPill();
     }
 
@@ -82,6 +146,9 @@ public sealed class PopupManager
             SyncPill();
             return;
         }
+        // Nothing on screen yet: this one, and the ones that join it, go to the monitor you're working on.
+        if (_visible.Count == 0 && (_ticker?.Count ?? 0) == 0)
+            NotificationScreen.FollowMouse();
         if (settings.Stacking == PopupStacking.Ticker)
         {
             ShowInTicker(content, settings);
@@ -89,23 +156,25 @@ public sealed class PopupManager
         }
 
         var palette = PopupPalette.For(settings.ActiveNotificationTheme);
-        var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
+        var screen = NotificationScreen.Current;
         var size = Math.Clamp(settings.NotificationSize, 100, 200) / 100f;
         var scale = DpiScale() * size; // margins and gaps grow with the notifications
 
         var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size,
-            settings.Stacking == PopupStacking.Achievement ? AchievementStyle.Decoration : null);
+            settings.Stacking == PopupStacking.Achievement ? AchievementStyle.Decoration : null, NotificationScreen.FontRatio);
         popup.StartHidden = settings.Stacking == PopupStacking.Pill && _pill is not { Expanded: true }; // the pill shows it
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.ClientChosen += (p, choice) => ClientChosen?.Invoke(p.Content, choice);
+        popup.CopyIdClicked += p => CopiedId?.Invoke(p.Content);
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
         _visible.Add(popup);
         _shownAt[popup] = DateTime.UtcNow;
+        Log.Info($"Notification shown ({_visible.Count} on screen): {content.LogName}");
         _awayWatch.Start();
         UpdateTurns();
 
-        var area = screen.WorkingArea;
+        var area = PopupForm.WorkArea(screen);
         var margin = (int)(16 * scale);
         var position = EffectivePosition(settings);
         _peek = PeekEdgeFor(settings);
@@ -140,6 +209,7 @@ public sealed class PopupManager
         Shown?.Invoke(content);
 
         var sound = settings.SoundFor(content);
+        SoundVolume.Apply(settings.SoundVolume);
         if (settings.Stacking == PopupStacking.Achievement && sound != ToastSound.Silent)
             ChipSounds.PlayAchievement(); // the game-style tune instead of its own sound, not both
         else
@@ -151,6 +221,7 @@ public sealed class PopupManager
     {
         _visible.Remove(popup);
         _shownAt.Remove(popup);
+        Log.Info($"Notification closed ({popup.Outcome}): {popup.Content.LogName}");
         UpdateTurns();
         _onClosed(popup.Content, popup.Outcome);
         Act(popup.Content, popup.Outcome, popup.ClickedLink);
@@ -170,6 +241,9 @@ public sealed class PopupManager
                 break;
             case PopupForm.Result.Open:
                 _onAction(content.ResolvedAction, content.TicketId);
+                break;
+            case PopupForm.Result.Take when clickedLink is { } assign:
+                _onAction(assign.Action, assign.TicketId); // assign to a colleague (the ▾ next to Take it)
                 break;
             case PopupForm.Result.Take:
                 _onAction(Notifier.ActionTake, content.TicketId);
@@ -238,7 +312,7 @@ public sealed class PopupManager
         }
         _ticker.PauseWhenAway = settings.PausePopupsWhenAway;
         _ticker.Add(content, settings.DisplaySecondsFor(content), PopupPalette.For(settings.ActiveNotificationTheme), settings.ActiveNotificationTheme,
-            DpiScale(), Math.Clamp(settings.NotificationSize, 100, 200) / 100f, TickerBar.AtTop(settings));
+            DpiScale(), Math.Clamp(settings.NotificationSize, 100, 200) / 100f, TickerBar.AtTop(settings), NotificationScreen.FontRatio);
         _awayWatch.Start();
         Announce(content, settings);
     }
@@ -293,6 +367,8 @@ public sealed class PopupManager
     {
         // Presenting or full screen counts as away: the ones on screen hide (and wait), new ones wait in line, and
         // afterwards it's like coming back (a summary instead of many, outdated ones dropped).
+        foreach (var popup in _visible)
+            popup.NoteClickable();
         var busy = !CanShowPopups();
         if (busy != _wasBusy)
         {
@@ -357,7 +433,7 @@ public sealed class PopupManager
             var keepItems = (await CheckAsync(oldItems, deep: true)).ToHashSet(ReferenceEqualityComparer.Instance);
             foreach (var item in oldItems.Where(c => !keepItems.Contains(c)))
             {
-                Log.Info($"No longer needed, closed: {item.Title}");
+                Log.Info($"No longer needed, closed: {item.LogName}");
                 ticker.Remove(item, PopupForm.Result.None);
             }
         }
@@ -368,7 +444,7 @@ public sealed class PopupManager
         var stillNeeded = (await CheckAsync(old.Select(p => p.Content).ToList(), deep: true)).ToHashSet(ReferenceEqualityComparer.Instance);
         foreach (var popup in old.Where(p => !stillNeeded.Contains(p.Content) && _visible.Contains(p)))
         {
-            Log.Info($"No longer needed, closed: {popup.Content.Title}");
+            Log.Info($"No longer needed, closed: {popup.Content.LogName}");
             popup.Dismiss(PopupForm.Result.None);
         }
     }
@@ -395,7 +471,7 @@ public sealed class PopupManager
     /// </summary>
     private void Layout(PopupPosition position, float scale)
     {
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        var area = PopupForm.WorkArea(NotificationScreen.Current);
         var margin = (int)(16 * scale);
         var gap = (int)(10 * scale);
 
@@ -532,6 +608,8 @@ public sealed class PopupManager
     /// </summary>
     public static bool CanShowPopups()
     {
+        if (PopupForm.AssumeUserPresent)
+            return true;
         const int QUNS_BUSY = 2, QUNS_RUNNING_D3D_FULL_SCREEN = 3, QUNS_PRESENTATION_MODE = 4, QUNS_APP = 7;
         try
         {
@@ -541,6 +619,40 @@ public sealed class PopupManager
         catch (Exception)
         {
             return true;
+        }
+    }
+
+    /// <summary>A Windows sound playing (they play on their own): to stop it, and until when it plays.</summary>
+    private static SoundPlayer? _windowsSound;
+    private static DateTime _windowsSoundEnds;
+
+    /// <summary>A notification sound is playing (the ▶ buttons in Settings show ■ meanwhile).</summary>
+    public static bool IsSoundPlaying => WavePlayer.IsPlaying || DateTime.UtcNow < _windowsSoundEnds;
+
+    /// <summary>Stops the sound that's playing (a song fades out quickly).</summary>
+    public static void StopSound()
+    {
+        ChipSounds.Stop();
+        try { _windowsSound?.Stop(); } catch (Exception) { /* already over */ }
+        _windowsSound = null;
+        _windowsSoundEnds = DateTime.MinValue;
+    }
+
+    /// <summary>How long a WAV file plays: its data size divided by its bytes per second (from the header).</summary>
+    private static TimeSpan WavLength(string path)
+    {
+        try
+        {
+            using var file = File.OpenRead(path);
+            var header = new byte[32];
+            if (file.Read(header, 0, 32) < 32)
+                return TimeSpan.FromSeconds(1);
+            var bytesPerSecond = BitConverter.ToInt32(header, 28);
+            return bytesPerSecond > 0 ? TimeSpan.FromSeconds(Math.Min(10, (file.Length - 44) / (double)bytesPerSecond)) : TimeSpan.FromSeconds(1);
+        }
+        catch (Exception)
+        {
+            return TimeSpan.FromSeconds(1);
         }
     }
 
@@ -568,7 +680,12 @@ public sealed class PopupManager
         {
             var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media", file);
             if (File.Exists(path))
-                new SoundPlayer(path).Play();
+            {
+                try { _windowsSound?.Stop(); } catch (Exception) { /* already over */ }
+                _windowsSound = new SoundPlayer(path);
+                _windowsSound.Play();
+                _windowsSoundEnds = DateTime.UtcNow + WavLength(path);
+            }
             else
                 SystemSounds.Asterisk.Play();
         }
@@ -578,11 +695,8 @@ public sealed class PopupManager
         }
     }
 
-    private static float DpiScale()
-    {
-        using var g = Graphics.FromHwnd(IntPtr.Zero);
-        return g.DpiX / 96f;
-    }
+    /// <summary>The scaling of the monitor notifications appear on (each monitor its own: laptop 150 %, big one 100 %).</summary>
+    private static float DpiScale() => NotificationScreen.Scale;
 
     [DllImport("shell32.dll")]
     private static extern int SHQueryUserNotificationState(out int state);

@@ -66,8 +66,35 @@ public class TicketChangeTests
         Assert.Equal(NotificationKind.MyTicket, shown.Kind);
         Assert.True(shown.IsTicketNotification); // counted in the statistics
         Assert.Equal("#500 Login broken", shown.Title);
-        Assert.Equal("**Jane Customer** replied: Still broken for us", shown.Body);
+        Assert.Equal("**Jane Customer**\n“Still broken for us”", shown.Body);
         Assert.Null(shown.Context);
+    }
+
+    [Fact]
+    public async Task A_reply_without_text_says_it_was_a_file_or_image()
+    {
+        _zendesk.AddAssigned(505, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(505, Customer, ""); // only a screenshot: Zendesk sends no text
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal("**Jane Customer** sent a file or image", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
+    public async Task My_tickets_client_has_Options_too_for_important()
+    {
+        _zendesk.Organizations[70] = "Contoso";
+        var ticket = _zendesk.AddAssigned(501, "normal", subject: "Search slow");
+        (ticket.OrganizationId, ticket.GroupId) = (70, 33); // a group I don't monitor
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(501, Customer, "Any news?");
+        await watcher.PollAsync(CancellationToken.None);
+
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal((70L, "Contoso", 33L), (shown.MuteTarget!.Id, shown.MuteTarget.Name, shown.MuteTarget.GroupId)); // its menu offers only Important
     }
 
     [Fact]
@@ -84,7 +111,7 @@ public class TicketChangeTests
 
         var shown = Assert.Single(TakeShown());
         Assert.Equal("Acme Corp", shown.Client);
-        Assert.Equal("**Jane Customer** replied: Still broken for us", shown.Body); // already named: no extra line
+        Assert.Equal("**Jane Customer**\n“Still broken for us”", shown.Body); // already named: no extra line
 
         _zendesk.Change(510, Colleague, "status", "open", "pending");
         await watcher.PollAsync(CancellationToken.None);
@@ -133,7 +160,7 @@ public class TicketChangeTests
         var wrote = _zendesk.Audits[540][^1].CreatedAt;
         Assert.Equal(wrote.AddHours(1), shown.SlaDue);
         Assert.False(shown.SlaFirstReply);
-        Assert.StartsWith("!!Reply due in ", shown.DisplayBody(wrote.AddMinutes(10)));
+        Assert.Contains("\t!!Reply due in ", shown.DisplayBody(wrote.AddMinutes(10))); // at the right end of the first line
 
         // A colleague answered: nobody is waiting, no deadline.
         _zendesk.Reply(540, Colleague, "Looking into it");
@@ -176,12 +203,12 @@ public class TicketChangeTests
         // The customer replies on a Pending ticket: Zendesk reopens it in the same update.
         _zendesk.ReplyAndChange(530, Customer, "Still broken", ("status", "pending", "open"));
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("**Jane Customer** replied: Still broken", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Jane Customer**\n“Still broken”", Assert.Single(TakeShown()).Body);
 
         // An agent replying and setting Pending: worth saying.
         _zendesk.ReplyAndChange(530, Colleague, "Can you try again?", ("status", "open", "pending"));
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("**Sam Colleague** replied: Can you try again?\nStatus Open → Pending (Sam Colleague)", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Sam Colleague**\n“Can you try again?”\nStatus Open → Pending (Sam Colleague)", Assert.Single(TakeShown()).Body);
 
         // Reopened without a reply: shown.
         _zendesk.Change(530, Colleague, "status", "pending", "open");
@@ -199,8 +226,8 @@ public class TicketChangeTests
         await watcher.PollAsync(CancellationToken.None);
 
         var body = Assert.Single(TakeShown()).Body;
-        Assert.Equal("Jane Customer replied: This is **really** urgent", Markdown.Strip(body));
-        Assert.Equal([new Markdown.Run("Jane Customer", true), new Markdown.Run(" replied: This is **really** urgent", false)], Markdown.Parse(body));
+        Assert.Equal("Jane Customer\n“This is **really** urgent”", Markdown.Strip(body));
+        Assert.Equal([new Markdown.Run("Jane Customer", true), new Markdown.Run("\n“This is **really** urgent”", false)], Markdown.Parse(body));
     }
 
     [Fact]
@@ -246,7 +273,7 @@ public class TicketChangeTests
 
         _zendesk.Reply(504, Customer, "Another one");
         await watcher.PollAsync(CancellationToken.None);
-        Assert.Equal("**Jane Customer** replied: Another one", Assert.Single(TakeShown()).Body);
+        Assert.Equal("**Jane Customer**\n“Another one”", Assert.Single(TakeShown()).Body);
     }
 
     // ---------------------------------------------------------------- CC / following
@@ -302,5 +329,89 @@ public class TicketChangeTests
         Assert.Equal(["urgent", "high", "normal", "low"], settings.MyTicketPriorities);
         Assert.Equal(["urgent", "high"], settings.CcTicketPriorities);
         await Task.CompletedTask;
+    }
+    // ---------------------------------------------------------------- automatic changes
+
+    private const long ServiceAccount = 70;
+
+    private void AddServiceAccount() =>
+        _zendesk.Users[ServiceAccount] = new User { Id = ServiceAccount, Name = "Service User", Role = "admin", Tags = ["serviceaccountuser"] };
+
+    [Fact]
+    public async Task Auto_reply_and_routing_by_a_service_account_stay_quiet()
+    {
+        AddServiceAccount();
+        _zendesk.AddAssigned(560, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.ReplyAndChange(560, ServiceAccount, "Your request has reached Premium Support", ("group_id", "1", "10"));
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Empty(TakeShown());
+    }
+
+    [Fact]
+    public async Task Automatic_changes_notify_when_ticked()
+    {
+        AddServiceAccount();
+        _settings.NotifyAutomaticChanges = true;
+        _zendesk.AddAssigned(561, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.Reply(561, ServiceAccount, "Your request has reached Premium Support");
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal("**Service User**\n“Your request has reached Premium Support”", Assert.Single(TakeShown()).Body);
+    }
+
+    [Fact]
+    public async Task A_status_change_by_a_service_account_still_notifies()
+    {
+        AddServiceAccount();
+        _zendesk.AddAssigned(562, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.Change(562, ServiceAccount, "status", "pending", "solved");
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Single(TakeShown());
+    }
+
+    [Fact]
+    public async Task A_trigger_added_to_a_customer_reply_is_left_out()
+    {
+        _zendesk.AddAssigned(563, "high", subject: "Login broken");
+        var watcher = await StartAsync();
+
+        _zendesk.ReplyAndChange(563, Customer, "Still broken", ("priority", "high", "urgent"));
+        _zendesk.Audits[563][^1].Events[1].Via = new AuditVia { Channel = "rule" }; // a trigger raised the priority
+        await watcher.PollAsync(CancellationToken.None);
+
+        var shown = Assert.Single(TakeShown());
+        Assert.Contains("Still broken", shown.Body);
+        Assert.DoesNotContain("Urgent", shown.Body);
+    }
+
+    // ---------------------------------------------------------------- fewer requests
+
+    [Fact]
+    public async Task One_check_reads_new_my_and_CCd_tickets_in_one_request()
+    {
+        _settings.WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }];
+        _zendesk.AddAssigned(570, "high", subject: "Mine");
+        AddCc(571, "urgent");
+        var watcher = await StartAsync();
+        _zendesk.Reply(570, Customer, "Any news?");
+        _zendesk.Reply(571, Customer, "Still down");
+        _zendesk.Requested.Clear();
+
+        await watcher.PollAsync(CancellationToken.None);
+
+        Assert.Equal(2, TakeShown().Count);                                                    // both changes still notify
+        // One re-read for all parts (the fake has no SLA timers, so each notification asks for its own afterwards).
+        var reads = _zendesk.Requested.Where(url => url.Contains("/tickets/show_many.json") && !url.Contains("ids=570&") && !url.Contains("ids=571&")).ToList();
+        var read = Assert.Single(reads);
+        Assert.Contains("570", read);
+        Assert.Contains("571", read);
     }
 }

@@ -3,14 +3,23 @@ using System.Globalization;
 namespace ZendeskWatcher.UI;
 
 /// <summary>
-/// The choices for a client, as a menu: on a notification ("Mute ▾") and on the Clients page (click a client).
-/// Normal, Important, Only urgent, Mute for 1 day / 1 week / for good, and on the Clients page its own sound.
+/// The choices for a client, as a menu: on a notification ("Options ▾") and on the Clients page (click a client).
+/// Normal, Important, Only urgent, Mute until my shift ends / until my next shift / for 1 week / for good, and on the
+/// Clients page its own sound.
 /// </summary>
 internal static class ClientMenu
 {
+    /// <summary>Your working hours and days as saved (Notifications → Working hours), for "until my shift ends / next shift".</summary>
+    public static Func<(int Start, int End, IReadOnlyCollection<DayOfWeek> Days)>? MyHours { get; set; }
+
+    private static DateTimeOffset LocalToUtc(DateTime local) => new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local)).ToUniversalTime();
+
     /// <param name="current">The client with its current choice; the chosen one comes back as a copy.</param>
     /// <param name="sounds">Sound names to offer (Clients page); null for none (notifications).</param>
-    public static ContextMenuStrip Build(ClientChoice current, Action<ClientChoice> chosen, IReadOnlyList<(ToastSound Sound, string Name)>? sounds = null)
+    /// <param name="ownTicket">On one of my own (or CC'd) tickets: only what applies there (Normal, Important), and a
+    /// greyed line that these always notify (muting and only urgent are for new and colleagues' tickets).</param>
+    public static ContextMenuStrip Build(ClientChoice current, Action<ClientChoice> chosen, IReadOnlyList<(ToastSound Sound, string Name)>? sounds = null,
+        bool ownTicket = false)
     {
         var now = DateTimeOffset.UtcNow;
         var menu = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true };
@@ -33,14 +42,29 @@ internal static class ClientMenu
         var own = current.Mode == ClientMode.Muted ? ClientMode.Normal : current.Mode;
         Item("Normal", own == ClientMode.Normal, c => WithMode(c, ClientMode.Normal));
         Item("Important ★  – always, stays until closed", own == ClientMode.Important, c => WithMode(c, ClientMode.Important));
-        Item("Only urgent  – Urgent (P1) and High (P2)", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
+        if (ownTicket)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(new ToolStripMenuItem("Your own tickets always notify: muting is for new and colleagues' tickets") { Enabled = false });
+            return Finish(menu);
+        }
+        Item("Only urgent  – P1 and P2", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
         menu.Items.Add(new ToolStripSeparator());
         var muted = current.IsMutedAt(now);
         var mutedFor = muted && current.MutedUntil is { } until ? until : (DateTimeOffset?)null;
         if (muted)
             Item("Unmute", false, c => WithMute(c, false, null));
-        Item(mutedFor is { } u ? $"Muted until {Clock.DayTime(u.ToLocalTime().DateTime)}" : "Mute for 1 day",
-            mutedFor is not null, c => WithMute(c, true, now.AddDays(1)));
+        if (mutedFor is { } u)
+            Item($"Muted until {Clock.DayTime(u.ToLocalTime().DateTime)}", true, c => c);
+        // Until your shift ends (only while you're in it) or your next one starts (Notifications → Working hours).
+        var (start, end, days) = MyHours?.Invoke() ?? (8, 17, Tracking.TicketRules.Weekdays);
+        var local = DateTime.Now;
+        if (Tracking.TicketRules.ShiftEnd(local, start, end, days) is { } shiftEnd)
+            Item($"Mute until my shift ends · {Clock.Time(shiftEnd)}", false, c => WithMute(c, true, LocalToUtc(shiftEnd)));
+        else // outside your hours there's no shift to end: shown greyed, so it's known to exist
+            Item("Mute until my shift ends · during your working hours", false, c => c).Enabled = false;
+        var nextShift = Tracking.TicketRules.NextShiftStart(local, start, days);
+        Item($"Mute until my next shift · {Clock.DayTime(nextShift)}", false, c => WithMute(c, true, LocalToUtc(nextShift)));
         Item("Mute for 1 week", false, c => WithMute(c, true, now.AddDays(7)));
         Item("Mute", muted && mutedFor is null, c => WithMute(c, true, null));
 
@@ -61,12 +85,18 @@ internal static class ClientMenu
                 };
                 sound.DropDownItems.Add(item);
             }
-            AddSound("By notification type (Look & sound)", null);
+            AddSound("By notification type (Look && sound)", null); // && shows "&" in a menu (one & marks a shortcut key)
             foreach (var (value, text) in sounds)
                 AddSound(text, value);
             menu.Items.Add(sound);
         }
 
+        return Finish(menu);
+    }
+
+    /// <summary>Themed, and gone after it closes.</summary>
+    private static ContextMenuStrip Finish(ContextMenuStrip menu)
+    {
         var palette = Theme.Current;
         ThemedMenu.Apply(menu, palette);
         foreach (var sub in menu.Items.OfType<ToolStripMenuItem>().Where(i => i.HasDropDownItems))

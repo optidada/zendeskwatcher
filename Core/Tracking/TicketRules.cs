@@ -44,7 +44,7 @@ public static class TicketRules
     public static ClientMode ClientMode(Ticket ticket, Settings settings, DateTimeOffset now) =>
         settings.ClientChoiceFor(ticket.OrganizationId)?.ModeAt(now) ?? ZendeskWatcher.ClientMode.Normal;
 
-    /// <summary>The confirmation after a choice from a notification's "Mute ▾" menu: a title and what it means.</summary>
+    /// <summary>The confirmation after a choice from a notification's "Options ▾" menu: a title and what it means.</summary>
     public static (string Title, string Body) ClientChoiceConfirmation(ClientChoice choice, DateTimeOffset now)
     {
         const string where = "Change it under Settings → Groups → Clients.";
@@ -81,6 +81,22 @@ public static class TicketRules
     /// </summary>
     public static bool IsCustomer(User? author, Ticket ticket, string? myEmail) =>
         author?.Role == "end-user" && (author.Id == ticket.RequesterId || !SameDomain(author.Email, myEmail));
+
+    /// <summary>
+    /// An integration account rather than a person: tagged "serviceaccountuser" in Zendesk (e.g. the "Service User"
+    /// that greets new tickets and routes them, through the API, so its changes aren't marked as a trigger's).
+    /// </summary>
+    public static bool IsServiceAccount(User? user) =>
+        user?.Tags?.Any(t => string.Equals(t, "serviceaccountuser", StringComparison.OrdinalIgnoreCase)) == true;
+
+    /// <summary>
+    /// A change nobody made by hand: by a service account (<see cref="IsServiceAccount"/>), or by a Zendesk trigger or
+    /// automation (via "rule", on the update or on the event a trigger added to someone's update). Status changes never
+    /// count as automatic: a ticket reopened or closed as "No response" matters whoever did it.
+    /// </summary>
+    public static bool IsAutomaticChange(AuditEvent ev, Audit audit, bool byServiceAccount) =>
+        ev is not { Type: "Change", FieldName: "status" or "custom_status_id" } &&
+        (byServiceAccount || audit.Via?.Channel == "rule" || ev.Via?.Channel == "rule");
 
     private static bool SameDomain(string? a, string? b)
     {
@@ -159,7 +175,7 @@ public static class TicketRules
         if (c.Colleagues > 0)
             lines.Add($"**{c.Colleagues}** waiting on colleagues' tickets");
         if (c.QuietEscalated > 0)
-            lines.Add($"**{c.QuietEscalated}** Escalated, no reply to the customer for {EscalatedQuietFor.TotalDays:0}+ days");
+            lines.Add($"**{c.QuietEscalated}** Escalated, no reply to the client for {EscalatedQuietFor.TotalDays:0}+ days");
         if (c.QuietPending > 0)
             lines.Add($"**{c.QuietPending}** Pending, no update for {PendingQuietFor.TotalDays:0}+ days");
         if (c.Attention == 0 && !c.NoGroups)
@@ -198,7 +214,47 @@ public static class TicketRules
                 // No break inside "1 Escalated (1 P1)": the line wraps between statuses.
                 return $"{g.Count()}{Nbsp}{Markdown.Escape(g.Key).Replace(' ', Nbsp)}" + (urgent.Count > 0 ? $"{Nbsp}({string.Join($",{Nbsp}", urgent)})" : "");
             });
-        return $"Your tickets: {string.Join(" · ", parts)}";
+        return $"Your tickets:\n{string.Join(" · ", parts)}"; // the counts below the heading, like "To work on:"
+    }
+
+    /// <summary>Catch up lists at most this many of the tickets you're working on.</summary>
+    public const int MaxWorkingOn = 5;
+
+    /// <summary>What "+N more" under "To work on" opens in Zendesk: all your New and Open tickets (Open-like statuses too).</summary>
+    public const string WorkingOnSearch = "assignee:me status<pending";
+
+    /// <summary>One of your tickets for Catch up's "To work on" list.</summary>
+    public readonly record struct WorkItem(long Id, string Subject, string StatusName, string? Status, string? Priority,
+        DateTimeOffset? SlaDue, DateTimeOffset UpdatedAt);
+
+    /// <summary>
+    /// Catch up's reminder of what you're working on: your New, Open and In progress tickets (not Pending, On-hold or
+    /// Escalated: those wait on someone else), most urgent first, then the nearest SLA, then the longest untouched.
+    /// "#123 [P1] Subject" per line, at most <see cref="MaxWorkingOn"/>, then "+N more" (a link: all of them in Zendesk,
+    /// <see cref="WorkingOnSearch"/>). Null when there are none.
+    /// </summary>
+    public static string? WorkingOnText(IEnumerable<WorkItem> tickets)
+    {
+        static int Rank(string? priority) => priority switch { "urgent" => 0, "high" => 1, "low" => 3, _ => 2 };
+        var work = tickets
+            .Where(t => t.Status is "new" or "open" && !TeamWorkload.IsEscalatedStatus(t.StatusName))
+            .OrderBy(t => Rank(t.Priority))
+            .ThenBy(t => t.SlaDue ?? DateTimeOffset.MaxValue)
+            .ThenBy(t => t.UpdatedAt)
+            .ToList();
+        if (work.Count == 0)
+            return null;
+        var lines = work.Take(MaxWorkingOn).Select(t =>
+        {
+            var tag = t.Priority is "urgent" or "high" ? Markdown.Tag(t.Priority) + Nbsp : "";
+            var subject = TextCleanup.Plain(t.Subject);
+            if (subject.Length > 60)
+                subject = subject[..59].TrimEnd() + "…";
+            return $"#{t.Id} {tag}{Markdown.Escape(subject)}";
+        }).ToList();
+        if (work.Count > MaxWorkingOn)
+            lines.Add($"+{work.Count - MaxWorkingOn} more");
+        return "To work on:\n" + string.Join("\n", lines);
     }
 
     /// <summary>A priority in a notification's text: "Urgent [P1]" (a tag, kept on the line with its word); "None" for none.</summary>
@@ -242,6 +298,56 @@ public static class TicketRules
     public static bool IsReallyUnassigned(Ticket ticket, WatchedGroup group) =>
         ticket.AssigneeId is null && ticket.IsOpen && ticket.GroupId == (group.IsNoGroup ? null : group.Id);
 
+    /// <summary>Someone took the ticket, or it was solved: its new-ticket notification is no longer needed.</summary>
+    public static bool IsTaken(Ticket ticket) => ticket.AssigneeId is not null || !ticket.IsOpen;
+
+    /// <summary>
+    /// When a ticket that came in unassigned got its first assignee, by whom (the audit's author), and to whom, from its
+    /// audits. Null when it was created with an assignee already (an agent's own ticket, an assignment rule at creation)
+    /// or never assigned: then nobody "took" it.
+    /// </summary>
+    public static (DateTimeOffset At, long AuthorId, long AssigneeId, bool ByRule)? FirstAssignment(IEnumerable<Audit> audits)
+    {
+        var ordered = audits.OrderBy(a => a.CreatedAt).ToList();
+        foreach (var audit in ordered)
+            foreach (var ev in audit.Events.Where(e => e.FieldName == "assignee_id"))
+            {
+                var assignee = UserIdOf(ev.Value);
+                if (ev.Type == "Create")
+                {
+                    if (assignee is not null)
+                        return null; // created assigned
+                    continue;
+                }
+                if (ev.Type == "Change" && assignee is { } id)
+                    return (audit.CreatedAt, audit.AuthorId, id, audit.Via?.Channel == "rule" || ev.Via?.Channel == "rule");
+            }
+        return null;
+    }
+
+    /// <summary>A user id in an audit value: a number, or a number as text; null for none.</summary>
+    private static long? UserIdOf(System.Text.Json.JsonElement? value) => value switch
+    {
+        { ValueKind: System.Text.Json.JsonValueKind.Number } v when v.TryGetInt64(out var n) => n,
+        { ValueKind: System.Text.Json.JsonValueKind.String } v when long.TryParse(v.GetString(), out var n) => n,
+        _ => null
+    };
+
+    /// <summary>
+    /// "**Anna** took it after 2 min", "**Bob** assigned it to **Anna** after 2 min", or "Assigned to **Anna** by a rule
+    /// after 2 min": the line under a ticket someone took before the app saw it unassigned. Names are escaped here.
+    /// </summary>
+    public static string TakenLine(string assignee, string? assigner, bool byRule, TimeSpan after)
+    {
+        var when = after < TimeSpan.FromMinutes(1) ? "within a minute"
+            : after < TimeSpan.FromHours(1) ? $"after {(int)after.TotalMinutes} min"
+            : $"after {(int)after.TotalHours} h {after.Minutes} min";
+        var to = $"**{Markdown.Escape(assignee)}**";
+        return byRule ? $"Assigned to {to} by a rule {when}"
+            : assigner is null || assigner == assignee ? $"{to} took it {when}"
+            : $"**{Markdown.Escape(assigner)}** assigned it to {to} {when}";
+    }
+
     /// <summary>Monday to Friday: the working days unless chosen otherwise.</summary>
     public static readonly DayOfWeek[] Weekdays =
         [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];
@@ -254,9 +360,38 @@ public static class TicketRules
         !(workDays ?? Weekdays).Contains(local.DayOfWeek) ||
         local.Hour < startHour || local.Hour >= endHour;
 
+    /// <summary>When the working shift you're in ends (local time), or null outside your working hours.</summary>
+    public static DateTime? ShiftEnd(DateTime local, int startHour, int endHour, IReadOnlyCollection<DayOfWeek>? workDays = null) =>
+        IsOutsideHours(local, startHour, endHour, workDays) ? null : local.Date.AddHours(endHour);
+
+    /// <summary>When your next working shift starts (local time): later today if it hasn't started yet, else the next working day.</summary>
+    public static DateTime NextShiftStart(DateTime local, int startHour, IReadOnlyCollection<DayOfWeek>? workDays = null)
+    {
+        var days = workDays is { Count: > 0 } chosen ? chosen : Weekdays;
+        for (var day = local.Date; ; day = day.AddDays(1))
+            if (days.Contains(day.DayOfWeek) && day.AddHours(startHour) > local)
+                return day.AddHours(startHour);
+    }
+
     /// <summary>Whether a ticket's priority is one of the chosen ones. No priority counts as normal.</summary>
-    public static bool MatchesPriority(string? priority, ICollection<string> chosen) =>
+    public static bool MatchesPriority(string? priority, IEnumerable<string> chosen) =>
         chosen.Contains(string.IsNullOrEmpty(priority) ? "normal" : priority);
+
+    /// <summary>Low 0, normal (or none) 1, high 2, urgent 3.</summary>
+    public static int PriorityRank(string? priority) => priority?.ToLowerInvariant() switch
+    {
+        "urgent" => 3,
+        "high" => 2,
+        "low" => 0,
+        _ => 1
+    };
+
+    /// <summary>
+    /// A new unassigned ticket kept quiet for its priority notifies once it's raised to a ticked one while still
+    /// unassigned. Ticking the priority later doesn't count as raised (no burst of old tickets).
+    /// </summary>
+    public static bool WasRaisedToWanted(string? quietPriority, string? priority, IEnumerable<string> chosen) =>
+        quietPriority is not null && MatchesPriority(priority, chosen) && PriorityRank(priority) > PriorityRank(quietPriority);
 
     /// <summary>"You're CC" or "You follow" when the user is on the ticket that way, otherwise null.</summary>
     public static string? Involvement(Ticket ticket, long me) =>

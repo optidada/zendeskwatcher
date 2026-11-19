@@ -27,6 +27,41 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _checkNowItem = new("Check now");
     private readonly ToolStripMenuItem _openZendeskItem = new("Open Zendesk");
 
+    /// <summary>
+    /// Waits until the next check: <see cref="Settings.CheckInterval"/> (3 minutes), or <see cref="Settings.AwayCheckInterval"/>
+    /// (10) while you're away. Back at the PC after being away: right away, so what came meanwhile shows at once.
+    /// "Check now", Catch up and taking a ticket start it early (<see cref="WakeUp"/>). Returns true for a quick check of
+    /// new tickets only: halfway, after <see cref="Settings.NewTicketsCheckInterval"/>, while you're at the PC.
+    /// </summary>
+    /// <param name="started">When the last full check ended.</param>
+    /// <param name="quickDone">The quick check since then was done.</param>
+    private async Task<bool> WaitForNextCheckAsync(DateTime started, bool quickDone, CancellationToken ct)
+    {
+        var wasAway = false;
+        while (true)
+        {
+            var away = UI.Popups.PopupForm.UserAwayFor(Settings.AwayForChecks);
+            var waited = DateTime.UtcNow - started;
+            if (waited >= (away ? Settings.AwayCheckInterval : Settings.CheckInterval))
+                return false;
+            if (wasAway && !away)
+            {
+                Log.Info("Back at the PC: checking now");
+                return false;
+            }
+            if (!away && !quickDone && waited >= Settings.NewTicketsCheckInterval)
+                return true;
+            wasAway |= away;
+            // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
+            using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var woken = await Task.WhenAny(Task.Delay(TimeSpan.FromSeconds(15), waiting.Token), _wakeUp.WaitAsync(waiting.Token));
+            waiting.Cancel();
+            ct.ThrowIfCancellationRequested();
+            if (woken is Task<bool> { IsCompletedSuccessfully: true, Result: true })
+                return false;
+        }
+    }
+
     /// <summary>Starts the next check now ("Check now", Catch up, after taking a ticket); at most one waits.</summary>
     private void WakeUp()
     {
@@ -34,6 +69,7 @@ public sealed class TrayAppContext : ApplicationContext
             _wakeUp.Release();
     }
     private readonly ToolStripMenuItem _catchUpItem = new("Catch up");
+    private readonly GlobalHotkey _catchUpHotkey;
 
     /// <summary>Catch up was asked for: runs right after the next check (which is started at once).</summary>
     private bool _catchUpRequested;
@@ -58,6 +94,8 @@ public sealed class TrayAppContext : ApplicationContext
     public TrayAppContext()
     {
         Current = this;
+        UI.ClientMenu.MyHours = () => (_settings.MyWorkdayStartHour, _settings.MyWorkdayEndHour, _settings.MyWorkDays);
+        UI.SoundVolume.Apply(_settings.SoundVolume); // Look & sound → Volume, also for previews before any notification
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _notifier = new Notifier(HandleAction) { Settings = _settings, StillNeeded = StillNeededAsync };
         _notifier.ClientChoiceRequested += SetClientChoice;
@@ -71,6 +109,10 @@ public sealed class TrayAppContext : ApplicationContext
         _checkNowItem.Click += (_, _) => WakeUp();
         menu.Items.Add(_catchUpItem);
         _catchUpItem.Click += (_, _) => _ = RequestCatchUp();
+        // Ctrl+Alt+Z from anywhere (fixed; skipped if another program has it). Shown next to the menu item.
+        _catchUpHotkey = new GlobalHotkey(Keys.Z, control: true, alt: true, shift: false, win: false, () => _ = RequestCatchUp());
+        if (_catchUpHotkey.Registered)
+            _catchUpItem.ShortcutKeyDisplayString = _catchUpHotkey.Text;
         menu.Items.Add(_pauseItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => ShowSettings());
@@ -171,6 +213,10 @@ public sealed class TrayAppContext : ApplicationContext
             case Notifier.ActionTake when ticketId is { } takeId:
                 _ = TakeTicketAsync(takeId);
                 break;
+            case var assign when assign.StartsWith(NotificationActions.AssignPrefix, StringComparison.Ordinal) && ticketId is { } assignId:
+                var parts = assign[NotificationActions.AssignPrefix.Length..].Split(':', 2);
+                _ = AssignTicketAsync(assignId, long.Parse(parts[0]), parts[1]);
+                break;
             case Notifier.ActionUpdate:
                 _updates.RestartToUpdate();
                 break;
@@ -269,15 +315,21 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _browser ??= new BrowserSession();
         _browser.Configure(settings.BaseUrl);
+        _browser.KeepDescriptions = settings.ShowCommentText; // off: the customer's message isn't even read
         return _browser;
     }
 
     private async Task RunLoopAsync(IZendeskSession session, CancellationToken ct)
     {
+        // Colleagues and authors looked up once a day, not after every start or save (staff only, in the cache folder).
+        if (ZendeskClient.Users?.Subdomain != _settings.Subdomain)
+            ZendeskClient.Users = new UserStore(Path.Combine(AppPaths.DataDir, "cache", "users.json"), _settings.Subdomain);
         var watcher = new TicketWatcher(_settings, new ZendeskClient(_settings, session), _notifier);
         watcher.TakeHistoryFrom(_lastWatcher); // a save restarts checking: the 90 days of tickets aren't read again
         _lastWatcher = watcher;
         var initialized = false;
+        var quick = false; // this round: only new tickets (between two full checks)
+        var lastFull = DateTime.UtcNow;
 
         while (!ct.IsCancellationRequested)
         {
@@ -290,49 +342,63 @@ public sealed class TrayAppContext : ApplicationContext
                     try { await watcher.InitializeAsync(ct); }
                     finally { _tray.EndBusy(); }
                     _taker = (new ZendeskClient(_settings, session), watcher.Me!.Id);
+                    // The ▾ next to Take it: who could take a new ticket, read by the watcher checking now.
+                    UI.Popups.AssignMenu.Find = id => _lastWatcher is { Me: not null } current
+                        ? current.FindCandidatesAsync(id, CancellationToken.None)
+                        : Task.FromResult<(List<AssignCandidate>, string?)>(([], "Not signed in yet."));
                     _me = watcher.Me;
                     initialized = true;
                     // Signed in: show it right away; the first check (a few seconds) then sets the state (green while online).
                     _tray.SetStatus("Signed in · checking…", _tray.State == TrayState.Off ? TrayState.Ok : null);
                 }
 
-                _tray.BeginBusy();
-                try { await watcher.PollAsync(ct); }
-                finally { _tray.EndBusy(); }
-                _signInPromptShown = false; // signed in again: a later failure may prompt again
-
-                // Once per app run: Catch up as the greeting (also right after signing in for the first time). Without a
-                // monitored group it's shown anyway: its first line says to choose one (Settings → Groups).
-                // Not while the first-start guide is still open: it greets when the guide is done (or skipped).
-                var greet = false;
-                if (!_summaryShown && _settingsForm?.Guiding != true)
+                if (quick)
                 {
-                    _summaryShown = true;
-                    greet = _settings.ShowStartSummary || _settings.WatchedGroups.Count == 0;
+                    // The quick check halfway: new tickets only; Catch up and the rest wait for the full check.
+                    await watcher.PollAsync(ct, newTicketsOnly: true);
                 }
-
-                WatchStatus.Update(watcher.Snapshot());
-                // Asked for, at the start, or by itself once when your working day starts (Notifications → Working hours).
-                if (_catchUpRequested || greet || watcher.DayStartCatchUpDue())
+                else
                 {
-                    var requested = _catchUpRequested;
-                    _catchUpRequested = false;
-                    var reason = requested ? CatchUpReason.Requested : greet ? CatchUpReason.AppStart : CatchUpReason.DayStart;
-                    try { await watcher.CatchUpAsync(ct, reason: reason); }
-                    catch (Exception ex) when (ex is not (OperationCanceledException or AuthRequiredException))
+                    _tray.BeginBusy();
+                    try { await watcher.PollAsync(ct); }
+                    finally { _tray.EndBusy(); }
+                    _signInPromptShown = false; // signed in again: a later failure may prompt again
+
+                    // Once per app run: Catch up as the greeting (also right after signing in for the first time). Without a
+                    // monitored group it's shown anyway: its first line says to choose one (Settings → Groups).
+                    // Not while the first-start guide is still open: it greets when the guide is done (or skipped).
+                    var greet = false;
+                    if (!_summaryShown && _settingsForm?.Guiding != true)
                     {
-                        Log.Error("Catch up failed", ex);
-                        _notifier.ShowInfo("Catch up didn't work", ex.Message);
+                        _summaryShown = true;
+                        // Only the first start of the day: restarts and updates later that day don't greet again.
+                        greet = (_settings.ShowStartSummary && !watcher.CaughtUpToday) || _settings.WatchedGroups.Count == 0;
                     }
-                    finally
+
+                    WatchStatus.Update(watcher.Snapshot());
+                    // Asked for, at the start, or by itself once when your working day starts (Notifications → Working hours).
+                    if (_catchUpRequested || greet || watcher.DayStartCatchUpDue())
                     {
-                        if (requested)
+                        var requested = _catchUpRequested;
+                        _catchUpRequested = false;
+                        var reason = requested ? CatchUpReason.Requested : greet ? CatchUpReason.AppStart : CatchUpReason.DayStart;
+                        try { await watcher.CatchUpAsync(ct, reason: reason); }
+                        catch (Exception ex) when (ex is not (OperationCanceledException or AuthRequiredException))
                         {
-                            _catchUpDone?.TrySetResult();
-                            _catchUpDone = null;
+                            Log.Error("Catch up failed", ex);
+                            _notifier.ShowInfo("Catch up didn't work", ex.Message);
+                        }
+                        finally
+                        {
+                            if (requested)
+                            {
+                                _catchUpDone?.TrySetResult();
+                                _catchUpDone = null;
+                            }
                         }
                     }
                 }
+                ZendeskClient.Users?.Save();
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {Clock.Time(DateTime.Now)}";
                 _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
                     watcher.UnassignedCount > 0 ? TrayState.Attention : TrayState.Ok);
@@ -344,6 +410,10 @@ public sealed class TrayAppContext : ApplicationContext
             catch (AuthRequiredException)
             {
                 Log.Info("Sign-in required");
+                // A Catch up asked for can't run until signed in again: the Account page's spinner stops.
+                _catchUpRequested = false;
+                _catchUpDone?.TrySetResult();
+                _catchUpDone = null;
                 _tray.SetStatus("Sign-in required", TrayState.Off, iconHint: "click this icon to sign in");
                 WatchStatus.Stopped("Not checking: your Zendesk session expired. Sign in on the Account page.");
                 PromptSignIn();
@@ -358,11 +428,9 @@ public sealed class TrayAppContext : ApplicationContext
 
             try
             {
-                // Cancel the losing wait: a wake-up wait left behind would swallow the next "Check now".
-                using var waiting = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                await Task.WhenAny(Task.Delay(Settings.CheckInterval, waiting.Token), _wakeUp.WaitAsync(waiting.Token));
-                waiting.Cancel();
-                ct.ThrowIfCancellationRequested();
+                if (!quick)
+                    lastFull = DateTime.UtcNow;
+                quick = await WaitForNextCheckAsync(lastFull, quickDone: quick, ct);
             }
             catch (OperationCanceledException)
             {
@@ -402,7 +470,7 @@ public sealed class TrayAppContext : ApplicationContext
     }
 
     /// <summary>
-    /// A choice from a notification's "Mute ▾" menu: saved right away for the client (Clients page). The checks share
+    /// A choice from a notification's "Options ▾" menu: saved right away for the client (Clients page). The checks share
     /// this settings object, so the next check already uses it. An open Settings window takes it over too.
     /// </summary>
     private void SetClientChoice(ClientChoice choice)
@@ -449,6 +517,7 @@ public sealed class TrayAppContext : ApplicationContext
         form.Saved += saved =>
         {
             _settings = saved;
+            UI.SoundVolume.Apply(saved.SoundVolume);
             Start(openSettingsIfNeeded: false);
         };
         form.SessionChanging += () => PauseChecking("Paused while signing in or out");
@@ -467,6 +536,7 @@ public sealed class TrayAppContext : ApplicationContext
             }
             _settingsForm = null;
             _settings = form.Result; // the last saved settings
+            UI.SoundVolume.Apply(_settings.SoundVolume); // not what ▶ tried, if that wasn't saved
             MemoryTrim.Soon();       // the window and its controls are gone (closed forms dispose themselves)
             if (_loopCts is null)
                 Start(openSettingsIfNeeded: false); // was paused (or never started): resume
@@ -508,6 +578,34 @@ public sealed class TrayAppContext : ApplicationContext
         OpenUrl(_settings.TicketUrl(ticketId));
     }
 
+    /// <summary>
+    /// Assigns a new ticket to a colleague (the ▾ next to Take it), unless someone took it meanwhile. Says how it went.
+    /// Runs on the UI thread.
+    /// </summary>
+    private async Task AssignTicketAsync(long ticketId, long userId, string name)
+    {
+        if (_taker is not { } taker)
+            return;
+        try
+        {
+            var result = await taker.Client.TakeTicketAsync(ticketId, userId, CancellationToken.None);
+            Log.Info(result.Taken ? $"Assigned ticket #{ticketId} to user {userId}" : $"Ticket #{ticketId} was already taken by {result.TakenBy}");
+            Tracking.GroupWorkloadCache.Clear(); // someone's count changed: the next look reads it again
+            _notifier.ShowInfo(result.Taken ? $"#{ticketId} assigned to {name}" : $"#{ticketId} was already taken",
+                result.Taken ? "Maybe tell them in Teams too." : $"{result.TakenBy} got it first.", ticketId);
+            WakeUp(); // refresh the unassigned count
+        }
+        catch (AuthRequiredException)
+        {
+            _notifier.ShowSignInRequired();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not assign ticket #{ticketId} to user {userId}", ex);
+            _notifier.ShowInfo($"Could not assign #{ticketId}", ex.Message, ticketId);
+        }
+    }
+
     /// <summary>For snoozed and long-waiting notifications (see <see cref="TicketWatcher.StillNeededAsync"/>). Not signed in yet: all still needed.</summary>
     private async Task<List<NotificationContent>> StillNeededAsync(IReadOnlyList<NotificationContent> waiting, bool deep)
     {
@@ -536,6 +634,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _loopCts?.Cancel();
         _updates.Dispose();
+        _catchUpHotkey.Dispose();
         _tray.Dispose();
         _browser?.Dispose();
         base.ExitThreadCore();

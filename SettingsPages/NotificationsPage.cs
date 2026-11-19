@@ -13,21 +13,48 @@ internal sealed class NotificationsPage : SettingsPage
     private readonly CheckBox _status = Kit.Check("Status changes");
     private readonly CheckBox _assignment = Kit.Check("Reassignment and group moves");
     private readonly CheckBox _priority = Kit.Check("Priority changes");
-    private readonly ToggleSwitch _onlyMyHours = new("Only notify me while I'm working");
+    private readonly CheckBox _automatic = Kit.Check("Automatic updates (bots)");
+    private readonly ToggleSwitch _onlyMyHours = new("Only notify me during my working hours");
+    private readonly CheckBox _workingLate = Kit.Check("Also outside them, while I'm active in Zendesk");
     private readonly ToggleSwitch _catchUpAtStart = new("Catch up when my working day starts");
     private readonly DayChecks _myDays = new("", new Padding(0));
     private readonly HourRange _myHours = new() { Margin = new Padding(0, 4, 0, 6) };
-    private readonly PriorityChecks _myPriorities = new(new Padding(50, 0, 0, 6));
-    private readonly PriorityChecks _ccPriorities = new(new Padding(50, 0, 0, 6));
+    private readonly PriorityChoice _myPriorities = new(new Padding(50, 0, 0, 6));
+    private readonly PriorityChoice _ccPriorities = new(new Padding(50, 0, 0, 6));
 
-    public NotificationsPage(SettingsContext context)
+    /// <summary>Under "New unassigned tickets": each monitored group with its priorities (rebuilt when the page shows,
+    /// as groups may have been ticked on the Groups page since).</summary>
+    private readonly TableLayoutPanel _groupPriorities = new()
+    {
+        ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(50, 0, 0, 6)
+    };
+    private readonly GroupsPage _groups;
+
+    /// <summary>The priorities that notify even when someone took the ticket before the app saw it unassigned.</summary>
+    private static readonly (string Label, string[] Priorities)[] TakenQuicklyChoices =
+        [("Off", []), ("P1", ["urgent"]), ("P1, P2", ["urgent", "high"]), ("All", Settings.AllPriorities)];
+    private readonly ChoicePills _takenQuickly = new([.. TakenQuicklyChoices.Select(c => c.Label)]) { AccessibleName = "Also when someone took it before I saw it" };
+
+    /// <summary>Groups with fewer priorities than all, as chosen here (also for groups not shown right now).</summary>
+    private Dictionary<long, List<string>> _newPriorities = [];
+
+    public NotificationsPage(SettingsContext context, GroupsPage groups)
         : base(context, "Notifications", "Choose what you want to hear about.")
     {
-        var unassigned = new Card("New tickets", "A notification for each new unassigned ticket in the groups you monitor.", Kit.CardWidth);
+        _groups = groups;
+        var unassigned = new Card("New tickets", "A notification for each new unassigned ticket in the groups you monitor, for the " +
+            "priorities you choose per group.", Kit.CardWidth);
         unassigned.Body.Controls.Add(_notifyUnassigned);
+        unassigned.Body.Controls.Add(_groupPriorities);
+        // Tickets someone took between two checks (never seen unassigned): off for most, P1 for managers.
+        var takenLabel = Theme.Label("Also when someone took it before I saw it");
+        takenLabel.Margin = new Padding(50, 8, 0, 0);
+        _takenQuickly.Margin = new Padding(50, 4, 0, 6);
+        unassigned.Body.Controls.Add(takenLabel);
+        unassigned.Body.Controls.Add(_takenQuickly);
         Panel.Controls.Add(unassigned);
 
-        var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you tick.", Kit.CardWidth);
+        var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose.", Kit.CardWidth);
         mine.Body.Controls.Add(_trackMine);
         mine.Body.Controls.Add(_myPriorities.Row);
         mine.Body.Controls.Add(_trackCc);
@@ -39,7 +66,7 @@ internal sealed class NotificationsPage : SettingsPage
         var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
         options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (Kit.CardWidth - 44) / 2));
         options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment];
+        CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment, _automatic];
         for (var i = 0; i < changeTypes.Length; i++)
             options.Controls.Add(changeTypes[i], i % 2, i / 2);
         which.Body.Controls.Add(options);
@@ -58,16 +85,21 @@ internal sealed class NotificationsPage : SettingsPage
         working.Body.Controls.Add(grid);
         _onlyMyHours.Margin = new Padding(0, 6, 0, 0);
         working.Body.Controls.Add(_onlyMyHours);
+        _workingLate.Margin = new Padding(50, 0, 0, 6); // under the switch, like the priorities under theirs
+        working.Body.Controls.Add(_workingLate);
         working.Body.Controls.Add(_catchUpAtStart);
         Panel.Controls.Add(working);
 
 
         _trackMine.CheckedChanged += (_, _) => UpdateChangeTypes();
         _trackCc.CheckedChanged += (_, _) => UpdateChangeTypes();
+        _notifyUnassigned.CheckedChanged += (_, _) => UpdateChangeTypes();
+        _takenQuickly.SelectedIndexChanged += (_, _) => Changed();
         _myPriorities.Changed += Changed;
         _ccPriorities.Changed += Changed;
         _myDays.Changed += Changed;
-        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _onlyMyHours, _catchUpAtStart);
+        TrackChanges(_notifyUnassigned, _trackMine, _trackCc, _replies, _notes, _status, _assignment, _priority, _automatic, _onlyMyHours, _workingLate, _catchUpAtStart);
+        _onlyMyHours.CheckedChanged += (_, _) => _workingLate.Enabled = _onlyMyHours.Checked;
         _myHours.RangeChanged += (_, _) => Changed();
     }
 
@@ -82,9 +114,17 @@ internal sealed class NotificationsPage : SettingsPage
         _status.Checked = settings.NotifyStatusChanges;
         _assignment.Checked = settings.NotifyAssignmentChanges;
         _priority.Checked = settings.NotifyPriorityChanges;
+        _automatic.Checked = settings.NotifyAutomaticChanges;
+        _newPriorities = settings.NewTicketPriorities.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+        // By the lowest priority in the list, like the other priority choices (none: Off).
+        var taken = settings.TakenQuicklyPriorities;
+        _takenQuickly.SelectedIndex = taken.Count == 0 ? 0 : taken.Contains("low") || taken.Contains("normal") ? 3 : taken.Contains("high") ? 2 : 1;
+        ShowGroupPriorities();
         _myPriorities.Selected = settings.MyTicketPriorities;
         _ccPriorities.Selected = settings.CcTicketPriorities;
         _onlyMyHours.Checked = settings.OnlyNotifyDuringMyHours;
+        _workingLate.Checked = settings.NotifyWhenWorkingLate;
+        _workingLate.Enabled = _onlyMyHours.Checked;
         _catchUpAtStart.Checked = settings.CatchUpAtDayStart;
         _myHours.SetRange(settings.MyWorkdayStartHour, settings.MyWorkdayEndHour);
         _myDays.Selected = settings.MyWorkDays;
@@ -101,9 +141,15 @@ internal sealed class NotificationsPage : SettingsPage
         s.NotifyStatusChanges = _status.Checked;
         s.NotifyAssignmentChanges = _assignment.Checked;
         s.NotifyPriorityChanges = _priority.Checked;
+        s.NotifyAutomaticChanges = _automatic.Checked;
+        // Only the monitored groups' choices are kept (one unticked and ticked again starts at all priorities).
+        var monitored = _groups.MonitoredGroups().Select(g => g.Id).ToHashSet();
+        s.NewTicketPriorities = _newPriorities.Where(kv => monitored.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+        s.TakenQuicklyPriorities = [.. TakenQuicklyChoices[_takenQuickly.SelectedIndex].Priorities];
         s.MyTicketPriorities = _myPriorities.Selected;
         s.CcTicketPriorities = _ccPriorities.Selected;
         s.OnlyNotifyDuringMyHours = _onlyMyHours.Checked;
+        s.NotifyWhenWorkingLate = _workingLate.Checked;
         s.CatchUpAtDayStart = _catchUpAtStart.Checked;
         s.MyWorkdayStartHour = _myHours.Start;
         s.MyWorkdayEndHour = _myHours.End;
@@ -111,9 +157,59 @@ internal sealed class NotificationsPage : SettingsPage
     }
 
 
+    public override void OnShowing() => ShowGroupPriorities();
+
+    /// <summary>The rows under "New unassigned tickets": a group and its priorities.</summary>
+    private readonly List<(long GroupId, PriorityChoice Choice)> _groupChoices = [];
+
+    /// <summary>One row per monitored group: its name and All, P1–P3, P1 and P2, or P1 only.</summary>
+    private void ShowGroupPriorities()
+    {
+        var groups = _groups.MonitoredGroups();
+        if (_groupChoices.Count > 0 && _groupChoices.Select(c => c.GroupId).SequenceEqual(groups.Select(g => g.Id)))
+        {
+            foreach (var (id, choice) in _groupChoices)
+                choice.Selected = [.. _newPriorities.GetValueOrDefault(id) ?? [.. Settings.AllPriorities]]; // Discard: the saved choices again
+            return;
+        }
+
+        _groupPriorities.SuspendLayout();
+        foreach (Control old in _groupPriorities.Controls.Cast<Control>().ToList())
+            old.Dispose();
+        _groupPriorities.Controls.Clear();
+        _groupChoices.Clear();
+        if (groups.Count == 0)
+            _groupPriorities.Controls.Add(Theme.Label("Tick groups on the Groups page first.", Theme.Small, Theme.TextMuted), 0, 0);
+        for (var row = 0; row < groups.Count; row++)
+        {
+            var group = groups[row];
+            var name = Theme.Label(group.Name);
+            name.Anchor = AnchorStyles.Left;
+            name.Margin = new Padding(0, 0, 16, 0);
+            var choice = new PriorityChoice(Padding.Empty, label: false)
+            {
+                Selected = [.. _newPriorities.GetValueOrDefault(group.Id) ?? [.. Settings.AllPriorities]],
+                Enabled = _notifyUnassigned.Checked
+            };
+            choice.Changed += () =>
+            {
+                var chosen = choice.Selected;
+                if (chosen.Count == Settings.AllPriorities.Length) _newPriorities.Remove(group.Id); else _newPriorities[group.Id] = chosen;
+                Changed();
+            };
+            _groupPriorities.Controls.Add(name, 0, row);
+            _groupPriorities.Controls.Add(choice.Row, 1, row);
+            _groupChoices.Add((group.Id, choice));
+        }
+        _groupPriorities.ResumeLayout();
+    }
+
     private void UpdateChangeTypes()
     {
-        foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority })
+        _takenQuickly.Enabled = _notifyUnassigned.Checked;
+        foreach (var (_, choice) in _groupChoices)
+            choice.Enabled = _notifyUnassigned.Checked;
+        foreach (var box in new[] { _replies, _notes, _status, _assignment, _priority, _automatic })
             box.Enabled = _trackMine.Checked || _trackCc.Checked;
         _myPriorities.Enabled = _trackMine.Checked;
         _ccPriorities.Enabled = _trackCc.Checked;

@@ -12,15 +12,18 @@ permissions:
 
 env:
   PACK_ID: ZendeskWatcherApp # also the install folder: %LOCALAPPDATA%\ZendeskWatcherApp. Never change it.
+  # Releases are published in this public repo (installers, update feed, notes only), so the source repo can be private.
+  # Writing there needs the RELEASES_TOKEN secret: a fine-grained token with Contents read/write on that repo only.
+  RELEASES_REPO: https://github.com/optidada/zendeskwatcher-releases
   VPK_VERSION: 1.2.161       # keep in step with the Velopack package in ZendeskWatcher.csproj
 
 jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, pinned: a moved tag can't change the build
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1, pinned
         with:
           dotnet-version: 10.0.x
 
@@ -46,7 +49,7 @@ jobs:
       # The previous release is needed to build a small delta update from it.
       - name: Download previous release
         continue-on-error: true # nothing to download for the first release; then there's just no delta
-        run: vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} -o Releases
+        run: vpk download github --repoUrl ${{ env.RELEASES_REPO }} --token ${{ secrets.RELEASES_TOKEN }} -o Releases
 
       # This version's section of CHANGELOG.md ("## 1.2.0 ..." up to the next "## "), plus a link to the
       # install guide. Shown on the GitHub release and (first bullets) in the app's "Update ready" notification.
@@ -58,8 +61,7 @@ jobs:
             echo "::warning::CHANGELOG.md has no section for $VERSION"
             echo "Maintenance release." > notes.md
           fi
-          printf '\n---\nNew to Zendesk Watcher? See the [install guide](%s/%s/blob/main/INSTALL.md).\n' \
-            "${{ github.server_url }}" "${{ github.repository }}" >> notes.md
+          printf '\n---\nNew to Zendesk Watcher? See the [install guide](%s#readme).\n' "$RELEASES_REPO" >> notes.md
           cat notes.md
 
       - name: Pack
@@ -70,11 +72,23 @@ jobs:
 
       - name: Upload release
         run: >
-          vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+          vpk upload github --repoUrl ${{ env.RELEASES_REPO }} --token ${{ secrets.RELEASES_TOKEN }}
           -o Releases --publish --tag ${{ github.ref_name }} --releaseName "Zendesk Watcher ${{ env.VERSION }}"
 
       # Make sure the release page shows the notes, whatever vpk put there.
       - name: Release page notes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: gh release edit ${{ github.ref_name }} --repo ${{ env.RELEASES_REPO }} --notes-file notes.md
+
+      # TRANSITION (remove before making this repo private): installs up to 1.9.3 look for updates here, so the same
+      # release goes here too; once updated, they look in RELEASES_REPO.
+      - name: Upload release (old place)
+        run: >
+          vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+          -o Releases --publish --tag ${{ github.ref_name }} --releaseName "Zendesk Watcher ${{ env.VERSION }}"
+
+      - name: Release page notes (old place)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit ${{ github.ref_name }} --notes-file notes.md

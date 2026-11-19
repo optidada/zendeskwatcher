@@ -8,6 +8,7 @@ public class SettingsWindowTests
     {
         Subdomain = "acme",
         WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }],
+        NewTicketPriorities = new() { [1] = ["urgent", "high"] },
         TrackMyTickets = false,
         TrackCcTickets = true,
         NotifyUnassigned = false,
@@ -16,6 +17,9 @@ public class SettingsWindowTests
         NotifyStatusChanges = false,
         NotifyAssignmentChanges = false,
         NotifyPriorityChanges = false,
+        NotifyAutomaticChanges = true,
+        SoundVolume = 75,
+        NotifyWhenWorkingLate = true,
         HelpColleagues = false,
         HelpRegionDefaultDone = true,
         HelpSameAsMonitored = false,
@@ -26,7 +30,7 @@ public class SettingsWindowTests
         Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipBlip }],
         WorkdayStartHour = 9,
         WorkdayEndHour = 18,
-        HelpPriorities = ["normal", "low"],
+        HelpPriorities = ["urgent", "high", "normal", "low"],
         HelpOnlyDuringMyHours = false,
         ShowStartSummary = false,
         SnoozeMinutes = 30,
@@ -35,8 +39,9 @@ public class SettingsWindowTests
         GuessPriority = true,
         QuietThankYous = true,
         SlaOverrides = [new SlaOverride { Type = "slapremium", Priority = "high", FirstReply = true, Minutes = 120 }],
+        TakenQuicklyPriorities = ["urgent"],
         MyTicketPriorities = ["urgent"],
-        CcTicketPriorities = ["high", "low"],
+        CcTicketPriorities = ["urgent", "high", "normal"],
         NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip },
         MyTicketStyle = new NotificationStyle { Sound = ToastSound.Mail },
         HelpStyle = new NotificationStyle { Sound = ToastSound.SongGroove },
@@ -104,6 +109,25 @@ public class SettingsWindowTests
 
         var expected = new Settings { Subdomain = saved.Subdomain, WatchedGroups = saved.WatchedGroups, Clients = saved.Clients };
         Assert.Equal(expected.ToJson(), shown.ToJson());
+    }
+
+    [Fact]
+    public void Only_pages_with_unsaved_changes_get_a_dot()
+    {
+        var saved = NonDefaultSettings();
+
+        var (opened, afterReset) = OnUiThread(() =>
+        {
+            using var form = new SettingsForm(saved, _ => new FakeZendesk(), new Notifier((_, _) => { }));
+            form.PagesAsSettings(); // builds every page
+            var opened = form.UnsavedPages();
+            form.ResetToDefaults();
+            return (opened, form.UnsavedPages());
+        });
+
+        Assert.All(opened, dirty => Assert.False(dirty));              // just opened: nothing unsaved anywhere
+        Assert.False(afterReset[0] || afterReset[1] || afterReset[2]); // Reset keeps the account, groups and clients
+        Assert.True(afterReset[3]);                                     // Notifications went back to the defaults
     }
 
     [Fact]

@@ -40,6 +40,15 @@ public class TicketLinesTests
     [Fact]
     public void Not_links_hash_tags_short_numbers_and_unknown_pages()
     {
-        Assert.All(RichText.SplitLinks("Order #12, C#1234, Settings → Nowhere"), p => Assert.Null(p.Link));
+        Assert.All(RichText.SplitLinks("Order #12, C#1234, Settings → Nowhere, 2+3 more"), p => Assert.Null(p.Link));
+    }
+
+    [Fact]
+    public void Catch_up_more_opens_all_your_tickets_to_work_on_in_Zendesk()
+    {
+        var parts = RichText.SplitLinks("#101 Login fails\n+9 more").ToList();
+
+        var more = Assert.Single(parts, p => p.Text == "+9 more");
+        Assert.Equal(NotificationActions.Search(Tracking.TicketRules.WorkingOnSearch), more.Link!.Action);
     }
 }

@@ -103,17 +103,20 @@ public class SlaTests
     }
 
     [Fact]
-    public void The_deadline_shows_in_red_bold_above_the_body()
+    public void The_deadline_shows_in_red_bold_at_the_end_of_the_first_line()
     {
         var now = DateTimeOffset.UtcNow;
-        var content = new NotificationContent(NotificationKind.NewTicket, "New ticket", "#1 Help", "Created 09:00")
-            { SlaDue = now.AddMinutes(10).AddSeconds(30), SlaFirstReply = true };
+        var content = new NotificationContent(NotificationKind.NewTicket, "New ticket", "#1 Help", "Jane Doe\n“Help!”")
+            { SlaDue = now.AddMinutes(10).AddSeconds(30), SlaFirstReply = true, EventTime = now.AddMinutes(-2) };
 
+        // "Jane Doe · 2 min ago", then a tab: the notification puts the deadline at the right edge.
         var body = content.DisplayBody(now);
-        Assert.Equal("!!First reply due in 10 min!!\nCreated 09:00", body);
-        var first = Markdown.Parse(body)[0];
-        Assert.True(first.Alert && first.Bold);
-        Assert.Equal("First reply due in 10 min\nCreated 09:00", Markdown.Strip(body)); // plain text (copies, logs)
+        Assert.Equal("Jane Doe · 2 min ago\t!!First reply due in 10 min!!\n“Help!”", body);
+        var deadline = Markdown.Parse(body).Single(r => r.Alert);
+        Assert.True(deadline.Bold);
+        Assert.Equal("First reply due in 10 min", deadline.Text);
+        // Without a first line to share, the deadline is the first line.
+        Assert.Equal("!!First reply due in 10 min!!", (content with { Body = "", EventTime = null }).DisplayBody(now));
     }
 
     [Fact]

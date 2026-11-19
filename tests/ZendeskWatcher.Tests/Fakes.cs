@@ -21,6 +21,20 @@ internal static class TestSetup
             Directory.Delete(dir, recursive: true);
         Directory.CreateDirectory(dir);
         Environment.SetEnvironmentVariable(AppPaths.DataDirVariable, dir);
+        ZendeskWatcher.Tracking.TicketWatcher.TestMode = true; // no minute's wait before the ticket history is read
+        ZendeskClient.LocalLimit = int.MaxValue; // tests send hundreds of requests a second to the fake Zendesk
+    }
+
+    /// <summary>
+    /// Notifications on screen don't depend on the real PC: an idle mouse, a locked screen or a presentation would make
+    /// them wait in line, and tests that show them failed now and then when run while nobody touched the PC.
+    /// </summary>
+    [ModuleInitializer]
+    internal static void AssumeUserAtThePc()
+    {
+        ZendeskWatcher.UI.Popups.PopupForm.AssumeUserPresent = true;
+        // Off the visible screen: a click or hover on a test's notification (by whoever uses the PC) would change the result.
+        ZendeskWatcher.UI.Popups.PopupForm.TestWorkArea = new Rectangle(-8000, -8000, 1920, 1040);
     }
 }
 
@@ -29,9 +43,28 @@ internal sealed class RecordingNotifier : INotificationSink
 {
     public List<NotificationContent> Shown { get; } = [];
     public List<string> MissingGroups { get; } = [];
+    public List<long> ClosedTaken { get; } = [];
 
-    public void Show(NotificationContent content) => Shown.Add(content);
+    /// <summary>How many more notifications fail to show (something going wrong while announcing them).</summary>
+    public int FailNextShows { get; set; }
+
+    public void Show(NotificationContent content)
+    {
+        if (FailNextShows > 0)
+        {
+            FailNextShows--;
+            throw new HttpRequestException("test failure while showing");
+        }
+        Shown.Add(content);
+    }
     public void ShowMissingGroups(IReadOnlyCollection<string> names) => MissingGroups.AddRange(names);
+    public void CloseTaken(long ticketId, string? note = null)
+    {
+        ClosedTaken.Add(ticketId);
+        TakenNotes[ticketId] = note;
+    }
+
+    public Dictionary<long, string?> TakenNotes { get; } = [];
 }
 
 /// <summary>
@@ -74,6 +107,27 @@ internal sealed partial class FakeZendesk : IZendeskSession
         var at = Tick();
         var ticket = new Ticket { Id = id, Subject = subject, Status = "new", GroupId = group, CreatedAt = at, UpdatedAt = at };
         Tickets[id] = ticket;
+        return ticket;
+    }
+
+    /// <summary>
+    /// A ticket that came in <paramref name="minutesAgo"/> minutes ago in group 10 and that <paramref name="by"/> assigned to
+    /// <paramref name="to"/> a minute later, before any check saw it unassigned (with its history). With
+    /// <paramref name="createdAssigned"/> it had its assignee from the start.
+    /// </summary>
+    public Ticket AddTakenQuickly(long id, string priority, long by, long to, int minutesAgo = 3, bool createdAssigned = false)
+    {
+        var created = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo);
+        var ticket = new Ticket { Id = id, Subject = "Site down", Status = "open", Priority = priority, GroupId = 10, AssigneeId = to, CreatedAt = created, UpdatedAt = created.AddMinutes(1) };
+        Tickets[id] = ticket;
+        var create = new AuditEvent { Type = "Create", FieldName = "assignee_id", Value = createdAssigned ? JsonSerializer.SerializeToElement(to.ToString()) : null };
+        Audits[id] = [new Audit { Id = 1, AuthorId = by, CreatedAt = created, Events = [create] }];
+        if (!createdAssigned)
+            Audits[id].Add(new Audit
+            {
+                Id = 2, AuthorId = by, CreatedAt = created.AddMinutes(1),
+                Events = [new AuditEvent { Type = "Change", FieldName = "assignee_id", PreviousValue = null, Value = JsonSerializer.SerializeToElement(to.ToString()) }]
+            });
         return ticket;
     }
 
@@ -132,8 +186,29 @@ internal sealed partial class FakeZendesk : IZendeskSession
 
     public bool MightBeSignedIn => true;
 
+    /// <summary>Answers to give before the normal ones, e.g. a 429 "too many requests".</summary>
+    public Queue<ApiResponse> NextAnswers { get; } = new();
+
+    /// <summary>Every URL requested, in order.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> Requested { get; } = new(); // requests may run side by side
+
+    /// <summary>URL part → how many more requests containing it fail with a server error (Zendesk having a bad moment).</summary>
+    private readonly Dictionary<string, int> _failing = [];
+
+    /// <summary>The next <paramref name="times"/> requests whose URL contains <paramref name="urlPart"/> fail (500).</summary>
+    public void FailNext(string urlPart, int times = 1) => _failing[urlPart] = times;
+
     public Task<ApiResponse> GetAsync(string url, CancellationToken ct)
     {
+        Requested.Enqueue(url);
+        if (NextAnswers.TryDequeue(out var answer))
+            return Task.FromResult(answer);
+        lock (_failing)
+            if (_failing.FirstOrDefault(f => f.Value > 0 && url.Contains(f.Key, StringComparison.Ordinal)) is { Key: { } part })
+            {
+                _failing[part]--;
+                return Task.FromResult(new ApiResponse(500, "{\"error\":\"test failure\"}", null));
+            }
         var uri = new Uri(url);
         var path = uri.AbsolutePath;
         var query = Uri.UnescapeDataString(uri.Query);
@@ -147,6 +222,7 @@ internal sealed partial class FakeZendesk : IZendeskSession
                 new { users = GroupMembers.GetValueOrDefault(long.Parse(gm.Groups[1].Value), []).Where(Users.ContainsKey).Select(id => Users[id]).ToList() },
             "/api/v2/custom_statuses.json" => new { custom_statuses = CustomStatuses },
             "/api/v2/search.json" => new { results = Search(query) },
+            "/api/v2/search/export.json" => new { results = Search(query), meta = new { has_more = false } }, // Insights → Team workload
             "/api/v2/tickets/show_many.json" => new { tickets = ShowMany(query) },
             "/api/v2/organization_fields.json" => new { organization_fields = OrganizationFields },
             "/api/v2/organizations/show_many.json" => new
@@ -159,6 +235,15 @@ internal sealed partial class FakeZendesk : IZendeskSession
             _ when path == $"/api/v2/users/{me}/tickets/followed.json" => new { tickets = Recent(t => t.FollowerIds.Contains(me)) },
             _ when AuditsPath().Match(path) is { Success: true } m =>
                 new { audits = Audits.GetValueOrDefault(long.Parse(m.Groups[1].Value), []).OrderByDescending(a => a.CreatedAt).ToList() },
+            _ when CommentsPath().Match(path) is { Success: true } m => new // the comments list: the Comment events of the audits
+            {
+                comments = Audits.GetValueOrDefault(long.Parse(m.Groups[1].Value), []).OrderByDescending(a => a.CreatedAt)
+                    .SelectMany(a => a.Events.Where(e => e.Type == "Comment").Select(e => new
+                    {
+                        id = a.Id, type = "Comment", author_id = a.AuthorId, created_at = a.CreatedAt, @public = e.Public,
+                        plain_body = e.PlainBody, body = e.Body
+                    })).ToList()
+            },
             _ when UserPath().Match(path) is { Success: true } m && Users.TryGetValue(long.Parse(m.Groups[1].Value), out var user) => new { user },
             _ when OrgPath().Match(path) is { Success: true } m && Organizations.TryGetValue(long.Parse(m.Groups[1].Value), out var org) =>
                 new { organization = new { id = long.Parse(m.Groups[1].Value), name = org, organization_fields = OrganizationFieldValues.GetValueOrDefault(long.Parse(m.Groups[1].Value)) } },
@@ -180,10 +265,22 @@ internal sealed partial class FakeZendesk : IZendeskSession
         if (query.Contains("assignee:me"))
             return Tickets.Values.Where(t => t.AssigneeId == Me.Id && t.IsOpen).ToList();
         if (AssigneeQuery().Match(query) is { Success: true } assignee) // Colleagues: an agent's recently updated tickets
-            return Tickets.Values.Where(t => t.AssigneeId == long.Parse(assignee.Groups[1].Value)).OrderByDescending(t => t.UpdatedAt).ToList();
+            return Tickets.Values.Where(t => t.AssigneeId == long.Parse(assignee.Groups[1].Value) && (t.IsOpen || !query.Contains("status<solved")))
+                .OrderByDescending(t => t.UpdatedAt).ToList();
         var match = GroupQuery().Match(query);
-        if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets
-            return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))).ToList();
+        if (query.Contains("-assignee:none") && CreatedQuery().Match(query) is { Success: true } created && match.Success) // tickets taken quickly
+        {
+            var since = DateTimeOffset.Parse(created.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            return Tickets.Values.Where(t => t.AssigneeId is not null && t.CreatedAt > since && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
+        }
+        if (UpdatedQuery().Match(query) is { Success: true } updated && match.Success && !query.Contains("assignee")) // Clients: what changed since the last read
+        {
+            var since = DateTimeOffset.Parse(updated.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            return Tickets.Values.Where(t => t.GroupId == long.Parse(match.Groups[1].Value) && t.UpdatedAt > since).ToList();
+        }
+        if (query.Contains("created>") && match.Success) // Settings → Groups → Clients: a group's recent tickets (Take it ▾: one client's)
+            return Tickets.Values.Where(t => t.GroupId == (match.Groups[1].Value == "none" ? null : long.Parse(match.Groups[1].Value))
+                && (OrganizationQuery().Match(query) is not { Success: true } org || t.OrganizationId == long.Parse(org.Groups[1].Value))).ToList();
         if (query.Contains("-assignee:none") && match.Success) // Help colleagues: assigned tickets before solved, in a group
             return Tickets.Values.Where(t => t.AssigneeId is not null && t.IsOpen && t.GroupId == long.Parse(match.Groups[1].Value)).ToList();
         if (!match.Success || !query.Contains("assignee:none"))
@@ -202,14 +299,26 @@ internal sealed partial class FakeZendesk : IZendeskSession
         return ids.Where(Tickets.ContainsKey).Select(id => Tickets[id]).ToList();
     }
 
+    [GeneratedRegex(@"created>([^\s&]+)")]
+    private static partial Regex CreatedQuery();
+
     [GeneratedRegex(@"group:(\d+|none)")]
     private static partial Regex GroupQuery();
+
+    [GeneratedRegex(@"organization:(\d+)")]
+    private static partial Regex OrganizationQuery();
+
+    [GeneratedRegex(@"updated>([^\s&]+)")]
+    private static partial Regex UpdatedQuery();
 
     [GeneratedRegex(@"(?<!-)assignee:(\d+)")]
     private static partial Regex AssigneeQuery();
 
     [GeneratedRegex(@"^/api/v2/tickets/(\d+)/audits\.json$")]
     private static partial Regex AuditsPath();
+
+    [GeneratedRegex(@"^/api/v2/tickets/(\d+)/comments\.json$")]
+    private static partial Regex CommentsPath();
 
     [GeneratedRegex(@"^/api/v2/groups/(\d+)/users\.json$")]
     private static partial Regex GroupUsersPath();

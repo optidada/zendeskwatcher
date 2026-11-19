@@ -8,6 +8,12 @@ public static class StartupRegistration
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "ZendeskWatcher";
 
+    /// <summary>
+    /// Marks a start by Windows. Windows starts the Run list one app at a time, so it can reach this one minutes after
+    /// logon, when the user has already started it by hand: that start then ends quietly.
+    /// </summary>
+    public const string AutostartArg = "--autostart";
+
     public static bool IsEnabled
     {
         get
@@ -21,7 +27,7 @@ public static class StartupRegistration
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
         if (enabled)
-            key.SetValue(ValueName, $"\"{Environment.ProcessPath}\"");
+            key.SetValue(ValueName, $"\"{Environment.ProcessPath}\" {AutostartArg}");
         else
             key.DeleteValue(ValueName, throwOnMissingValue: false);
     }

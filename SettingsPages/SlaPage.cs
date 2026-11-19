@@ -86,7 +86,7 @@ internal sealed class SlaPage : SettingsPage
             foreach (var cell in _cells)
                 cell.Cursor = readOnly ? Cursors.Default : Cursors.Hand;
             Fill(); // greyed while locked
-        }, "Not signed in: your choices still apply. Sign in to change them.");
+        }, "Your choices still apply. Sign in to change them.");
     }
 
     private Color ColorOf(SlaSource source) => Context.SignedOut ? Theme.TextMuted : source switch
@@ -144,7 +144,7 @@ internal sealed class SlaPage : SettingsPage
         _grid.Controls.Add(Cell("", Theme.Small, Theme.TextMuted, left: true), 0, 0);
         (string Text, string Priority)[] headers = [("Urgent", "urgent"), ("High", "high"), ("Normal", "normal"), ("Low", "low")];
         for (var c = 0; c < headers.Length; c++)
-            _grid.Controls.Add(new PriorityLabel(headers[c].Text, headers[c].Priority) { Margin = new Padding(14, 4, 4, 2), Anchor = AnchorStyles.Left }, c + 1, 0);
+            _grid.Controls.Add(new PriorityLabel("", headers[c].Priority) { AccessibleName = headers[c].Text, Margin = new Padding(14, 4, 4, 2), Anchor = AnchorStyles.Left }, c + 1, 0);
         for (var r = 0; r < _types.Count; r++)
         {
             _grid.Controls.Add(Cell(Sla.Name(_types[r], _learned), Theme.Body, Theme.Text, left: true), 0, r + 1);
@@ -243,7 +243,7 @@ internal sealed class SlaPage : SettingsPage
             }
         _explain.Text = (firstReply
             ? "Counted from when the ticket was created."
-            : "Counted from when the customer wrote.") +
+            : "Counted from when the client wrote.") +
             " d = day, wd = working day (Mon–Fri). Point at a target for details.";
         _warning.Visible = _custom.Count > 0;
         _reset.Visible = _custom.Count > 0 && !Context.SignedOut;

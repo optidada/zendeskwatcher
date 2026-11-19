@@ -3,6 +3,180 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.4
+
+- **Updates come from a new download place**: new versions and the installer now live at github.com/optidada/zendeskwatcher-releases. Nothing changes for you; the app keeps updating itself as before.
+
+## 1.9.3
+
+- **No notification lost when Zendesk hiccups**: if a request fails in the middle of a check (Zendesk busy, or the app's browser restarting), whatever wasn't notified yet comes with the next check. Before, such a ticket could be skipped for good: new tickets, "Already taken", tickets newly assigned to you or CC'd, and customer replies on colleagues' tickets.
+- **The copy buttons show their tooltips**: point at the copy icons on a notification to see what each copies.
+- **A reply without text says so**: a customer who sends only a screenshot or a file shows "sent a file or image" instead of empty quotes.
+- **Steadier connection**: when the app's hidden browser stops answering, it restarts once instead of several times in a row, and a browser that couldn't start tries again with the next check instead of waiting for an app restart. A colleague's name that couldn't be read is asked again later instead of showing "User 123".
+- **Notifications always close**: a notification on its way out can no longer get stuck on screen, and closed ones free their memory. The Catch up spinner on the Account page stops when you get signed out.
+- **Less customer data in the log**: the log names tickets by number and says "the customer", never subjects or customers' names (the log goes along with Send feedback). It also notes when a notification shows, is clicked and closes, to help find problems.
+- **Less memory** for Team workload (Insights) and "Who could take it": only the few details they count are kept.
+
+## 1.9.2
+
+- **How it works explains what's on a notification**: a new topic, "On a notification", right after Notifications, covers Take it, who could take it instead, "Taken by Anna", the copy icons and Options ▾ on the client line. Groups now just covers which tickets you hear about, and Summaries comes right after.
+
+## 1.9.1
+
+- **"Working late?" sounds like an app message**: it uses the App messages sound and time on screen (Look & sound), not the one for your tickets.
+
+## 1.9.0
+
+- **Notifications on the monitor you're working on**: with two or more monitors, notifications (and the pill, ticker and glow) appear where your mouse is, not always on the main monitor. The ones that follow join them there, so a stack never splits. They're drawn sharp and the right size for each monitor's own scaling, and their menus (Options ▾, ▾ next to Take it) stay on the same monitor.
+- **"Who could take it" says who knows the client**: each suggestion under ▾ next to Take it adds "handled 12 of their tickets" when that colleague has the client's tickets in the group (last 90 days). It counts in the order too: knowing the client is worth up to 3 open tickets, so someone who knows it comes first unless they're clearly busier, and is never skipped for being a bit busier.
+- **Who usually handles a client**: point at a client's name on the Clients page (under Groups) and its card says who their tickets in that group are assigned to, most first, and you: "Usually: Maria S. 12 · Alex K. 5 · you 3". Handy for a ticket from a client you don't know: you can see who to ask. The client list loads once more after the update (about 40 s for a busy group), then in seconds.
+- **Clients you've worked with**: the Clients page can show only the clients you've had a ticket from in the last 90 days, or only the others (All · Worked with · Not worked with), and yours show "you 6" after their name. Handy for setting up: show "Not worked with", untick the group, tick back the few to keep.
+- **Clients page loads in seconds and is up to date**: after the first time, only the tickets that changed since the last load are read (a busy group took ~40 s, now usually one quick request), each time you open the page (if 15 minutes have passed), so new clients from today's tickets are there. The list shows at once while it updates. Reload still reads everything.
+- **Options ▾ on your own tickets' notifications**: make a client Important from a "Ticket updated" notification too. Muting isn't offered there: your own tickets always notify.
+- **"Who could take it" suggests people who work the group** (▾ next to Take it): only colleagues with unsolved tickets in the ticket's group are offered, so a Tier 2 ticket suggests Tier 2 agents, not members who work elsewhere or managers.
+- **Quicker the second time**: the suggestions' workloads are remembered for 15 minutes (until someone assigns a ticket), so opening ▾ again reads almost nothing from Zendesk.
+- **A safety limit on requests**: the app never sends more than 60 requests to Zendesk in a minute (normal is 3-4). If a bug ever made it run away, it slows down instead of using the team's shared Zendesk budget.
+- **Fewer empty client lists**: when Zendesk has a hiccup ("database timeout") while the Clients page loads a big group, the app tries again after a few seconds instead of giving up, and a group is loaded only once at a time.
+- **"Working late?" once a day**: it no longer comes again after the app restarts or updates the same evening.
+- **A second click closes the menu**: clicking Options ▾ or the ▾ next to Take it again closes its menu instead of opening it once more.
+
+## 1.8.24
+
+- **Fairer "Who could take it"** (▾ next to Take it): someone's open tickets now count in every group, not just the ticket's. Before, a busy colleague with nothing in that group showed as "nothing open".
+- **No managers suggested**: people with no unsolved tickets at all aren't offered.
+- **Waiting tickets shown**: each suggestion also says how many pending, on-hold, escalated and scheduled tickets they have, like "2 open, 5 waiting".
+
+## 1.8.23
+
+- **Updates install by themselves**: when the app starts, a new version installs in a few seconds and then says what's new. "Restart to update" is only needed for a version that comes out while the app runs.
+- **No "already running" after logon**: Windows starts its startup apps one by one, sometimes minutes after logon. If you've opened Zendesk Watcher yourself by then, the late start now ends quietly.
+- **Fewer update checks**: once at start and once a day, instead of an extra check two minutes after start.
+
+## 1.8.22
+
+- **New sounds: Americana and Nature**: dark americana pieces (banjo road, slide guitar, hollow fingerpicking) and nature sounds (a quiet stream, wind chimes, a distant bird). Softer than the retro sounds. Choose them on Look & sound.
+
+## 1.8.21
+
+- **Colleagues' tickets show why, always**: who wrote and when, then why you're asked (off work, last active), then the message. A long message is now what gets cut, never the reason.
+- **"+N more" in Catch up opens the rest**: when you have more tickets to work on than fit, click "+N more" to see all of them in Zendesk.
+
+## 1.8.20
+
+- **Catch up in seconds**: about 5 seconds instead of 2–3 minutes. It checks first whether a colleague is away before reading their tickets, reads only the messages instead of each ticket's full history, and does several things at once.
+- **Complete Clients page**: the client list now comes from all of a group's tickets in the last 90 days, not just the first 500, so busy groups no longer miss clients.
+- **Take it is quicker**: assigning a ticket (to yourself or a colleague) takes one round trip to Zendesk instead of two.
+- **Lighter on Zendesk**: the colleague check reads only the messages, and a ticket's history isn't read again while the ticket hasn't changed.
+
+## 1.8.19
+
+- **Team workload on Insights**: pick a group to see who's busy right now, as a bar per person with their open, urgent, escalated and waiting tickets. Click "Workload ▼" to see the least busy first. People who are off work aren't shown.
+- **Insights opens instantly**: each group's workload is remembered, so it shows right away and refreshes in the background.
+- **"Who could take it" (▾ next to Take it) is faster**: it shares the group's workload with Insights for up to 5 minutes. The ticket and colleagues' activity are still checked fresh.
+- **Fairer "acted on" in Insights**: copying just the ticket number and snoozing now count too.
+- **Clearer names**: Insights has the cards Your tickets, Team workload and Notification usage. On Behavior, "On screen" is now Display time and "Skip old news" is Already handled.
+- **Lighter on Zendesk**: big groups' open tickets take one request instead of up to ten.
+
+## 1.8.18
+
+- **Catch up once a day**: it comes by itself at the first start of the day (or when your working day starts), not again after a restart or an update. Ask for it any time as before (tray menu, Ctrl+Alt+Z).
+- **New tickets show sooner**: new unassigned tickets are also checked halfway between the regular checks, so they show within about 1½ minutes.
+- **"Taken by Anna"**: when someone takes a new ticket (or it's solved) while its notification is up, it says so for a few seconds before closing.
+- **A card for each client**: point at a client's name on the Clients page to see its tickets in the last 90 days and its products, tidy even with many products.
+- **Priority levels on How it works**: what P1–P4 mean, as a reminder when a client's priority doesn't match the case.
+- **Lighter on Zendesk**: names, the group list and the Priority guess history are remembered for a week, a colleague's activity takes one request instead of six, and starting the app asks Zendesk for much less.
+- The Colleagues page no longer loads the same group members several times at once.
+
+## 1.8.17
+
+- **Don't miss a P1, even when it was taken within a minute**: Notifications → New tickets → "Also when someone took it before I saw it" (Off · P1 · P1, P2 · All, off by default). Tickets someone took between two checks come as "Already taken", saying who took it and how fast, and whether it's already solved.
+
+## 1.8.16
+
+- **Copy just the ticket number**: a new icon at the top right of ticket notifications (the copy icon with a #) copies only the number, e.g. 123456. Pointing at either copy icon says what it copies.
+- The guide and README show the new Settings pages and notifications.
+
+## 1.8.15
+
+- **Priorities per group for new tickets**: Notifications → New tickets lets each monitored group notify for All, P1–P3, P1 and P2, or P1 only. A quiet ticket raised to a chosen priority while still unassigned comes as "Priority raised".
+- **See a client's products**: point at a client on the Clients page to see the products Zendesk lists for it, and filter by product (the row says which product matched). Zendesk's list is often out of date, so it's a hint, never a rule.
+- **One way to choose priorities**: New tickets, Ticket changes and Colleagues all use the same buttons, and priorities show as P1–P4 tags only.
+- **Clearer when signed out**: a "Not signed in" banner with a Sign in button, and Groups, Clients, Colleagues and SLA greyed with a lock in the sidebar.
+- The Groups page is only about which groups you monitor again.
+
+## 1.8.14
+
+- **"Client" everywhere**: the app says client instead of customer, as the team does (Colleagues page, Catch up, How it works, SLA and more).
+
+## 1.8.13
+
+- **Options for a whole group of clients**: Options ▾ on a group's row on the Clients page sets Only urgent, Important, a mute or a sound for all its clients at once.
+- **A guide with screenshots** on GitHub shows every notification and Settings page (linked from the install guide).
+- The Groups list starts from the top after Save, like Clients; How it works topics have their titles centered.
+
+## 1.8.12
+
+- **Calmer notifications**: who it's from and how long ago on one line, the reply deadline at its right end, and what they wrote in quotes. No more "Client:" or "replied:", and a title never ends with one word alone on its line.
+- **Mute a client until your shift ends or your next shift starts** (instead of for a day), from Options ▾ on a notification or on the Clients page.
+- **Ctrl+Alt+Z opens Catch up** from anywhere.
+- **Working late?** Notifications → Working hours: "Only notify me during my working hours" can now also notify while you're active in Zendesk outside them.
+- **How it works follows the Settings pages**: one topic per page, each starting with what it's for, then where to change it and the details, with links.
+- "Customer waiting" is now "Colleague's ticket"; Options ▾ on a notification replaces "Mute ▾"; the Clients summary also counts "only urgent"; Clients start from the top after Save and open groups stay open; Catch up puts "Your tickets:" on its own line; times follow your Windows clock everywhere.
+
+## 1.8.11
+
+- **"Update ready" lists every version you'll get**: skipping a few updates, you see the main change of each version in between, not only the newest one. Works from the next update on.
+
+## 1.8.10
+
+- **Catch up is easier to read**: an empty line before "To work on", so the tickets to start with stand apart.
+- The ▶ next to a sound says "Stop" while it plays.
+
+## 1.8.9
+
+- **Volume stands on its own**: at the top of Look & sound → Sound, as buttons (25% to 100%), so it doesn't look like one more kind of notification. It's for all the app's sounds.
+
+## 1.8.8
+
+- **Sounds are quieter**: a new Volume on Look & sound, 50% to start with, so a notification doesn't startle you with headphones on. It only affects this app; ▶ plays at the chosen volume, and shows ■ while playing (click it to stop).
+- **Filter Groups and Clients**: type to show only the matching groups or clients; ✕ or Esc clears it. While filtering, a group's box applies to the clients shown.
+- **Settings can be maximized**: the Groups and Clients lists grow with the window.
+- **Lighter on Zendesk**: the app checks every 3 minutes (every 10 while you're away, and right away when you're back) and combines its requests, about a third of before. If Zendesk ever says it's busy, the whole app pauses until it may go on.
+- **See where you changed something**: pages with unsaved changes get a dot in the sidebar.
+- How it works now starts each topic with what it does for you. Notifications → Colleagues says "Change my work hours".
+
+## 1.8.7
+
+- **Clients are easier to customize**: one client per line, each with "Options ▾" (important, only urgent, its own sound, mute for a while). Groups → Clients.
+- **Bot updates stay quiet**: the automatic "your request has reached Premium Support" reply and group move no longer notify on your own or CC'd tickets, nor do other changes by Zendesk triggers or service accounts. Status changes still do. Turn them back on in Notifications → Which changes: Automatic updates (bots).
+
+## 1.8.6
+
+- **Taken tickets close by themselves**: when a colleague takes a new ticket (or it's solved) while its notification is still up, the notification closes within a minute.
+
+## 1.8.5
+
+- **New tickets show what the customer wrote**: the start of their first message, under their name. Turn off Look & sound → Show the comment text and it isn't even read.
+- **Try it picks a different sample each time**, with funnier made-up customers, clients and tickets.
+- **Ticket lists stay tidy**: in "Group added" and "several new tickets", each ticket keeps to one row and long subjects end in "…".
+- "Now watching" is now called "Group added" (How it works explains it), and the search box on Groups and Clients empties after Save or Discard.
+
+## 1.8.4
+
+- **Who could take it**: the ▾ next to Take it on a new-ticket notification lists up to 3 colleagues in the ticket's group who are in their working hours and active in Zendesk, least busy first. Pick one to assign the ticket to them (you're asked first).
+- **Insights: Your team** gets a Solved column (solved or closed in the last 7 days); "Waiting" is now "Pending" (Pending and On-hold), and names are shortened so no column is cut off.
+- **Smoother Insights**: the page scrolls smoothly, without smudges, and its cards have clearer titles.
+- In Pill mode, an open menu on a notification keeps the pill open.
+
+## 1.8.3
+
+- **Catch up: "To work on"**: under your tickets, up to 5 of your New, Open and In progress tickets by name, most urgent first, then the nearest SLA. Click a number to open the ticket.
+- **One glow at a time**: several notifications arriving together glow at the screen edge once, not one glow after another.
+
+## 1.8.2
+
+- **Smaller and lighter**: the app takes about 23 MB less on disk (a Windows library it no longer needs), and sounds now play through Windows' simple audio output, which closes as soon as a sound ends instead of keeping Windows' media player loaded.
+
 ## 1.8.1
 
 - **Clients stay put**: changing a client (Important, Only urgent, Muted, own sound) no longer moves its row. The list sorts itself again after Save or Discard, or the next time you open the page, as on the Groups page.

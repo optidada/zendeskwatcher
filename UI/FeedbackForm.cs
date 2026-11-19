@@ -53,7 +53,7 @@ public sealed class FeedbackForm : Form
         _attach.Checked = true;
         _attach.Margin = new Padding(0, 0, 0, 2);
         stack.Controls.Add(_attach);
-        var what = Theme.Label("The log, your settings and app details: ticket numbers and subjects, but no comments or customer messages.", Theme.Small, Theme.TextMuted, 440);
+        var what = Theme.Label("The log, your settings and app details: ticket numbers and subjects, but no comments or client messages.", Theme.Small, Theme.TextMuted, 440);
         what.Margin = new Padding(22, 0, 0, 16);
         stack.Controls.Add(what);
 

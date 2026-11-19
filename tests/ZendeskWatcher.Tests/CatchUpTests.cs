@@ -30,7 +30,7 @@ public class CatchUpTests
                      $"**2** past SLA · **3** due today, first {Clock.Time(due)}\n" +
                      "**4** unassigned in your groups · 1 Scheduled\n" +
                      "**2** waiting on colleagues' tickets\n" +
-                     "**1** Escalated, no reply to the customer for 2+ days\n" +
+                     "**1** Escalated, no reply to the client for 2+ days\n" +
                      "**5** Pending, no update for 7+ days\n" +
                      "\nYour tickets: 3 Open",
             TicketRules.CatchUpBody(new TicketRules.CatchUpCounts
@@ -42,6 +42,30 @@ public class CatchUpTests
         Assert.Equal($"**2** SLA due today, first {Clock.Time(due)}", TicketRules.CatchUpBody(new() { SlaToday = 2, FirstDueToday = due }, null));
         Assert.Equal("Nothing needs you right now", TicketRules.CatchUpBody(new(), null));
         Assert.StartsWith("No groups watched yet", TicketRules.CatchUpBody(new() { NoGroups = true }, null));
+    }
+
+    [Fact]
+    public void Working_on_lists_open_tickets_most_urgent_first()
+    {
+        var now = DateTimeOffset.UtcNow;
+        TicketRules.WorkItem T(long id, string status, string name, string? priority, double hoursAgo, DateTimeOffset? sla = null) =>
+            new(id, $"Ticket {id}", name, status, priority, sla, now.AddHours(-hoursAgo));
+
+        Assert.Null(TicketRules.WorkingOnText([T(1, "pending", "Pending", "urgent", 1), T(2, "open", "Escalated to Engineering", "high", 1)]));
+
+        var text = TicketRules.WorkingOnText([
+            T(10, "open", "Open", "normal", 1),
+            T(11, "open", "Open", "normal", 5),             // untouched longer: before 10
+            T(12, "open", "In Progress", "urgent", 1),      // P1 first
+            T(13, "pending", "Pending", "urgent", 1),       // waits on the customer: not listed
+            T(14, "new", "New", "normal", 1, now.AddHours(1)), // SLA soon: first among the normal ones
+            T(15, "open", "Open", "high", 1),
+            T(16, "open", "Open", "low", 9),
+            T(17, "open", "Open", "low", 1)]);
+        Assert.Equal("To work on:\n" +
+                     $"#12 {ZendeskWatcher.UI.Markdown.Tag("urgent")} Ticket 12\n" +
+                     $"#15 {ZendeskWatcher.UI.Markdown.Tag("high")} Ticket 15\n" +
+                     "#14 Ticket 14\n#11 Ticket 11\n#10 Ticket 10\n+2 more", text);
     }
 
     [Fact]
@@ -60,6 +84,22 @@ public class CatchUpTests
 
         settings.CatchUpAtDayStart = false;
         Assert.False(watcher.DayStartCatchUpDue(monday.AddDays(1)));    // switched off
+    }
+
+    [Fact]
+    public async Task Once_a_day_even_with_restarts_and_a_start_before_working_hours()
+    {
+        File.Delete(AppPaths.StateFile);
+        var settings = new Settings { Subdomain = "test", MyWorkdayStartHour = 9, MyWorkdayEndHour = 17, MyWorkDays = [.. Enum.GetValues<DayOfWeek>()] };
+        var watcher = new TicketWatcher(settings, new ZendeskClient(settings, new FakeZendesk()), new RecordingNotifier());
+        await watcher.InitializeAsync(CancellationToken.None);
+        Assert.False(watcher.CaughtUpToday);
+
+        await watcher.CatchUpAsync(CancellationToken.None, since: DateTime.Now.AddDays(-1), reason: CatchUpReason.AppStart);
+
+        Assert.True(watcher.CaughtUpToday);                                       // a restart later today doesn't greet again
+        Assert.False(watcher.DayStartCatchUpDue(DateTime.Today.AddHours(9.5)));   // nor does the working day's start
+        Assert.True(watcher.DayStartCatchUpDue(DateTime.Today.AddDays(1).AddHours(9.5))); // tomorrow it comes again
     }
 
     [Fact]
@@ -125,14 +165,20 @@ public class CatchUpTests
         Assert.StartsWith("Catch up · since ", greeting.Heading);
         var lines = greeting.Body!.Replace('\u00a0', ' ').Split('\n');
         // The priorities are tags: as plain text "P1".
-        Assert.Contains("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines.Select(l => ZendeskWatcher.UI.Markdown.Strip(l)));
-        Assert.DoesNotContain("Your tickets: 2 Open (1 P1) · 2 Escalated · 1 Pending", lines);
-        // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets last.
+        Assert.Contains("Your tickets:", lines);                // the heading on its own line, the counts below
+        Assert.Contains("2 Open (1 P1) · 2 Escalated · 1 Pending", lines.Select(l => ZendeskWatcher.UI.Markdown.Strip(l)));
+        Assert.DoesNotContain("2 Open (1 P1) · 2 Escalated · 1 Pending", lines);
+        // The waiting customer, the past SLA, the quiet escalated and the quiet pending one; your tickets, then what to work on.
         Assert.Contains("**1** waiting for your reply", lines);
         Assert.Contains("**1** past SLA", lines);
-        Assert.Contains("**1** Escalated, no reply to the customer for 2+ days", lines);
+        Assert.Contains("**1** Escalated, no reply to the client for 2+ days", lines);
         Assert.Contains("**1** Pending, no update for 7+ days", lines);
-        Assert.StartsWith("Your tickets:", lines[^1]);
+        var work = Array.IndexOf(lines, "To work on:");
+        Assert.True(work > 0);
+        Assert.Equal("", lines[work - 1]);                      // an empty line before it
+        Assert.Equal("Your tickets:", lines[work - 3]);
+        Assert.Contains("Open", lines[work - 2]);
+        Assert.All(lines[(work + 1)..], l => Assert.StartsWith("#", l));
         Assert.False(greeting.RequestedByUser);
     }
 

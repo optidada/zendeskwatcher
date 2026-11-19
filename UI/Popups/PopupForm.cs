@@ -15,6 +15,9 @@ public sealed class PopupForm : Form
     /// <summary>The button between Open and Snooze/Close: "Take it" on new tickets.</summary>
     private bool HasExtraButton => _content.CanTake;
 
+    /// <summary>"▾" on the right of Take it: who could take it (<see cref="AssignMenu"/>), once signed in (samples too).</summary>
+    private bool HasWho => HasExtraButton && _content.TicketId is not null && (AssignMenu.Find is not null || _content.IsSample);
+
     private const int BaseWidth = 380;
 
     /// <summary>Badge column and heading prefix ("Achievement unlocked"), or null.</summary>
@@ -47,7 +50,7 @@ public sealed class PopupForm : Form
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     // Layout (client coordinates)
-    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _openRect, _snoozeRect, _takeRect, _dismissRect, _clientRect, _muteRect;
+    private Rectangle _headingRect, _titleRect, _bodyRect, _footerRect, _barRect, _closeRect, _copyRect, _copyIdRect, _openRect, _snoozeRect, _takeRect, _whoRect, _dismissRect, _clientRect, _muteRect;
     private string _openLabel = "", _snoozeLabel = "", _closeLabel = "", _takeLabel = "", _dismissLabel = "";
 
     // State
@@ -185,20 +188,34 @@ public sealed class PopupForm : Form
     /// <summary>Copy was clicked (ticket notifications only). The popup stays open and shows a check mark for a moment.</summary>
     public event Action<PopupForm>? CopyClicked;
 
+    /// <summary>Copy ticket number was clicked; the popup stays open (counted as acted on, like Copy).</summary>
+    public event Action<PopupForm>? CopyIdClicked;
 
-    /// <summary>A choice from "Mute ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
+
+    /// <summary>A choice from "Options ▾" on the client line (<see cref="NotificationContent.MuteTarget"/>); the popup closes.</summary>
     public event Action<PopupForm, ClientChoice>? ClientChosen;
 
-    /// <summary>The "Mute ▾" menu is open: the countdown waits, as when hovering.</summary>
+    /// <summary>The "Options ▾" menu is open: the countdown waits, as when hovering.</summary>
     private bool _menuOpen;
 
-    private double _copiedUntil;
-    private Font? _iconFont;
+    /// <summary>Its Options ▾ or Who could take it ▾ menu is open (the pill stays open meanwhile).</summary>
+    internal bool MenuOpen => _menuOpen;
+
+    private double _copiedUntil, _copiedIdUntil;
+
+    /// <summary>What "copy ticket number" puts on the clipboard: the number alone (pastes into Zendesk search and fields).</summary>
+    internal static string TicketNumberText(long id) => id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Says what the two copy buttons do while the mouse is on them.</summary>
+    private readonly ToolTip _tips = new() { InitialDelay = 400, ShowAlways = true }; // the window never takes focus: without ShowAlways no tip shows
+    private Font? _iconFont, _hashFont;
 
     /// <param name="scale">Screen DPI scale.</param>
     /// <param name="size">The user's notification size (1 = 100%): text, buttons and spacing grow together.</param>
     /// <param name="decoration">A badge column and heading prefix ("Achievement unlocked"); null for none.</param>
-    internal PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f, PopupDecoration? decoration = null)
+    /// <param name="fontRatio">Text size on a monitor whose scaling isn't the main one's (<see cref="NotificationScreen.FontRatio"/>).</param>
+    internal PopupForm(NotificationContent content, PopupPalette palette, int seconds, float scale, float size = 1f, PopupDecoration? decoration = null,
+        float fontRatio = 1f)
     {
         _content = content;
         _decoration = decoration;
@@ -208,14 +225,16 @@ public sealed class PopupForm : Form
         _accent = palette.Accent(content.Priority, content.Kind);
 
         var family = FontExists(palette.FontFamily) ? palette.FontFamily : (palette.Terminal ? "Consolas" : "Segoe UI");
-        // Font sizes are in points (Windows applies the DPI); only the user's size is added here.
+        // Font sizes are in points (Windows applies the main monitor's DPI); the user's size and, on a monitor with
+        // another scaling, the difference are added here.
+        size *= fontRatio;
         _headingFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
         _titleFont = new Font(family, (palette.FontSize + (palette.Terminal ? 0.5f : 1.5f)) * size, FontStyle.Bold);
         _bodyFont = new Font(family, palette.FontSize * size);
         _smallFont = new Font(family, (palette.FontSize - 1f) * size, palette.Terminal ? FontStyle.Regular : FontStyle.Bold);
         _bodyBoldFont = new Font(family, palette.FontSize * size, FontStyle.Bold);
         _clientFont = new Font(family, (palette.FontSize + (palette.Terminal ? 1f : 2.5f)) * size, FontStyle.Bold);
-        _rich = new RichText(_bodyFont, _bodyBoldFont) { Tags = !palette.Terminal, TagScale = _s }; // Terminal: "P1" as text
+        _rich = new RichText(_bodyFont, _bodyBoldFont) { Tags = !palette.Terminal, TagScale = _s, OneRowPerLine = content.OneRowPerLine }; // Terminal: "P1" as text
         _titleRich = new RichText(_titleFont, _titleFont);
 
         FormBorderStyle = FormBorderStyle.None;
@@ -234,6 +253,12 @@ public sealed class PopupForm : Form
     }
 
     // ------------------------------------------------------------------ window behaviour
+
+    /// <summary>
+    /// Drawn for its monitor's scaling from the start: sliding in across the edge from a monitor with another scaling
+    /// mustn't let Windows resize it halfway.
+    /// </summary>
+    protected override void OnDpiChanged(DpiChangedEventArgs e) => e.Cancel = true;
 
     protected override bool ShowWithoutActivation => true;
 
@@ -294,6 +319,7 @@ public sealed class PopupForm : Form
         _openRect.Offset(0, delta);
         _snoozeRect.Offset(0, delta);
         _takeRect.Offset(0, delta);
+        _whoRect.Offset(0, delta);
         _dismissRect.Offset(0, delta);
         _barRect.Offset(0, delta);
         ClientSize = new Size(ClientSize.Width, height);
@@ -360,6 +386,53 @@ public sealed class PopupForm : Form
 
     private string DismissLabel => _dismissLabel;
 
+    /// <summary>"Taken by Anna", shown in the footer while it closes by itself (<see cref="ShowTaken"/>).</summary>
+    private string? _takenNote;
+
+    /// <summary>
+    /// Someone took the ticket (or it was solved): says so where Take it was, for a few seconds, then closes. Without
+    /// a Take it button (a compact style) it closes at once, as before.
+    /// </summary>
+    public void ShowTaken(string note)
+    {
+        if (_phase == Phase.Leaving || _takenNote is not null)
+            return;
+        if (!HasExtraButton || _takeRect.IsEmpty)
+        {
+            Dismiss(Result.None);
+            return;
+        }
+        _takenNote = note;
+        Invalidate();
+        var wait = new System.Windows.Forms.Timer { Interval = 4000 };
+        wait.Tick += (_, _) =>
+        {
+            wait.Dispose();
+            Dismiss(Result.None);
+        };
+        wait.Start();
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsWindowEnabled(IntPtr hWnd);
+
+    private bool _clickable = true;
+
+    /// <summary>
+    /// Windows disables all of the app's windows while a dialog is open (a disabled one ignores every click) and enables
+    /// them again afterwards. Logged when it changes (checked once a second by the manager), in case one stays disabled.
+    /// </summary>
+    internal void NoteClickable()
+    {
+        if (!IsHandleCreated || IsDisposed)
+            return;
+        var clickable = IsWindowEnabled(Handle);
+        if (clickable == _clickable)
+            return;
+        _clickable = clickable;
+        Log.Info($"Notification {(clickable ? "takes clicks again" : "disabled by Windows (a dialog is open?)")}: {_content.LogName}");
+    }
+
     public void Dismiss(Result outcome)
     {
         if (_phase == Phase.Leaving)
@@ -408,8 +481,14 @@ public sealed class PopupForm : Form
                 if (pOut >= 1)
                 {
                     _timer.Stop();
-                    Finished?.Invoke(this);
-                    Close();
+                    try
+                    {
+                        Finished?.Invoke(this);
+                    }
+                    finally
+                    {
+                        Close(); // always: one stuck in "leaving" ignores every click
+                    }
                     return;
                 }
                 break;
@@ -509,7 +588,7 @@ public sealed class PopupForm : Form
     /// </summary>
     private void ClipToScreen(Point location)
     {
-        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea; // not over the taskbar
+        var area = WorkArea(NotificationScreen.Current); // not over the taskbar
         var visible = Rectangle.Intersect(new Rectangle(location, Size), area);
         visible.Offset(-location.X, -location.Y);
         if (visible == _clip)
@@ -595,19 +674,24 @@ public sealed class PopupForm : Form
         _copyRect = _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone
             ? new Rectangle(_closeRect.Left - copyWidth - Px(2), _closeRect.Top, copyWidth, closeSize)
             : Rectangle.Empty;
+        // Copy ticket number, left of Copy: the copy icon with a small "#" (only for notifications about one ticket).
+        var copyIdWidth = _palette.Terminal ? TextRenderer.MeasureText("[#]", _smallFont).Width + Px(4) : closeSize;
+        _copyIdRect = !_copyRect.IsEmpty && _content.TicketId is not null
+            ? new Rectangle(_copyRect.Left - copyIdWidth - Px(2), _copyRect.Top, copyIdWidth, closeSize)
+            : Rectangle.Empty;
 
         var headingHeight = TextRenderer.MeasureText("Ag", _headingFont).Height;
-        _headingRect = new Rectangle(left, y, (_copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
+        _headingRect = new Rectangle(left, y, (!_copyIdRect.IsEmpty ? _copyIdRect.Left : _copyRect.IsEmpty ? _closeRect.Left : _copyRect.Left) - left - Px(4), headingHeight);
         y += headingHeight + Px(6);
 
-        // "Client: Contoso", large: the first thing to see.
+        // The client's name, large: the first thing to see.
         if (!string.IsNullOrWhiteSpace(_content.Client))
         {
             var clientHeight = TextRenderer.MeasureText("Ag", _clientFont).Height;
             _clientRect = new Rectangle(left, y, width, clientHeight);
             y += clientHeight + Px(2);
 
-            // "Mute" at the right end of the client line: no more notifications from this client (Groups → Clients).
+            // "Options ▾" at the right end of the client line: this client's choices (mute, only urgent, important, sound; Groups → Clients).
             if (_content.MuteTarget is not null)
             {
                 var muteSize = TextRenderer.MeasureText(MuteLabel, _smallFont, Size.Empty, TextFormatFlags.NoPadding);
@@ -670,7 +754,7 @@ public sealed class PopupForm : Form
         var withDismiss = SecondButton == Result.Snooze;
         int Fit(int padding, bool dismiss) =>
             new[] { _openLabel, HasExtraButton ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
-                .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8);
+                .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8) + WhoWidth;
         var padding = _palette.Terminal ? 8 : 28;
         if (Fit(padding, withDismiss) > width && !_palette.Terminal)
             padding = 16;
@@ -683,8 +767,10 @@ public sealed class PopupForm : Form
         var openWidth = WidthOf(_openLabel);
         var snoozeWidth = WidthOf(_snoozeLabel);
         _openRect = new Rectangle(left + width - openWidth, y, openWidth, buttonHeight);
-        var takeWidth = HasExtraButton ? WidthOf(_takeLabel) : 0;
+        var takeWidth = HasExtraButton ? WidthOf(_takeLabel) + WhoWidth : 0;
         _takeRect = HasExtraButton ? new Rectangle(_openRect.Left - Px(8) - takeWidth, y, takeWidth, buttonHeight) : Rectangle.Empty;
+        // The ▾ is the right end of the Take it button (a split button); _takeRect stays the whole button.
+        _whoRect = HasWho ? new Rectangle(_takeRect.Right - WhoWidth, y, WhoWidth, buttonHeight) : Rectangle.Empty;
         var snoozeRight = HasExtraButton ? _takeRect.Left : _openRect.Left;
         _snoozeRect = snoozeWidth == 0 ? new Rectangle(snoozeRight, y, 0, buttonHeight)
             : SecondButton == Result.Dismiss ? new Rectangle(left, y, snoozeWidth, buttonHeight) // "Close" on app messages: bottom left too
@@ -781,6 +867,37 @@ public sealed class PopupForm : Form
             }
         }
 
+        if (!_copyIdRect.IsEmpty)
+        {
+            var hover = _hoverButton == _copyIdRect;
+            var copied = _clock.Elapsed.TotalMilliseconds < _copiedIdUntil;
+            if (hover && !_palette.Terminal)
+            {
+                using var hoverBrush = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 18, _palette.Text));
+                g.FillEllipse(hoverBrush, _copyIdRect);
+            }
+            var color = copied ? (_palette.Terminal ? _accent : Readable(_accent)) : hover ? _palette.Text : _palette.Muted;
+            if (_palette.Terminal)
+                DrawText(g, copied ? "[ok]" : "[#]", _smallFont, _copyIdRect, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else if (copied)
+                DrawText(g, char.ConvertFromUtf32(0xE73E), _iconFont ??= new Font("Segoe MDL2 Assets", _smallFont.SizeInPoints), _copyIdRect, color,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else
+            {
+                // The copy icon with a bold "#" on a patch of the background over its lower right corner.
+                _iconFont ??= new Font("Segoe MDL2 Assets", _smallFont.SizeInPoints);
+                var icon = _copyIdRect;
+                icon.Offset(-Px(2), 0); // level with the Copy icon next to it, only a little to the left
+                DrawText(g, char.ConvertFromUtf32(0xE8C8), _iconFont, icon, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                _hashFont ??= new Font(_smallFont.FontFamily, _smallFont.SizeInPoints * 0.95f, FontStyle.Bold);
+                var hashSize = TextRenderer.MeasureText(g, "#", _hashFont, Size.Empty, TextFormatFlags.NoPadding);
+                var hash = new Rectangle(_copyIdRect.Right - hashSize.Width - Px(3), _copyIdRect.Top + _copyIdRect.Height / 2 - Px(4), hashSize.Width, hashSize.Height);
+                using (var patch = new SolidBrush(hover ? Blend(_palette.Background, _palette.Text, _palette.Dark ? 40 / 255f : 18 / 255f) : _palette.Background))
+                    g.FillRectangle(patch, Rectangle.Inflate(hash, Px(1), 0));
+                DrawText(g, "#", _hashFont, hash, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
+        }
+
         // Title and body (typed out in the terminal theme)
         if (!_clientRect.IsEmpty)
             PaintClient(g);
@@ -843,22 +960,14 @@ public sealed class PopupForm : Form
         g.DrawRectangle(border, 0, 0, bounds.Width - 1, bounds.Height - 1);
     }
 
-    /// <summary>"Client:" small and muted, the name large in the text color (bottoms aligned, so they share a baseline).</summary>
+    /// <summary>The client's name, large in the text color, without a "Client:" label (less crowded; the name speaks for itself).</summary>
     private void PaintClient(Graphics g)
     {
-        var label = _palette.Terminal ? "client:" : "Client:";
-        var labelSize = TextRenderer.MeasureText(g, label, _bodyFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-        var nameHeight = _clientRect.Height;
-        var baselineShift = nameHeight - labelSize.Height - Px(2);
-        DrawText(g, label, _bodyFont, new Rectangle(_clientRect.Left, _clientRect.Top + baselineShift, labelSize.Width, labelSize.Height),
-            _palette.Muted, TextFormatFlags.SingleLine);
-        var nameLeft = _clientRect.Left + labelSize.Width + Px(6);
-        DrawText(g, _content.Client!, _clientFont, new Rectangle(nameLeft, _clientRect.Top, _clientRect.Right - nameLeft, nameHeight),
-            _palette.Text, TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
+        DrawText(g, _content.Client!, _clientFont, _clientRect, _palette.Text, TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
 
         if (!_muteRect.IsEmpty)
         {
-            // On the name's baseline, like the "Client:" label; brighter on hover.
+            // On the name's baseline; brighter on hover.
             var muteHeight = TextRenderer.MeasureText(g, MuteLabel, _smallFont, Size.Empty, TextFormatFlags.NoPadding).Height;
             var muteRect = new Rectangle(_muteRect.Left, _muteRect.Bottom - muteHeight - Px(3), _muteRect.Width, muteHeight);
             DrawText(g, MuteLabel, _smallFont, muteRect, _hoverButton == _muteRect ? _palette.Text : _palette.Muted,
@@ -866,7 +975,7 @@ public sealed class PopupForm : Form
         }
     }
 
-    private string MuteLabel => _palette.Terminal ? "[mute ▾]" : "Mute ▾";
+    private string MuteLabel => _palette.Terminal ? "[options ▾]" : "Options ▾"; // the client's choices, not only mute
 
     private void PaintCursorAt(Graphics g, Point at, int lineHeight)
     {
@@ -876,19 +985,66 @@ public sealed class PopupForm : Form
 
     private void PaintFooter(Graphics g)
     {
+        if (_takenNote is not null)
+        {
+            // Someone took it: "Taken by Anna" where Dismiss, Snooze and Take it were, until it closes by itself.
+            var area = new[] { _dismissRect, _snoozeRect, _takeRect }.Where(r => r.Width > 0).Aggregate(Rectangle.Union);
+            DrawText(g, _takenNote, _smallFont, area, _palette.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+            PaintButton(g, _openRect, _openLabel, primary: true);
+            return;
+        }
         if (_dismissRect.Width > 0)
             PaintButton(g, _dismissRect, DismissLabel, primary: false);
         if (_snoozeRect.Width > 0)
             PaintButton(g, _snoozeRect, _snoozeLabel, primary: false);
         if (HasExtraButton)
-            PaintButton(g, _takeRect, _takeLabel, primary: false);
+            PaintTakeButton(g);
         PaintButton(g, _openRect, _openLabel, primary: true);
     }
 
-    private void PaintButton(Graphics g, Rectangle rect, string label, bool primary)
-    {
-        var hover = _hoverButton == rect;
+    private int WhoWidth => HasWho ? Px(_palette.Terminal ? 20 : 24) : 0;
 
+    /// <summary>Take it, with the ▾ part on its right (hovered separately) when there is one.</summary>
+    private void PaintTakeButton(Graphics g)
+    {
+        if (_whoRect.IsEmpty)
+        {
+            PaintButton(g, _takeRect, _takeLabel, primary: false);
+            return;
+        }
+        var label = new Rectangle(_takeRect.X, _takeRect.Y, _takeRect.Width - _whoRect.Width, _takeRect.Height);
+        var hoverWho = _hoverButton == _whoRect;
+        var hoverTake = _hoverButton == _takeRect;
+        if (_palette.Terminal)
+        {
+            PaintButton(g, label, _takeLabel, primary: false, hover: hoverTake);
+            PaintButton(g, _whoRect, "▾", primary: false, hover: hoverWho);
+            return;
+        }
+        // One outline; the hovered part lights up.
+        PaintButton(g, _takeRect, "", primary: false, hover: false);
+        if (hoverTake || hoverWho)
+        {
+            var radius = _palette.ButtonRadius == UiPalette.Pill ? _takeRect.Height / 2f : Math.Min(_palette.ButtonRadius * _s, _takeRect.Height / 2f);
+            using var path = Theme.RoundedRect(new RectangleF(_takeRect.X + 0.5f, _takeRect.Y + 0.5f, _takeRect.Width - 1, _takeRect.Height - 1), radius);
+            var state = g.Save();
+            g.SetClip(hoverWho ? _whoRect : label);
+            using var fill = new SolidBrush(Color.FromArgb(_palette.Dark ? 40 : 20, _palette.Text));
+            g.FillPath(fill, path);
+            g.Restore(state);
+        }
+        using (var pen = new Pen(_palette.Dark ? Color.FromArgb(70, _palette.Text) : _palette.Border))
+            g.DrawLine(pen, _whoRect.Left, _whoRect.Top + Px(6), _whoRect.Left, _whoRect.Bottom - Px(6));
+        DrawText(g, _takeLabel, _smallFont, new Rectangle(label.X + Px(4), label.Y, label.Width - Px(2), label.Height), _palette.Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        DrawText(g, "▾", _smallFont, new Rectangle(_whoRect.X - Px(1), _whoRect.Y, _whoRect.Width, _whoRect.Height), _palette.Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+
+    private void PaintButton(Graphics g, Rectangle rect, string label, bool primary) => PaintButton(g, rect, label, primary, _hoverButton == rect);
+
+    private void PaintButton(Graphics g, Rectangle rect, string label, bool primary, bool hover)
+    {
         if (_palette.Terminal)
         {
             if (hover)
@@ -986,7 +1142,7 @@ public sealed class PopupForm : Form
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        SetHover(true, new[] { _closeRect, _copyRect, _muteRect, _openRect, _snoozeRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
+        SetHover(true, new[] { _closeRect, _copyRect, _copyIdRect, _muteRect, _openRect, _snoozeRect, _whoRect, _takeRect, _dismissRect }.Cast<Rectangle?>().FirstOrDefault(r => r!.Value.Contains(e.Location)));
         base.OnMouseMove(e);
     }
 
@@ -997,6 +1153,11 @@ public sealed class PopupForm : Form
         if (hover == _hover && button == _hoverButton)
             return;
         _hover = hover;
+        var tip = button == _copyRect && !_copyRect.IsEmpty ? "Copy the ticket (title, link, details)"
+            : button == _copyIdRect && !_copyIdRect.IsEmpty && _content.TicketId is { } tipId ? $"Copy ticket number ({TicketNumberText(tipId)})"
+            : null;
+        if (button != _hoverButton)
+            _tips.SetToolTip(this, tip);
         _hoverButton = button;
         if (hover && Peek != PeekEdge.None)
         {
@@ -1009,20 +1170,31 @@ public sealed class PopupForm : Form
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
+        // Clicks are rare: each is logged, so a notification that "doesn't react" can be told apart in the log (the
+        // click never came, or it came while the notification was already leaving).
+        Log.Info($"Notification clicked ({e.Button}, {_phase}{(_held ? ", held" : "")}): {_content.LogName}");
         if (Peek != PeekEdge.None && _tuck > 0.3f)
             return; // still sliding out: a click on the tab only brings it out
         if (e.Button == MouseButtons.Right || _closeRect.Contains(e.Location) || _dismissRect.Contains(e.Location))
             Dismiss(Result.Dismiss);
         else if (_muteRect.Contains(e.Location))
         {
-            var menu = ClientMenu.Build(_content.MuteTarget!, choice =>
+            if (!JustClosed(_clientMenuClosedAt)) // a second click on Options closes its menu, not reopens it
+                OpenClientMenu();
+        }
+        else if (_copyIdRect.Contains(e.Location) && _content.TicketId is { } ticketId)
+        {
+            try
             {
-                ClientChosen?.Invoke(this, choice);
-                Dismiss(Result.Dismiss);
-            });
-            _menuOpen = true;
-            menu.Closed += (_, _) => { _menuOpen = false; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
-            menu.Show(this, new Point(_muteRect.Left, _muteRect.Bottom));
+                Clipboard.SetDataObject(TicketNumberText(ticketId), copy: true, retryTimes: 5, retryDelay: 100);
+                _copiedIdUntil = _clock.Elapsed.TotalMilliseconds + 1500;
+                CopyIdClicked?.Invoke(this);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not copy the ticket number", ex);
+            }
+            Invalidate();
         }
         else if (_copyRect.Contains(e.Location))
         {
@@ -1030,9 +1202,14 @@ public sealed class PopupForm : Form
             _copiedUntil = _clock.Elapsed.TotalMilliseconds + 1500;
             Invalidate();
         }
-        else if (_snoozeRect.Contains(e.Location))
+        else if (_takenNote is null && _snoozeRect.Contains(e.Location))
             Dismiss(SecondButton);
-        else if (HasExtraButton && _takeRect.Contains(e.Location))
+        else if (_takenNote is null && !_whoRect.IsEmpty && _whoRect.Contains(e.Location))
+        {
+            if (!JustClosed(_whoMenuClosedAt)) // a second click on ▾ closes its menu, not reopens it
+                ShowWhoMenu();
+        }
+        else if (_takenNote is null && HasExtraButton && _takeRect.Contains(e.Location))
             Dismiss(Result.Take);
         else
         {
@@ -1040,6 +1217,62 @@ public sealed class PopupForm : Form
             ClickedLink = LinkAt(e.Location);
             Dismiss(Result.Open);
         }
+    }
+
+    /// <summary>When the Options or ▾ menu last closed (Environment.TickCount64).</summary>
+    private long _clientMenuClosedAt, _whoMenuClosedAt;
+
+    /// <summary>
+    /// The menu closed a moment ago: the click on its button closed it (a click outside a menu closes it before the
+    /// button sees the click), so the button mustn't open it again.
+    /// </summary>
+    private static bool JustClosed(long closedAt) => Environment.TickCount64 - closedAt < 250;
+
+    /// <summary>Options ▾ on the client line: the client's menu (mute, important, only urgent, sound).</summary>
+    internal void OpenClientMenu()
+    {
+        var menu = ClientMenu.Build(_content.MuteTarget!, choice =>
+        {
+            ClientChosen?.Invoke(this, choice);
+            Dismiss(Result.Dismiss);
+        }, ownTicket: _content.Kind == NotificationKind.MyTicket);
+        _menuOpen = true;
+        menu.Closed += (_, _) => { _menuOpen = false; _clientMenuClosedAt = Environment.TickCount64; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
+        menu.Show(this, new Point(_muteRect.Left, _muteRect.Bottom));
+        NotificationScreen.KeepOnScreen(menu, this); // never on the other monitor
+    }
+
+    /// <summary>
+    /// Who could take it: the menu under the ▾ (the countdown waits while it's open). A colleague picked and confirmed:
+    /// the notification closes and the app assigns the ticket to them (counted like Take it).
+    /// </summary>
+    private void ShowWhoMenu()
+    {
+        var ticketId = _content.TicketId!.Value;
+        // In the lower half of the screen it opens upwards (it grows when the colleagues are in), else downwards.
+        var screen = WorkArea(NotificationScreen.Current);
+        var up = PointToScreen(new Point(0, _whoRect.Bottom)).Y > screen.Top + screen.Height / 2;
+        ContextMenuStrip? menu = null;
+        menu = AssignMenu.Build(ticketId, _content.IsSample, candidate =>
+        {
+            _menuOpen = true; // the question is open: no countdown, and the pill stays open
+            var yes = ThemedDialog.Confirm(this, $"Assign #{ticketId} to {candidate.Name}?",
+                $"The ticket is assigned to {candidate.Name} in Zendesk.", "Assign");
+            _menuOpen = false;
+            if (!yes)
+                return;
+            ClickedLink = new RichText.Link(NotificationActions.Assign(candidate.UserId, candidate.Name), ticketId);
+            Dismiss(Result.Take);
+        }, () => Open(menu!));
+        void Open(ContextMenuStrip m)
+        {
+            m.Show(this, up ? new Point(_whoRect.Right, _whoRect.Top) : new Point(_whoRect.Right, _whoRect.Bottom),
+                up ? ToolStripDropDownDirection.AboveLeft : ToolStripDropDownDirection.BelowLeft);
+            NotificationScreen.KeepOnScreen(m, this); // also when it grows with the colleagues: never on the other monitor
+        }
+        _menuOpen = true;
+        menu.Closed += (_, _) => { _menuOpen = false; _whoMenuClosedAt = Environment.TickCount64; SetHover(ClientRectangle.Contains(PointToClient(Cursor.Position)), null); };
+        Open(menu);
     }
 
     private RichText.Link? LinkAt(Point at) => _links.Where(l => l.Bounds.Contains(at)).Select(l => l.Link).FirstOrDefault();
@@ -1055,7 +1288,7 @@ public sealed class PopupForm : Form
             var i = 0;
             foreach (var content in Notifier.AllSamples())
             {
-                using var form = new PopupForm(content, PopupPalette.For(theme), 0, 1f) { _phase = Phase.Showing };
+                using var form = new PopupForm(content with { IsSample = true }, PopupPalette.For(theme), 0, 1f) { _phase = Phase.Showing };
                 using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(dir, $"{theme}-{i++}.png"));
@@ -1085,6 +1318,9 @@ public sealed class PopupForm : Form
             _smallFont.Dispose();
             _bodyBoldFont.Dispose();
             _clientFont.Dispose();
+            _iconFont?.Dispose();
+            _hashFont?.Dispose();
+            _tips.Dispose(); // also takes its tip off the screen
         }
         base.Dispose(disposing);
     }
@@ -1107,15 +1343,29 @@ public sealed class PopupForm : Form
     /// True when the screen is locked, or there's been no input for <see cref="AwayAfter"/>: countdowns pause, so notifications are still
     /// there when the user comes back. Cheap (one Windows call), checked on each animation tick.
     /// </summary>
-    internal static bool UserAway()
+    internal static bool UserAway() => UserAwayFor(AwayAfter);
+
+    /// <summary>For the tests: the user counts as at the PC and not presenting, whatever the real mouse and screen do.</summary>
+    internal static bool AssumeUserPresent { get; set; }
+
+    /// <summary>For the tests: an area off the visible screen, so notifications they show can't be clicked or hovered by chance.</summary>
+    internal static Rectangle? TestWorkArea { get; set; }
+
+    /// <summary>Where notifications may go on this screen: its working area (not over the taskbar), or <see cref="TestWorkArea"/>.</summary>
+    internal static Rectangle WorkArea(Screen screen) => TestWorkArea ?? screen.WorkingArea;
+
+    /// <summary>The screen is locked, or there's been no mouse or keyboard input for <paramref name="idle"/>.</summary>
+    internal static bool UserAwayFor(TimeSpan idle)
     {
+        if (AssumeUserPresent)
+            return false;
         if (_sessionLocked)
             return true; // locked: away right away, not only after a minute
         var info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
         if (!GetLastInputInfo(ref info))
             return false;
         var idleMs = unchecked((uint)Environment.TickCount - info.dwTime);
-        return idleMs >= AwayAfter.TotalMilliseconds;
+        return idleMs >= idle.TotalMilliseconds;
     }
 
     [StructLayout(LayoutKind.Sequential)]

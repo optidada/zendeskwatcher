@@ -18,7 +18,7 @@ internal sealed class ExperimentalPage : SettingsPage
     {
         var card = new Card("On this PC only", "Uses a small built-in language model. Ticket text never leaves this PC. Details under How it works.", Kit.CardWidth);
         Add(card, _guessPriority, "“Set as P3 · looks like P1: site down” when it sounds more urgent than its priority; “probably not” when a P1 or P2 shows no sign of urgency.");
-        Add(card, _quietThanks, "A customer's plain “Thanks, that worked!” notifies without sound; Catch up skips it.");
+        Add(card, _quietThanks, "A client's plain “Thanks, that worked!” notifies without sound; Catch up skips it.");
         Panel.Controls.Add(card);
 
         TrackChanges(_guessPriority, _quietThanks);

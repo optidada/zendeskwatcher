@@ -13,6 +13,11 @@ internal static class Program
             .OnBeforeUninstallFastCallback(_ => StartupRegistration.Set(false))
             .Run();
 
+        // The sample Settings windows (renders, CPU measuring) save their sample lists like the real one would: into a
+        // throwaway data folder, never over the real cache (it once replaced the real group members with the sample's).
+        if (args.Length >= 1 && args[0] is "--render-settings" or "--measure-settings" && Environment.GetEnvironmentVariable(AppPaths.DataDirVariable) is null)
+            Environment.SetEnvironmentVariable(AppPaths.DataDirVariable, Path.Combine(Path.GetTempPath(), "ZendeskWatcher-samples"));
+
         // Developer helper: write the app icon (.ico) and preview PNGs, then exit.
         if (args.Length >= 2 && args[0] == "--export-icons")
         {
@@ -101,6 +106,10 @@ internal static class Program
         using var mutex = new Mutex(initiallyOwned: true, @"Local\ZendeskWatcher", out var isFirstInstance);
         if (!isFirstInstance)
         {
+            // Windows got to the startup entry after the user had started the app already: nothing to say.
+            if (args.Contains(StartupRegistration.AutostartArg))
+                return;
+
             // A second start asks the running one to say it's there (as a notification), then exits.
             SignalRunningInstance();
             return;
@@ -121,6 +130,9 @@ internal static class Program
         Log.DropOldLogsOnce();
         FeedbackPackage.CleanUp(TimeSpan.FromDays(1)); // a feedback zip from an earlier day: the email has its own copy
         Log.Info("Started");
+        // A new version is installed straight away at start (a few seconds; nothing has shown yet). It then starts
+        // itself and says what's new.
+        new AppUpdater().UpdateOnStart(TimeSpan.FromSeconds(20));
         var app = new TrayAppContext();
         if (args.Contains("--test-popups"))
             app.ShowTestPopups(); // for trying the notification styles without waiting for real tickets

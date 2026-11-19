@@ -16,7 +16,9 @@ public class ResponseSlimmingTests
         Assert.Contains("email_cc_ids", fields);
         Assert.Contains("updated_at", fields);
         Assert.DoesNotContain("is_open", fields); // computed, not from Zendesk
-        Assert.DoesNotContain("description", fields); // the long first message never crosses over
+        Assert.Contains("description", fields); // the first message: only its start crosses over (see the script)
+        Assert.Contains($"r.description.slice(0, {ResponseSlimming.DescriptionChars})", ResponseSlimming.Script);
+        Assert.DoesNotContain("slice", ResponseSlimming.ScriptWithoutDescriptions); // the setting off: none at all
     }
 
     [Fact]

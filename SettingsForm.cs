@@ -44,7 +44,7 @@ public sealed class SettingsForm : Form
         ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
         ("Behavior", true), ("Look & sound", true), ("SLA", true), ("General", false), ("Updates & feedback", true), ("Insights", false), ("How it works", false), ("Experimental", false)
     ];
-    private const int ClientsIndex = 2, HelpIndex = 4, GeneralIndex = 8;
+    private const int GroupsIndex = 1, ClientsIndex = 2, HelpIndex = 4, SlaIndex = 7, GeneralIndex = 8;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
     private const int UpdatesIndex = GeneralIndex + 1;
@@ -218,8 +218,10 @@ public sealed class SettingsForm : Form
         Font = Theme.Body;
         BackColor = Theme.Window;
         ClientSize = new Size(840, 680); // tall enough for the Account page with Catch up, without a scrollbar
-        FormBorderStyle = FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
+        // Resizable (e.g. maximized for a long list of clients): the lists on Groups and Clients grow with the height,
+        // and the pages stay centered in a wider window. Never smaller than it opens.
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
         Icon = AppIcon.CreateIcon(AppIcon.NeonGreen, 32);
 
@@ -229,7 +231,7 @@ public sealed class SettingsForm : Form
         _account = new AccountPage(_context, _groups);
         _makePage =
         [
-            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context),
+            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context, _groups),
             () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
             () => new SlaPage(_context), MakeGeneralPage, MakeUpdatesPage, () => new StatisticsPage(_context), () => new HowItWorksPage(_context), () => new ExperimentalPage(_context)
         ];
@@ -259,6 +261,10 @@ public sealed class SettingsForm : Form
             var area = Screen.FromControl(this).WorkingArea;
             if (Height > area.Height)
                 Height = area.Height;
+            MinimumSize = Size;
+            _contentWidth = _content.ClientSize.Width;
+            _contentLeft = _content.Padding.Left;
+            _content.SizeChanged += (_, _) => FitToWindow();
             foreach (var page in BuiltPages) CreateHandles(page.Panel);
             Theme.ApplyWindowChrome(this, Theme.Current.Dark); // again, now for the scroll bars and lists too
         };
@@ -321,6 +327,14 @@ public sealed class SettingsForm : Form
             stack.Controls.Add(nav);
             _nav.Add(nav);
         }
+        // Signed out, the pages whose lists come from Zendesk are greyed with a lock: they can be looked at, not changed.
+        void ShowLocks()
+        {
+            foreach (var index in new[] { GroupsIndex, ClientsIndex, HelpIndex, SlaIndex })
+                _nav[index].Locked = _context.SignedOut;
+        }
+        _context.SignedOutChanged += ShowLocks;
+        ShowLocks();
 
         // The version and its release date; the author is on the General page.
         var about = new Label
@@ -376,6 +390,8 @@ public sealed class SettingsForm : Form
             return;
         SelectPage(index);
         _content.AutoScrollPosition = Point.Empty;
+        if (section is not null && Page(index) is HowItWorksPage howItWorks)
+            howItWorks.OpenTopic(section); // a link to a topic opens it ("see Catch up")
         if (section is not null && Page(index).Panel.Controls.OfType<Card>().FirstOrDefault(c => c.Title == section) is { } card)
         {
             // The card at the top (the panel only scrolls by itself for Tab; see RepaintOnScrollPanel).
@@ -383,6 +399,22 @@ public sealed class SettingsForm : Form
             _content.AutoScrollPosition = new Point(0, Math.Max(0, top - _content.Padding.Top));
             _content.Invalidate(true);
         }
+    }
+
+    /// <summary>The content area's width and left padding as the window opened (the pages are made for that width).</summary>
+    private int _contentWidth, _contentLeft;
+
+    private SettingsPage? _shownPage;
+
+    /// <summary>Resized or maximized: the page centered in the extra width, and lists that fill the height fit again.</summary>
+    private void FitToWindow()
+    {
+        if (_contentWidth == 0)
+            return;
+        var left = _contentLeft + Math.Max(0, (_content.ClientSize.Width - _contentWidth) / 2);
+        if (_content.Padding.Left != left)
+            _content.Padding = _content.Padding with { Left = left };
+        _shownPage?.OnWindowResized();
     }
 
     private void SelectPage(int index)
@@ -399,6 +431,7 @@ public sealed class SettingsForm : Form
             if (_pages[i] is { } page)
                 page.Panel.Visible = page == shown;
         }
+        _shownPage = shown;
         shown.OnShowing();
 
         if (redraw)
@@ -521,12 +554,39 @@ public sealed class SettingsForm : Form
 
     private bool HasUnsavedChanges => Snapshot() != _savedSnapshot;
 
+    /// <summary>
+    /// Which built pages differ from what's saved: each page's values written over the saved settings, compared with
+    /// them ("Start with Windows" too, on General). For the dots in the sidebar.
+    /// </summary>
+    internal bool[] UnsavedPages()
+    {
+        var dirty = new bool[_pages.Length];
+        var bar = _savedSnapshot.LastIndexOf('|');
+        if (bar < 0)
+            return dirty;
+        var saved = Settings.FromJson(_savedSnapshot[..bar]);
+        var savedJson = saved.ToJson();
+        for (var i = 0; i < _pages.Length; i++)
+        {
+            if (_pages[i] is not { } page)
+                continue; // not built: shows the saved values
+            var settings = saved.Clone();
+            page.Apply(settings);
+            dirty[i] = settings.ToJson() != savedJson ||
+                       (page is GeneralPage general && $"startup={general.StartWithWindows}" != _savedSnapshot[(bar + 1)..]);
+        }
+        return dirty;
+    }
+
     private void UpdateSaveState()
     {
         if (_loading)
             return;
 
         var dirty = HasUnsavedChanges;
+        var pages = dirty ? UnsavedPages() : new bool[_pages.Length];
+        for (var i = 0; i < _nav.Count && i < pages.Length; i++)
+            _nav[i].Unsaved = pages[i];
         _save.Enabled = dirty;
         _save.Visible = _saveAndClose.Visible = _discard.Visible = dirty; // only offered when there's something to save
         _close.Visible = !dirty;
@@ -568,12 +628,14 @@ public sealed class SettingsForm : Form
 
         Result = result;
         _savedSnapshot = Snapshot();
-        _saveState.Text = $"✓ Saved at {DateTime.Now:HH:mm}";
+        _saveState.Text = $"✓ Saved at {Clock.Time(DateTime.Now)}"; // as Windows shows times (12 or 24 h)
         _saveState.ForeColor = Theme.Success;
         UpdateSaveState();
         Log.Info("Settings saved");
         Saved?.Invoke(result);
         // A batch of choices is done: ticked groups and changed clients move to their sections now.
+        _groups.ClearFind();
+        BuiltClients?.ClearFind();
         _groups.Resort();
         BuiltClients?.Resort();
         return true;
@@ -601,6 +663,8 @@ public sealed class SettingsForm : Form
         foreach (var page in BuiltPages)
             page.Load(Result);
         _loading = false;
+        _groups.ClearFind();
+        BuiltClients?.ClearFind();
         _groups.Resort();
         BuiltClients?.Resort();
         _saveState.Text = "Changes discarded";
@@ -685,17 +749,21 @@ public sealed class SettingsForm : Form
                 Subdomain = "example", Theme = NotificationTheme.CleanLight,
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 HelpRegionDefaultDone = true, HelpOffRegions = [TimeRegion.EuropeAfrica],
-                HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Sam Taylor" }],
+                HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Milton Waddams" }],
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
-                Clients = [new ClientChoice { Id = 23, Name = "Fabrikam", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
-                    new ClientChoice { Id = 21, Name = "Contoso", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
-                    new ClientChoice { Id = 25, Name = "Tailspin Toys", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
+                NewTicketPriorities = new() { [1] = ["urgent", "high"] },
+                Clients = [new ClientChoice { Id = 23, Name = "Chotchkie's", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
+                    new ClientChoice { Id = 21, Name = "Initech", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
+                    new ClientChoice { Id = 25, Name = "Happy-Go-Lucky Toy Factory", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
             };
             ClientsView.SetSample(settings.Subdomain, new()
             {
-                [1] = [new(21, "Contoso", 41), new(22, "Northwind Traders", 17), new(23, "Fabrikam", 9), new(24, "Adventure Works", 6),
-                       new(25, "Tailspin Toys", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
-                [2] = [new(21, "Contoso", 12), new(26, "Wide World Importers", 8), new(27, "Litware", 2)]
+                [1] = [new(21, "Initech", 41, ["Content Management PaaS", "Content Management Addons"]),
+                       new(22, "Reynholm Industries", 17, ["Configured Commerce", "Product Recommendations"]), new(23, "Chotchkie's", 9, ["Web Experimentation"]),
+                       new(24, "InGen", 6, ["Commerce Connect Retail", "Content Management PaaS"]),
+                       new(25, "Happy-Go-Lucky Toy Factory", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
+                [2] = [new(21, "Initech", 12, ["Content Management PaaS", "Content Management Addons"]), new(26, "Pawtucket Brewery", 8, ["Feature Experimentation"]),
+                       new(27, "Initrode", 2, ["Configured Commerce"])]
             });
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
@@ -710,18 +778,22 @@ public sealed class SettingsForm : Form
             form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
             form.Help.Card.ShowSample(new()
             {
-                [1] = [new(9, "Alex Example", "Europe/Stockholm"), new(10, "Maria Svensson", "Europe/Stockholm"), new(11, "Jordan Lee", "America/New_York"),
-                       new(12, "Priya Raman", "Asia/Kolkata"), new(13, "Sam Taylor", "Australia/Sydney")],
-                [2] = [new(14, "Chris Morgan", "America/Los_Angeles"), new(15, "Nguyen Van An", "Asia/Ho_Chi_Minh"), new(16, "Robin Berg", null)]
+                [1] = [new(9, "Peter Gibbons", "Europe/Stockholm"), new(10, "Samir Nagheenanajar", "Europe/Stockholm"), new(11, "Joanna", "America/New_York"),
+                       new(12, "Nina", "Asia/Kolkata"), new(13, "Milton Waddams", "America/Mexico_City")],
+                [2] = [new(14, "Maurice Moss", "Europe/London"), new(15, "Dennis Nedry", "America/Costa_Rica"), new(16, "Cleveland Brown", null)]
             }, TimeRegion.EuropeAfrica);
-            StatisticsPage.SetTeamSample(settings.Subdomain, settings.WatchedGroups.Select(g => g.Id), TimeRegion.EuropeAfrica,
+            StatisticsPage.SetTeamSample(settings.Subdomain, 99, settings.WatchedGroups.Select(g => g.Id),
             [
-                new(10, "Maria Svensson", 14, 2, 3, 1, 6, false), new(99, "You", 11, 1, 1, 0, 4, true),
-                new(9, "Alex Example", 7, 0, 4, 2, 9, false), new(17, "Kim Larsen", 3, 0, 0, 0, 1, false)
-            ]);
+                new(10, "Samir Nagheenanajar", 10, 2, 3, 1, 6, false, 4), new(99, "You", 8, 1, 1, 0, 4, true, 3),
+                new(18, "Maurice Moss", 5, 0, 4, 2, 9, false, 2), new(9, "Peter Gibbons", 2, 0, 0, 0, 1, false, 1),
+                new(12, "Nina Patel", 6, 1, 0, 0, 3, false, 0), new(11, "Joanna Lee", 0, 0, 0, 0, 0, false)
+            ], new() { [10] = "Europe/Stockholm", [99] = "Europe/Stockholm", [18] = "Europe/London", [9] = "Europe/Stockholm",
+                [12] = "Asia/Kolkata", [11] = "America/New_York" });
             form.General.SelectAppTheme(theme);
             for (var page = 0; page < form._pages.Length; page++)
             {
+                Application.DoEvents();
+                form._context.SetSignedOut(false); // as if signed in (the background sign-in check would show the strip)
                 form.SelectPage(page);
                 Application.DoEvents();
                 using var bitmap = new Bitmap(form.Width, form.Height);
@@ -745,6 +817,18 @@ public sealed class SettingsForm : Form
                     form._content.AutoScrollPosition = Point.Empty;
                 }
             }
+            // Clients filtered by a product: the matched product after the name.
+            form.SelectPage(ClientsIndex);
+            Application.DoEvents();
+            form.BuiltClients?.ShowFilter("commerce");
+            Application.DoEvents();
+            using (var filtered = new Bitmap(form.Width, form.Height))
+            {
+                form.DrawToBitmap(filtered, new Rectangle(Point.Empty, filtered.Size));
+                filtered.Save(Path.Combine(dir, $"{theme}-{ClientsIndex}-filtered.png"));
+            }
+            form.BuiltClients?.ShowFilter("");
+
             // Groups, Clients and Colleagues while signed out: the strip, read-only lists.
             form._context.SetSignedOut(true);
             foreach (var index in new[] { 1, ClientsIndex, HelpIndex })

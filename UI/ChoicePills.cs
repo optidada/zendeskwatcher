@@ -107,7 +107,7 @@ public sealed class ChoicePills : Control
             using var path = Shape(r);
             if (selected)
             {
-                using var fill = new SolidBrush(Theme.Accent);
+                using var fill = new SolidBrush(Enabled ? Theme.Accent : Theme.Border); // greyed while it can't be changed
                 g.FillPath(fill, path);
             }
             else if (i == _hover)
@@ -129,7 +129,7 @@ public sealed class ChoicePills : Control
                 g.DrawPath(focus, innerPath);
             }
             TextRenderer.DrawText(g, _labels[i], selected ? Theme.BodyBold : Theme.Body, Rectangle.Round(r),
-                selected ? Theme.OnAccent : Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                !Enabled ? Theme.TextMuted : selected ? Theme.OnAccent : Theme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
     }
 
@@ -168,6 +168,7 @@ public sealed class ChoicePills : Control
         base.OnKeyDown(e);
     }
 
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
     protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
     protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 }
