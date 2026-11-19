@@ -153,6 +153,15 @@ internal sealed class ClientsView
             }
         };
         _list.Changed += () => { UpdateHint(); Changed?.Invoke(); };
+        _list.GroupClearRequested += group =>
+        {
+            // A group no longer monitored: its clients' old choices are forgotten on Save (Discard brings them back).
+            foreach (var client in group.People)
+                _choices.Remove(client.Id);
+            Arrange(_lastGroups, _inView, keepScroll: true);
+            UpdateHint();
+            Changed?.Invoke();
+        };
         WhenHostGoes();
         // Pointing at a client's name: its card beside it after a moment (products, tickets); gone when the mouse leaves.
         _list.NamePointed += (person, name) =>
@@ -243,6 +252,14 @@ internal sealed class ClientsView
     /// <summary>"14 clients · 2 muted · 1 customized" on a group's line.</summary>
     private string GroupNote(AssigneeList.Group group)
     {
+        if (group.People.Count == 0)
+            return $"no tickets in the last {ZendeskClient.ClientLookBackDays} days";
+        if (group.Locked)
+        {
+            var mutedOld = group.People.Count(p => ModeOf(p.Id) == ClientMode.Muted);
+            var otherOld = group.People.Count - mutedOld;
+            return "not monitored · " + string.Join(" · ", new[] { mutedOld > 0 ? $"{mutedOld} muted" : null, otherOld > 0 ? $"{otherOld} customized" : null }.OfType<string>());
+        }
         var muted = group.People.Count(p => ModeOf(p.Id) == ClientMode.Muted);
         var customized = group.People.Count(p => ModeOf(p.Id) != ClientMode.Muted && _choices.TryGetValue(p.Id, out var c) && !c.IsDefaultAt(DateTimeOffset.UtcNow));
         var text = group.People.Count == 1 ? "1 client" : $"{group.People.Count} clients";
@@ -600,18 +617,22 @@ internal sealed class ClientsView
     private void Arrange(IReadOnlyList<WatchedGroup> groups, Dictionary<long, List<Client>>? loaded, bool keepScroll = false)
     {
         _lastGroups = groups;
-        _shown = Sections(groups, loaded, _choices.Values.ToList());
+        _shown = Sections(groups, loaded, _choices.Values.ToList(), GroupName);
         foreach (var (_, clients) in _shown)
             foreach (var c in clients.Where(c => _choices.ContainsKey(c.Id) && c.Tickets > 0))
                 _choices[c.Id].Name = c.Name; // keep the stored name current
 
-        var visible = Layout(_shown, _choices.Values.ToList(), _filter, ShowsWorked);
+        // Unfiltered, a loaded group without clients still shows, with "no tickets in the last 90 days".
+        var visible = Layout(_shown, _choices.Values.ToList(), _filter, ShowsWorked,
+            _filter.Length == 0 && _worked == Worked.All && loaded is not null ? loaded.Keys.ToHashSet() : null);
+        if (visible.All(s => s.Clients.Count == 0))
+            visible = []; // nothing at all: the message below says why
         _clientById = visible.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToDictionary(c => c.Id);
         HideCard();
         _list.Filtering = _filter.Length > 0 || _worked != Worked.All;
         _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
             s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, TipFor(c), Note: NoteFor(c))).ToList(),
-            StartOpen: s.Changed)).ToList()); // groups with muted or customized clients start open
+            StartOpen: s.Changed && !s.Old, Locked: s.Old)).ToList()); // groups with muted or customized clients start open
         if (!keepScroll)
             _scroll = 0;
         LayoutList();
@@ -632,11 +653,12 @@ internal sealed class ClientsView
     /// <summary>
     /// The list as shown: one foldable section per group (customized clients first, muted last, as sorted by
     /// <see cref="Sections"/>). <c>Changed</c>: it has muted or customized clients, so it starts open. A client in two
-    /// groups shows in both; empty groups are left out. With a <paramref name="filter"/>, only clients whose name
-    /// contains it (and groups with any).
+    /// groups shows in both; empty groups are left out, except those in <paramref name="keepEmpty"/> (loaded, no
+    /// tickets in 90 days: shown with a note). With a <paramref name="filter"/>, only clients whose name contains it
+    /// (and groups with any). <c>Old</c>: a group no longer monitored (<see cref="Sections"/>), shown greyed.
     /// </summary>
-    internal static List<(string Title, List<Client> Clients, bool Changed)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
-        IReadOnlyList<ClientChoice> choices, string filter = "", Func<Client, bool>? shows = null)
+    internal static List<(string Title, List<Client> Clients, bool Changed, bool Old)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
+        IReadOnlyList<ClientChoice> choices, string filter = "", Func<Client, bool>? shows = null, IReadOnlySet<long>? keepEmpty = null)
     {
         var now = DateTimeOffset.UtcNow;
         var byId = choices.ToDictionary(c => c.Id);
@@ -644,31 +666,46 @@ internal sealed class ClientsView
         return sections
             .Select(s => (s.Group, Clients: filter.Length == 0 && shows is null ? s.Clients
                 : s.Clients.Where(c => Matches(c, filter) && (shows?.Invoke(c) ?? true)).ToList()))
-            .Where(s => s.Clients.Count > 0)
-            .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed)))
+            .Where(s => s.Clients.Count > 0 || keepEmpty?.Contains(s.Group.Id) == true)
+            .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed), s.Group.Id < 0))
             .ToList();
     }
 
     /// <summary>
     /// One section per group: clients with a choice, then other ticked ones, then muted, each by name with "(No client)"
     /// last. Clients with a choice the loaded lists don't
-    /// have (no recent tickets, or not loaded) are added under the group the choice was made in, or the first group.
+    /// have (no recent tickets, or not loaded) are added under the group the choice was made in. When that group isn't
+    /// monitored any more, they get a section of their own after the others, as it was when monitored: a choice is per
+    /// client, so it still counts in every group. Its <see cref="WatchedGroup.Id"/> is the group's id negated (shown
+    /// greyed, see <see cref="OldGroupId"/>), its name from <paramref name="groupName"/> ("Another group" when unknown).
     /// </summary>
     internal static List<(WatchedGroup Group, List<Client> Clients)> Sections(IReadOnlyList<WatchedGroup> groups,
-        IReadOnlyDictionary<long, List<Client>>? loaded, IReadOnlyList<ClientChoice> excluded)
+        IReadOnlyDictionary<long, List<Client>>? loaded, IReadOnlyList<ClientChoice> excluded, Func<long, string?>? groupName = null)
     {
         var sections = groups.Select(g => (Group: g, Clients: (loaded?.GetValueOrDefault(g.Id) ?? []).ToList())).ToList();
         if (sections.Count == 0)
             return [];
         var listed = sections.SelectMany(s => s.Clients).Select(c => c.Id).ToHashSet();
-        foreach (var client in excluded.Where(c => !listed.Contains(c.Id)))
+        var now = DateTimeOffset.UtcNow;
+        var old = new List<(WatchedGroup Group, List<Client> Clients)>();
+        foreach (var client in excluded.Where(c => !listed.Contains(c.Id) && !c.IsDefaultAt(now)))
         {
             var section = sections.FirstOrDefault(s => s.Group.Id == client.GroupId);
-            (section.Group is null ? sections[0] : section).Clients.Add(new Client(client.Id, client.Name, 0));
+            if (section.Group is null)
+            {
+                section = old.FirstOrDefault(s => s.Group.Id == OldGroupId(client.GroupId));
+                if (section.Group is null)
+                {
+                    var name = client.GroupId == WatchedGroup.NoGroupId ? "No group" : groupName?.Invoke(client.GroupId) ?? "Another group";
+                    section = (new WatchedGroup { Id = OldGroupId(client.GroupId), Name = name }, []);
+                    old.Add(section);
+                }
+            }
+            section.Clients.Add(new Client(client.Id, client.Name, 0));
         }
+        sections.AddRange(old.OrderBy(s => s.Group.Name, StringComparer.CurrentCultureIgnoreCase));
         // Clients with a choice (important, only urgent, own sound) first, then the other ticked ones, then muted; by
         // name, "(No client)" last in each. Sorted when the list is built, so ticking a box doesn't make it jump.
-        var now = DateTimeOffset.UtcNow;
         var choices = excluded.ToDictionary(c => c.Id);
         int Rank(Client c) => choices.GetValueOrDefault(c.Id) is not { } choice ? 1
             : choice.ModeAt(now) == ClientMode.Muted ? 2
@@ -680,6 +717,15 @@ internal sealed class ClientsView
                 .ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList()))
             .ToList();
     }
+
+    /// <summary>A group's name by id (all groups, also those not monitored), for the sections of old groups.</summary>
+    public Func<long, string?> GroupName { get; set; } = _ => null;
+
+    /// <summary>
+    /// The section id of a group no longer monitored: its id negated, below every real one (Zendesk ids are positive;
+    /// "No group" (0) becomes -1).
+    /// </summary>
+    internal static long OldGroupId(long groupId) => -groupId - 1;
 
     private void ShowMessage(string text)
     {

@@ -397,11 +397,48 @@ public class ClientFilterTests
             [1] = [new(ClientChoice.NoClientId, ClientChoice.NoClientName, 3), new(21, "Contoso", 9)],
             [2] = [new(22, "Northwind", 2)]
         };
-        var sections = ClientsView.Sections(groups, loaded,
-            [new ClientChoice { Id = 30, Name = "Old Client", GroupId = 2, IsMuted = true }, new ClientChoice { Id = 31, Name = "Gone Group", GroupId = 99, IsMuted = true }]);
+        List<ClientChoice> choices = [new() { Id = 30, Name = "Old Client", GroupId = 2, IsMuted = true }, new() { Id = 31, Name = "Gone Group", GroupId = 99, IsMuted = true }];
+        var sections = ClientsView.Sections(groups, loaded, choices);
 
-        Assert.Equal(["Contoso", "(No client)", "Gone Group"], sections[0].Clients.Select(c => c.Name)); // ticked first, by name, "(No client)" last; then muted
+        Assert.Equal(["Contoso", "(No client)"], sections[0].Clients.Select(c => c.Name)); // ticked first, by name, "(No client)" last
         Assert.Equal(["Northwind", "Old Client"], sections[1].Clients.Select(c => c.Name));
+        // Muted in a group no longer monitored: not under some other group, but in that group's own section, last.
+        Assert.Equal(3, sections.Count);
+        Assert.Equal("Another group", sections[2].Group.Name); // name unknown
+        Assert.Equal(["Gone Group"], sections[2].Clients.Select(c => c.Name));
+    }
+
+    [Fact]
+    public void Groups_no_longer_monitored_show_after_the_others_with_their_old_choices_greyed()
+    {
+        var groups = new List<WatchedGroup> { new() { Id = 1, Name = "Tier 2" } };
+        var loaded = new Dictionary<long, List<ClientsView.Client>> { [1] = [new(21, "Contoso", 9)] };
+        List<ClientChoice> choices =
+        [
+            new() { Id = 21, Name = "Contoso", GroupId = 7, IsMuted = true },                // has tickets in Tier 2: shown there
+            new() { Id = 31, Name = "Stewart-MacDonald", GroupId = 7, IsMuted = true },
+            new() { Id = 32, Name = "Nordiska Kompaniet AB", GroupId = 7, IsMuted = true },
+            new() { Id = 33, Name = "Initech", GroupId = 8, Mode = ClientMode.Important }
+        ];
+        string? Name(long id) => id switch { 7 => "Problem Management", 8 => "Billing", _ => null };
+
+        var layout = ClientsView.Layout(ClientsView.Sections(groups, loaded, choices, Name), choices);
+
+        Assert.Equal(["Tier 2", "Billing", "Problem Management"], layout.Select(s => s.Title));
+        Assert.Equal([false, true, true], layout.Select(s => s.Old));
+        Assert.Equal(["Contoso"], layout[0].Clients.Select(c => c.Name));
+        Assert.Equal(["Nordiska Kompaniet AB", "Stewart-MacDonald"], layout[2].Clients.Select(c => c.Name));
+    }
+
+    [Fact]
+    public void A_loaded_group_without_clients_still_shows_unless_a_filter_is_on()
+    {
+        var groups = new List<WatchedGroup> { new() { Id = 1, Name = "Experimentation" }, new() { Id = 2, Name = "Tier 2" }, new() { Id = 3, Name = "Not loaded" } };
+        var loaded = new Dictionary<long, List<ClientsView.Client>> { [1] = [], [2] = [new(22, "Northwind", 2)] };
+        var sections = ClientsView.Sections(groups, loaded, []);
+
+        Assert.Equal(["Experimentation", "Tier 2"], ClientsView.Layout(sections, [], keepEmpty: loaded.Keys.ToHashSet()).Select(s => s.Title));
+        Assert.Equal(["Tier 2"], ClientsView.Layout(sections, [], "north").Select(s => s.Title)); // filtering: only groups with matches
     }
     [Fact]
     public void Products_come_from_the_comma_separated_field()

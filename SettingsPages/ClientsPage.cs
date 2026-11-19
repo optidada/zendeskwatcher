@@ -25,6 +25,7 @@ internal sealed class ClientsPage : SettingsPage
         : base(context, "Clients", "Untick a client, or a whole group, to mute it. Options: important, only urgent, its own sound or mute for a while.")
     {
         _groups = groups;
+        _clients.GroupName = id => _groups.AllGroups.FirstOrDefault(g => g.Id == id)?.Name;
         var card = new Card("Clients of your monitored groups",
             $"Clients from the last {ZendeskClient.ClientLookBackDays} days of tickets. Muting never affects your own or " +
                 $"CC'd tickets. Important clients notify even outside your hours and for priorities you left out, and stay until " +

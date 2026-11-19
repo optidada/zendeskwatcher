@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.6
+
+- **Clients shows groups you no longer monitor**: clients you muted (or set otherwise) in a group you stopped monitoring still count, since a choice is for the client in every group. That group now shows greyed at the end of the Clients list with its old choices, and **Clear** forgets them. Before, those clients showed up under the first group in the list, which looked like they belonged there.
+- **Empty groups stay in the list**: a monitored group without tickets in the last 90 days shows as "no tickets in the last 90 days" instead of not showing at all.
+
 ## 1.9.5
 
 - **The Optimizely theme follows the Optimizely brand**: light green-grey and white instead of dark green, dark green text, and buttons, toggles and choices in dark green with lime, like the logo. Notifications are white with the brand's colors on the edge and buttons: lime for P2, pink for P1, light blue for new tickets, green for your own.

@@ -54,6 +54,8 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Muting and “only urgent” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
                 "whatever the client.",
                 "The list comes from the last 90 days of tickets in your monitored groups.",
+                "A choice is for the client, in every group. Choices made in a group you no longer monitor still count: that " +
+                "group shows greyed at the end of the list, and Clear forgets them.",
                 "All · Worked with · Not worked with shows only the clients you've had a ticket from in that group in the " +
                 "last 90 days (“you 6” after the name), or only the others. It only changes what's shown: a group's tick " +
                 "box and Options ▾ then apply to those, e.g. Not worked with, untick the group, tick back the few to keep.",

@@ -750,11 +750,12 @@ public sealed class SettingsForm : Form
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 HelpRegionDefaultDone = true, HelpOffRegions = [TimeRegion.EuropeAfrica],
                 HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Milton Waddams" }],
-                WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }],
+                WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }, new WatchedGroup { Id = 3, Name = "Billing" }],
                 NewTicketPriorities = new() { [1] = ["urgent", "high"] },
                 Clients = [new ClientChoice { Id = 23, Name = "Chotchkie's", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
                     new ClientChoice { Id = 21, Name = "Initech", GroupId = 1, Mode = ClientMode.Important, Sound = ToastSound.ChipFanfare },
-                    new ClientChoice { Id = 25, Name = "Happy-Go-Lucky Toy Factory", GroupId = 1, Mode = ClientMode.OnlyUrgent }]
+                    new ClientChoice { Id = 25, Name = "Happy-Go-Lucky Toy Factory", GroupId = 1, Mode = ClientMode.OnlyUrgent },
+                    new ClientChoice { Id = 28, Name = "Vandelay Industries", GroupId = 5, IsMuted = true }] // muted in a group no longer monitored
             };
             ClientsView.SetSample(settings.Subdomain, new()
             {
@@ -763,7 +764,8 @@ public sealed class SettingsForm : Form
                        new(24, "InGen", 6, ["Commerce Connect Retail", "Content Management PaaS"]),
                        new(25, "Happy-Go-Lucky Toy Factory", 3), new(ClientChoice.NoClientId, ClientChoice.NoClientName, 4)],
                 [2] = [new(21, "Initech", 12, ["Content Management PaaS", "Content Management Addons"]), new(26, "Pawtucket Brewery", 8, ["Feature Experimentation"]),
-                       new(27, "Initrode", 2, ["Configured Commerce"])]
+                       new(27, "Initrode", 2, ["Configured Commerce"])],
+                [3] = [] // no tickets in 90 days
             });
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
