@@ -3,6 +3,15 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.7
+
+- **My products**: on the new **Groups › Products** page, pick the products you work with. New tickets and colleagues' tickets for other products then stay quiet, except Urgent (P1) and High (P2) (you choose which under "Other products notify"). Nothing picked: every product notifies, as before.
+- **When unsure, it notifies**: a ticket without a product, one that isn't about a product (e.g. Account administration), or one whose product doesn't fit the client still comes. Your own and CC'd tickets always notify, whatever the product.
+- **Easy to pick**: the products are grouped by area with how many tickets each had in your groups in the last 90 days. Tick a whole area at once, or use **Suggest from my tickets**. Your picks show as buttons at the top; a whole area shows as one ("All of Commerce").
+- **"Now for CMS PaaS"**: a quiet ticket whose product changes to one of yours while it's still unassigned comes then.
+- **The product on notifications**: new tickets and colleagues' tickets show their product next to the group, e.g. "CMS PaaS · Support".
+- **Insights** shows how many unassigned tickets are quiet for other products, with a link to them in Zendesk. The first-start guide has an optional Products step.
+
 ## 1.9.6
 
 - **Clients shows groups you no longer monitor**: clients you muted (or set otherwise) in a group you stopped monitoring still count, since a choice is for the client in every group. That group now shows greyed at the end of the Clients list with its old choices, and **Clear** forgets them. Before, those clients showed up under the first group in the list, which looked like they belonged there.
