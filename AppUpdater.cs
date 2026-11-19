@@ -9,7 +9,11 @@ namespace ZendeskWatcher;
 /// </summary>
 public sealed class AppUpdater
 {
-    public const string RepoUrl = "https://github.com/optidada/zendeskwatcher";
+    /// <summary>
+    /// Public repo holding only the installers, update feed and release notes (since 1.9.4), so the source repo can be
+    /// private. Versions up to 1.9.3 update from the source repo's releases.
+    /// </summary>
+    public const string RepoUrl = "https://github.com/optidada/zendeskwatcher-releases";
 
     private readonly UpdateManager _manager = new(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
     private readonly SemaphoreSlim _gate = new(1, 1);

@@ -93,7 +93,7 @@ Delete `state.json` to reset what has been seen. Use **Sign out** in Settings to
 
 The short version for colleagues is in **[INSTALL.md](INSTALL.md)**; send them that link. The details:
 
-Download **`ZendeskWatcherApp-win-Setup.exe`** from the [latest release](https://github.com/optidada/zendeskwatcher/releases/latest) and run it. No GitHub account is needed. It installs for the current user under `%LOCALAPPDATA%\ZendeskWatcherApp`, adds Start menu and desktop shortcuts, turns on "Start with Windows" (you can change this in Settings) and starts the app. Uninstall from **Settings → Apps** in Windows. Your settings in `%LOCALAPPDATA%\ZendeskWatcher` are kept.
+Download **`ZendeskWatcherApp-win-Setup.exe`** from the [latest release](https://github.com/optidada/zendeskwatcher-releases/releases/latest) and run it. No GitHub account is needed. It installs for the current user under `%LOCALAPPDATA%\ZendeskWatcherApp`, adds Start menu and desktop shortcuts, turns on "Start with Windows" (you can change this in Settings) and starts the app. Uninstall from **Settings → Apps** in Windows. Your settings in `%LOCALAPPDATA%\ZendeskWatcher` are kept.
 
 **Requirements:** Windows 10 (1809+) or 11, x64. The app needs the **.NET 10 Desktop Runtime** and the Microsoft Edge WebView2 Runtime. Setup installs either one if it's missing. Installing the .NET runtime asks for admin rights (UAC) once; if the runtime is already there, no admin rights are needed. Bundling .NET instead would make the installer about 65 MB instead of about 17 MB.
 

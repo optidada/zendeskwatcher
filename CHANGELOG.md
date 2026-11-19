@@ -3,6 +3,10 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.4
+
+- **Updates come from a new download place**: new versions and the installer now live at github.com/optidada/zendeskwatcher-releases. Nothing changes for you; the app keeps updating itself as before.
+
 ## 1.9.3
 
 - **No notification lost when Zendesk hiccups**: if a request fails in the middle of a check (Zendesk busy, or the app's browser restarting), whatever wasn't notified yet comes with the next check. Before, such a ticket could be skipped for good: new tickets, "Already taken", tickets newly assigned to you or CC'd, and customer replies on colleagues' tickets.
