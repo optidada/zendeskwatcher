@@ -352,7 +352,11 @@ internal sealed class StatisticsPage : SettingsPage
         _table.SetRows(table);
 
         var today = DateOnly.FromDateTime(DateTime.Now);
-        ShowInsights(StatsInsights.Analyze(totals, Context.Notifier.Stats.ActiveDays(today), Context.Current(), Context.Notifier.Stats.ClientTotals(today)));
+        var insights = StatsInsights.Analyze(totals, Context.Notifier.Stats.ActiveDays(today), Context.Current(), Context.Notifier.Stats.ClientTotals(today));
+        if (Context.Notifier.Stats.HeldBack(today) is > 0 and var heldBack)
+            insights.Add(new StatsInsights.Insight(StatsInsights.Tone.Hint,
+                $"{heldBack} new ticket{(heldBack == 1 ? " was" : "s were")} for other products and didn't notify: My products (Groups \u2192 Products)."));
+        ShowInsights(insights);
     }
 
     private void ShowInsights(List<StatsInsights.Insight> insights)
@@ -440,6 +444,26 @@ internal sealed class StatisticsPage : SettingsPage
                     ? Link(snapshot.Unassigned.ToString(), UnassignedQuery(groups[0].Group), $"Unassigned tickets in {TicketWatcher.GroupLabel(groups[0].Group)}", bold: true)
                     : Cell(snapshot.Unassigned.ToString(), Theme.BodyBold, Theme.Text);
                 Row("Unassigned in your groups", total, [.. details]);
+                // Not notified for another product (My products): not in the count above, but a click shows them.
+                if (snapshot.OtherProducts > 0 && Products.Field is { } field)
+                {
+                    var exclude = string.Concat(settings.MyProducts.Select(p => $" -custom_field_{field.Id}:{p}"));
+                    var other = new List<Control>();
+                    if (groups.Count > 1)
+                        foreach (var g in groups.Where(g => g.OtherProducts > 0))
+                        {
+                            if (other.Count > 0)
+                                other.Add(Muted("\u00b7"));
+                            other.Add(Link($"{TicketWatcher.GroupLabel(g.Group)}: {g.OtherProducts}", UnassignedQuery(g.Group) + exclude,
+                                $"Unassigned tickets for other products in {TicketWatcher.GroupLabel(g.Group)}"));
+                        }
+                    other.Add(Muted(groups.Count > 1 ? "(not notified)" : "not notified (My products)"));
+                    var count = groups.Count(g => g.OtherProducts > 0) == 1
+                        ? Link(snapshot.OtherProducts.ToString(), UnassignedQuery(groups.First(g => g.OtherProducts > 0).Group) + exclude,
+                            "Unassigned tickets for other products", bold: true)
+                        : Cell(snapshot.OtherProducts.ToString(), Theme.BodyBold, Theme.Text);
+                    Row("For other products", count, [.. other]);
+                }
                 if (snapshot.OldestUnassigned is { } oldest) // its own row: next to the groups it doesn't fit
                     Row("Oldest unassigned", Cell("", Theme.Body, Theme.Text), Muted(UI.Popups.NotificationContent.Ago(DateTimeOffset.UtcNow - oldest)));
             }

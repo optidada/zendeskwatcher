@@ -40,6 +40,8 @@ public class SettingsWindowTests
         QuietThankYous = true,
         SlaOverrides = [new SlaOverride { Type = "slapremium", Priority = "high", FirstReply = true, Minutes = 120 }],
         TakenQuicklyPriorities = ["urgent"],
+        MyProducts = ["orchestrate__cms_paas", "p_opal"],
+        OtherProductPriorities = ["urgent"],
         MyTicketPriorities = ["urgent"],
         CcTicketPriorities = ["urgent", "high", "normal"],
         NewTicketStyle = new NotificationStyle { Sound = ToastSound.ChipBlip },
@@ -127,7 +129,7 @@ public class SettingsWindowTests
 
         Assert.All(opened, dirty => Assert.False(dirty));              // just opened: nothing unsaved anywhere
         Assert.False(afterReset[0] || afterReset[1] || afterReset[2]); // Reset keeps the account, groups and clients
-        Assert.True(afterReset[3]);                                     // Notifications went back to the defaults
+        Assert.True(afterReset[4]);                                     // Notifications went back to the defaults
     }
 
     [Fact]

@@ -24,7 +24,8 @@ public sealed class Group
 }
 
 /// <summary>What the Clients page keeps of a ticket (no content): enough to count clients and who handles them.</summary>
-public sealed record TicketDigest(long Id, long? OrganizationId, long? AssigneeId, DateTimeOffset CreatedAt);
+/// <param name="Product">The ticket's Product value ("" when empty; null when it wasn't known at the time of reading).</param>
+public sealed record TicketDigest(long Id, long? OrganizationId, long? AssigneeId, DateTimeOffset CreatedAt, string? Product = null);
 
 /// <summary>A group's tickets of the last 90 days as last read, and when: the next read only asks what changed since.</summary>
 public sealed record GroupDigest(DateTimeOffset ReadAt, List<TicketDigest> Tickets);
@@ -57,7 +58,19 @@ public sealed class Ticket
     /// <summary>Zendesk's SLA timers (only with <c>include=slas</c>): the real deadlines of the client's SLA policy.</summary>
     public TicketSlas? Slas { get; set; }
 
+    /// <summary>
+    /// Custom fields: only the ones the app reads cross over (<see cref="ResponseSlimming.CustomFieldIds"/>, the Product
+    /// field); null when the response had none at all.
+    /// </summary>
+    public List<CustomFieldValue>? CustomFields { get; set; }
+
     public bool IsOpen => Status is "new" or "open" or "pending" or "hold";
+}
+
+public sealed class CustomFieldValue
+{
+    public long Id { get; set; }
+    public JsonElement? Value { get; set; }
 }
 
 /// <summary>A ticket's SLA timers, e.g. first_reply_time or next_reply_time, active or achieved, with when they breach.</summary>
@@ -194,6 +207,16 @@ public sealed class FieldOption
     public string? Value { get; set; }
 }
 
+internal sealed class TicketField
+{
+    public long Id { get; set; }
+    public string? Title { get; set; }
+    public string? Type { get; set; }
+    public bool Active { get; set; } = true;
+    public List<FieldOption>? CustomFieldOptions { get; set; }
+}
+
+internal sealed class TicketFieldsResponse : PagedResponse { public List<TicketField> TicketFields { get; set; } = []; }
 internal sealed class OrganizationFieldsResponse : PagedResponse { public List<OrganizationField> OrganizationFields { get; set; } = []; }
 internal sealed class OrganizationResponse { public Organization? Organization { get; set; } }
 internal sealed class OrganizationsResponse { public List<Organization> Organizations { get; set; } = []; }

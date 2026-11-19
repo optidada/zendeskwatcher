@@ -78,7 +78,7 @@ public sealed partial class TicketWatcher
                 result.Unassigned.Add(oneByOneUnassigned
                     ? await UnassignedTicketAsync(ticket, group, "Catch up · Unassigned", ct)
                     : new NotificationContent(NotificationKind.NewTicket, "Catch up · Unassigned", $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", "",
-                        ticket.Id, ticket.Priority, GroupLabel(group)) { ScheduledCount = IsScheduled(ticket) ? 1 : 0, IsTicketNotification = true });
+                        ticket.Id, ticket.Priority, TicketLabel(ticket, group)) { ScheduledCount = IsScheduled(ticket) ? 1 : 0, IsTicketNotification = true });
 
         // 2 and 3. Your own and CC'd / followed tickets where a customer wrote last (copied first: the check may change them).
         // Read side by side with the colleagues' tickets (step 4): the slow part is reading ticket histories one by one, so
@@ -129,7 +129,8 @@ public sealed partial class TicketWatcher
         {
             if (ticket.AssigneeId is not { } assigneeId || assigneeId == me || !skip.Add(ticket.Id))
                 continue;
-            if ((!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket)) || !TicketRules.IsWantedClient(ticket, ClientMode(ticket)))
+            if ((!TicketRules.MatchesPriority(ticket.Priority, settings.HelpPriorities) && !IsImportant(ticket)) || !TicketRules.IsWantedClient(ticket, ClientMode(ticket)) ||
+                !await WantedProductAsync(ticket, ct))
                 continue;
             var assignee = await zendesk.GetUserAsync(assigneeId, ct);
             if (!settings.CoversColleague(assigneeId, TimeRegions.Of(TimeRegions.ZoneOf(assignee)), TimeRegions.Mine(Me)))
@@ -157,7 +158,7 @@ public sealed partial class TicketWatcher
             return await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Catch up · Colleague's ticket",
                 $"#{c.Ticket.Id} {TextCleanup.Plain(c.Ticket.Subject)}",
                 WhyUnderName(said, away[c.AssigneeId] + StatusSuffix(c.Ticket)),
-                c.Ticket.Id, c.Ticket.Priority, GroupLabel(c.Group))
+                c.Ticket.Id, c.Ticket.Priority, TicketLabel(c.Ticket, c.Group))
             { EventTime = at, ChangedAt = at, IsTicketNotification = true }, c.Ticket, c.Group, ct, sla: (at, FirstReply: false));
         })).ToList();
 

@@ -28,6 +28,9 @@ public interface INotificationSink
     /// <summary>A new ticket someone has taken meanwhile: its notification closes quietly (on screen or waiting).</summary>
     /// <param name="note">What to say while it closes ("Taken by Anna", "Solved"); null: just close.</param>
     void CloseTaken(long ticketId, string? note = null) { }
+
+    /// <summary>A new ticket for another product wasn't notified (My products): counted for Insights.</summary>
+    void HeldBackOtherProduct(long ticketId) { }
 }
 
 /// <summary>What a click on a notification does.</summary>

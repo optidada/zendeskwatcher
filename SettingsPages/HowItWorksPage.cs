@@ -34,6 +34,18 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
                 "the others stay quiet and aren't counted. If one is raised while still unassigned, it comes then as “Priority " +
                 "raised”. Important clients always come.",
+                "My products (Groups → Products): pick the products you work with, from the ticket's Product field. " +
+                "New tickets for other products then stay quiet and aren't counted, except the priorities you choose under " +
+                "“Other products notify” (P1 and P2 to begin with). Nothing picked: every product comes. Tickets assigned to " +
+                "you and ones you're CC'd on always notify, whatever the product.",
+                "The Product field can be wrong, so when unsure it notifies: no product, one that isn't about a product " +
+                "(e.g. Account administration), or one that doesn't fit the client (none of the client's products is in " +
+                "that area, but one of yours is). The client's Products field never keeps a ticket quiet: it's often out of date.",
+                "A quiet one whose product changes to one of yours while still unassigned comes then as “Now for …”; one " +
+                "raised to a priority you chose comes as “Priority raised”. Insights shows how many stayed quiet, with a link " +
+                "to them in Zendesk.",
+                "“Suggest from my tickets” picks the products of the tickets assigned to you in your groups in the last 90 days; " +
+                "the counts next to each product are your groups' tickets in that time (the same tickets the Clients list reads).",
                 "The app checks every few minutes, so a ticket someone takes in between is never seen unassigned. With “Also when " +
                 "someone took it before I saw it” (Notifications → New tickets), those with the priorities you pick come anyway, as " +
                 "“Already taken”, saying who took it and how fast. Off by default; useful for leads who don't want to miss a P1.",
@@ -99,6 +111,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "If someone takes it (or it's solved) while the notification is still up, it says so (“Taken by Anna”, “Solved”) " +
                 "for a few seconds and closes, within a few minutes.",
                 "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
+                "New tickets and colleagues' tickets show the ticket's product next to the group at the top, e.g. “CMS PaaS · Support”.",
                 "The two copy icons at the top copy the ticket (title, link, details) or just its number. " +
                 "[[Snooze|Behavior/Snooze]] brings it back later.",
                 "Options ▾ on the client line sets that client's choice ([[see Clients|How it works/Clients]])."
@@ -127,6 +140,8 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Colleagues are chosen by region: newcomers follow their region's tick, and you can tick or untick people one by " +
                 "one. Your own region starts unticked: they usually work when you do.",
                 "Not for [[muted clients|How it works/Clients]], and only Urgent (P1) and High (P2) for “only urgent” ones.",
+                "My products count here too (Groups → Products): a colleague's ticket for another product only comes " +
+                "with the priorities chosen for other products.",
                 "Only while you're working yourself, if you chose that; Catch up brings up what was held back."
             ]),
         new("Behavior",

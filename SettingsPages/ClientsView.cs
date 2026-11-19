@@ -450,6 +450,22 @@ internal sealed class ClientsView
         return _digests.Value.Groups;
     }
 
+    /// <summary>The groups' tickets as last read (no request), shared with the Clients list.</summary>
+    internal static IReadOnlyDictionary<long, GroupDigest> SavedDigests(string subdomain) => DigestsFor(subdomain);
+
+    /// <summary>
+    /// Reads the groups' tickets (only what changed since the last read, usually one request per group) for My products'
+    /// counts, and saves them for the Clients list too.
+    /// </summary>
+    internal static async Task<IReadOnlyDictionary<long, GroupDigest>> ReadDigestsAsync(IEnumerable<long> groupIds, ZendeskClient client, string subdomain)
+    {
+        var digests = DigestsFor(subdomain);
+        foreach (var id in groupIds)
+            digests[id] = (await client.ReadGroupDigestAsync(id, digests.GetValueOrDefault(id), CancellationToken.None)).Digest;
+        ClientHistory.Save(subdomain, digests);
+        return digests;
+    }
+
     /// <summary>A group's clients from Zendesk (only what changed since the last read); null when they couldn't be loaded.</summary>
     private static Task<List<Client>?> LoadGroupAsync(long groupId, ZendeskClient client, string subdomain)
     {
@@ -494,6 +510,9 @@ internal sealed class ClientsView
             }
         }
     }
+
+    /// <summary>For the screenshot tool: sample ticket records (My products' counts).</summary>
+    internal static void SetSampleDigests(string subdomain, Dictionary<long, GroupDigest> digests) => _digests = (subdomain, digests);
 
     /// <summary>For the screenshot tool: sample clients (cached, so nothing is requested).</summary>
     internal static void SetSample(string subdomain, Dictionary<long, List<Client>> groups) => _cache = (subdomain, DateTime.UtcNow, groups);

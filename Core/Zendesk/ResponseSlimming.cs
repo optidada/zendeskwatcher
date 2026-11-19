@@ -25,12 +25,34 @@ public static class ResponseSlimming
     /// <see cref="DescriptionChars"/> characters for a new ticket's preview. Anything else, or text that isn't JSON,
     /// is returned as it is.
     /// </summary>
-    public static string Script { get; } = Build(descriptions: true);
+    public static string Script => ScriptFor(true);
 
     /// <summary>The same without any description (Look &amp; sound → Show the comment text is off: not even read).</summary>
-    public static string ScriptWithoutDescriptions { get; } = Build(descriptions: false);
+    public static string ScriptWithoutDescriptions => ScriptFor(false);
 
-    public static string ScriptFor(bool descriptions) => descriptions ? Script : ScriptWithoutDescriptions;
+    public static string ScriptFor(bool descriptions)
+    {
+        var scripts = _scripts ??= (Build(descriptions: true), Build(descriptions: false));
+        return descriptions ? scripts.With : scripts.Without;
+    }
+
+    private static (string With, string Without)? _scripts;
+
+    /// <summary>
+    /// The custom fields a ticket keeps (the Product field, once known): a ticket has hundreds, nearly all empty, so the
+    /// others never cross over.
+    /// </summary>
+    public static IReadOnlyList<long> CustomFieldIds
+    {
+        get => _customFieldIds;
+        set
+        {
+            _customFieldIds = value;
+            _scripts = null; // built again with these
+        }
+    }
+
+    private static IReadOnlyList<long> _customFieldIds = [];
 
     /// <summary>How much of a ticket's description crosses over (a notification shows about 200 characters).</summary>
     public const int DescriptionChars = 300;
@@ -41,9 +63,11 @@ public static class ResponseSlimming
         return "(text => { try { " +
                "const keep = (o, keys) => { if (!o || typeof o !== 'object') return o; const r = {}; for (const k of keys) if (k in o) r[k] = o[k]; return r; }; " +
                $"const T = {Names(FieldsOf<Ticket>())}, A = {Names(FieldsOf<Audit>())}, E = {Names(FieldsOf<AuditEvent>())}, C = {Names(FieldsOf<TicketComment>())}; " +
-               "const brief = t => { const r = keep(t, T); delete r.description; return r; }; " +
+               $"const F = {JsonSerializer.Serialize(_customFieldIds)}; " +
+               "const fields = r => { if (Array.isArray(r.custom_fields)) r.custom_fields = r.custom_fields.filter(f => f && F.includes(f.id)); return r; }; " +
+               "const brief = t => { const r = fields(keep(t, T)); delete r.description; return r; }; " +
                (descriptions
-                   ? "const ticket = t => { const r = keep(t, T); " +
+                   ? "const ticket = t => { const r = fields(keep(t, T)); " +
                      $"if (typeof r.description === 'string' && r.description.length > {DescriptionChars}) r.description = r.description.slice(0, {DescriptionChars}); return r; }}; "
                    : "const ticket = brief; ") +
                "const audit = a => { const r = keep(a, A); if (a && Array.isArray(a.events)) r.events = a.events.map(e => keep(e, E)); return r; }; " +

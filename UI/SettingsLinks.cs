@@ -11,7 +11,7 @@ public static partial class SettingsLinks
     /// <summary>The sidebar's pages, as texts name them.</summary>
     public static readonly string[] Pages =
     [
-        "Account", "Groups", "Clients", "Notifications", "Colleagues", "Behavior", "Look & sound", "SLA", "General",
+        "Account", "Groups", "Clients", "Products", "Notifications", "Colleagues", "Behavior", "Look & sound", "SLA", "General",
         "Updates & feedback", "Insights", "How it works", "Experimental"
     ];
 
@@ -77,7 +77,7 @@ public static partial class SettingsLinks
     [GeneratedRegex(@"\(([^()]+)\)")]
     private static partial Regex Bracketed();
 
-    [GeneratedRegex(@"(?<=\bthe )(Account|Groups|Clients|Notifications|Colleagues|Behavior|SLA|General|Insights|Experimental) page\b")]
+    [GeneratedRegex(@"(?<=\bthe )(Account|Groups|Clients|Products|Notifications|Colleagues|Behavior|SLA|General|Insights|Experimental) page\b")]
     private static partial Regex PageWord();
 }
 

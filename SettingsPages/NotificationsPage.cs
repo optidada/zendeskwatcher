@@ -52,6 +52,9 @@ internal sealed class NotificationsPage : SettingsPage
         _takenQuickly.Margin = new Padding(50, 4, 0, 6);
         unassigned.Body.Controls.Add(takenLabel);
         unassigned.Body.Controls.Add(_takenQuickly);
+        var productsHint = Theme.Label("Only the products you work with: the Products page.", Theme.Small, Theme.TextMuted);
+        productsHint.Margin = new Padding(50, 4, 0, 6);
+        unassigned.Body.Controls.Add(productsHint);
         Panel.Controls.Add(unassigned);
 
         var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose.", Kit.CardWidth);

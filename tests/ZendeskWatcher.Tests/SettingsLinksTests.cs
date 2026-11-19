@@ -9,6 +9,7 @@ public class SettingsLinksTests
     [InlineData("Notifications → Working hours", "Notifications", "Working hours")]
     [InlineData("Notifications → Behavior → Snooze", "Behavior", "Snooze")]
     [InlineData("Groups → Clients", "Clients", null)]
+    [InlineData("Groups → Products", "Products", null)]
     [InlineData("Groups page", "Groups", null)]
     [InlineData("Look & sound", "Look & sound", null)]
     public void A_path_through_the_sidebar_goes_to_its_page(string reference, string page, string? section) =>
@@ -19,6 +20,10 @@ public class SettingsLinksTests
     [InlineData("e.g. In progress → Escalated")]
     [InlineData("the ticket's current priority; none counts as Normal")]
     public void Other_arrows_and_brackets_stay_text(string reference) => Assert.Null(SettingsLinks.Resolve(reference));
+
+    [Fact]
+    public void The_products_page_in_a_sentence_is_a_link() =>
+        Assert.Equal("Products", Assert.Single(SettingsLinks.Parse("Only the products you work with: the Products page.").Links).Page);
 
     [Fact]
     public void Brackets_sentences_and_written_out_links()

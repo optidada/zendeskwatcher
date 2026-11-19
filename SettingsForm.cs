@@ -41,10 +41,10 @@ public sealed class SettingsForm : Form
     /// <summary>The sidebar, known before the pages exist.</summary>
     private static readonly (string Title, bool Sub)[] NavItems =
     [
-        ("Account", false), ("Groups", false), ("Clients", true), ("Notifications", false), ("Colleagues", true),
+        ("Account", false), ("Groups", false), ("Clients", true), ("Products", true), ("Notifications", false), ("Colleagues", true),
         ("Behavior", true), ("Look & sound", true), ("SLA", true), ("General", false), ("Updates & feedback", true), ("Insights", false), ("How it works", false), ("Experimental", false)
     ];
-    private const int GroupsIndex = 1, ClientsIndex = 2, HelpIndex = 4, SlaIndex = 7, GeneralIndex = 8;
+    private const int GroupsIndex = 1, ClientsIndex = 2, NotificationsIndex = 4, HelpIndex = 5, SlaIndex = 8, GeneralIndex = 9;
 
     private ClientsPage? BuiltClients => _pages[ClientsIndex] as ClientsPage;
     private const int UpdatesIndex = GeneralIndex + 1;
@@ -117,7 +117,7 @@ public sealed class SettingsForm : Form
     [
         (0, null, "Sign in to Zendesk with your usual company login."),
         (1, null, "Tick the groups whose new tickets you want to hear about."),
-        (3, "Working hours", "Set your working hours: Catch up and quiet times go by them."),
+        (NotificationsIndex, "Working hours", "Set your working hours: Catch up and quiet times go by them."),
         (HelpIndex, null, "Choose whose tickets you cover when colleagues are away."),
     ];
 
@@ -231,7 +231,8 @@ public sealed class SettingsForm : Form
         _account = new AccountPage(_context, _groups);
         _makePage =
         [
-            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new NotificationsPage(_context, _groups),
+            () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new ProductsPage(_context, _groups),
+            () => new NotificationsPage(_context, _groups),
             () => new HelpColleaguesPage(_context, _groups), () => new BehaviorPage(_context), () => new AppearancePage(_context),
             () => new SlaPage(_context), MakeGeneralPage, MakeUpdatesPage, () => new StatisticsPage(_context), () => new HowItWorksPage(_context), () => new ExperimentalPage(_context)
         ];
@@ -767,6 +768,26 @@ public sealed class SettingsForm : Form
                        new(27, "Initrode", 2, ["Configured Commerce"])],
                 [3] = [] // no tickets in 90 days
             });
+            // Products: a sample Product field and ticket counts (nothing read or saved).
+            var names = new Dictionary<string, string>
+            {
+                ["dxp"] = "DxP Cloud Platform", ["paas"] = "CMS PaaS", ["saas"] = "CMS SaaS", ["graph"] = "Content Graph", ["cmp"] = "Content Marketing Platform",
+                ["dam"] = "Digital Asset Management (DAM)", ["search"] = "Search & Navigation Standalone", ["b2b"] = "Configured Commerce (B2B)",
+                ["b2c"] = "Commerce Connect (B2C)", ["pim"] = "Product Information Management (PIM)", ["web"] = "Web Experimentation",
+                ["fx"] = "Feature Experimentation", ["exp"] = "Experimentation Platform", ["odp"] = "Data Platform (ODP)", ["optiid"] = "Opti ID",
+                ["opal"] = "Opal", ["admin"] = "Account Administration"
+            };
+            Products.Field = new ProductField(1, names, DateTime.UtcNow);
+            var counts = new Dictionary<string, int> { ["dxp"] = 148, ["paas"] = 22, ["saas"] = 21, ["graph"] = 21, ["cmp"] = 30, ["dam"] = 12, ["b2b"] = 59,
+                ["b2c"] = 5, ["web"] = 110, ["fx"] = 9, ["exp"] = 42, ["odp"] = 7, ["optiid"] = 16, ["opal"] = 7, ["admin"] = 5 };
+            var id = 0L;
+            ClientsView.SetSampleDigests(settings.Subdomain, new()
+            {
+                [1] = new GroupDigest(DateTimeOffset.UtcNow, [.. counts.SelectMany(kv => Enumerable.Range(0, kv.Value)
+                    .Select(i => new TicketDigest(++id, null, i % 4 == 0 && kv.Key is "dxp" or "paas" ? 99 : null, DateTimeOffset.UtcNow, kv.Key)))])
+            });
+            settings.MyProducts = ["b2b", "b2c", "pim", "dxp", "paas"];
+            ProductsPage.Opened.Add(Products.Content);
             using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
             form.StartPosition = FormStartPosition.Manual;
             form.Location = new Point(-5000, -5000); // off-screen; controls only paint once the window is shown

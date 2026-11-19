@@ -103,6 +103,33 @@ public sealed class NotificationStats
 
     private const string ClientPrefix = "Client|";
 
+    /// <summary>A new ticket for another product that wasn't notified (My products). Stored as "HeldBack|OtherProduct".</summary>
+    public void RecordHeldBack(DateOnly? day = null)
+    {
+        var today = day ?? DateOnly.FromDateTime(DateTime.Now);
+        lock (_gate)
+        {
+            var key = today.ToString("yyyy-MM-dd");
+            if (!_days.TryGetValue(key, out var counts))
+                _days[key] = counts = [];
+            counts[HeldBackKey] = counts.GetValueOrDefault(HeldBackKey) + 1;
+            Save();
+        }
+    }
+
+    private const string HeldBackKey = "HeldBack|OtherProduct";
+
+    /// <summary>New tickets for other products not notified in the <paramref name="days"/> days up to <paramref name="today"/>.</summary>
+    public int HeldBack(DateOnly today, int days = KeepDays)
+    {
+        var oldest = today.AddDays(-(days - 1));
+        lock (_gate)
+        {
+            return _days.Where(d => DateOnly.TryParse(d.Key, out var date) && date >= oldest && date <= today)
+                .Sum(d => d.Value.GetValueOrDefault(HeldBackKey));
+        }
+    }
+
     /// <summary>Before "acted on" was counted: the opened, taken and copied ones, at most as many as were shown.</summary>
     private static int EstimatedActed(int shown, int[] positive) => Math.Min(shown, positive.Sum());
 

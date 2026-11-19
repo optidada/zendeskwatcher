@@ -465,6 +465,22 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         }
     }
 
+    /// <summary>
+    /// An active dropdown ticket field by its title (e.g. "Product"): its id and its values' names; null when there's none.
+    /// </summary>
+    public async Task<(long Id, Dictionary<string, string> Names)?> GetTicketFieldAsync(string title, CancellationToken ct)
+    {
+        var fields = await GetAllPagesAsync<TicketFieldsResponse, TicketField>("/api/v2/ticket_fields.json?per_page=100", r => r.TicketFields, ct);
+        var field = fields.FirstOrDefault(f => f.Active && f.Type == "tagger" && string.Equals(f.Title?.Trim(), title, StringComparison.OrdinalIgnoreCase));
+        if (field is null)
+            return null;
+        var names = new Dictionary<string, string>();
+        foreach (var option in field.CustomFieldOptions ?? [])
+            if (option.Value is { Length: > 0 } value)
+                names[value] = option.Name is { Length: > 0 } name ? name : value;
+        return (field.Id, names);
+    }
+
     /// <summary>How far back <see cref="GetGroupClientsAsync"/> looks for a group's clients.</summary>
     public const int ClientLookBackDays = 90;
 
@@ -489,13 +505,16 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         var group = groupId == WatchedGroup.NoGroupId ? "none" : groupId.ToString();
         var readAt = DateTimeOffset.UtcNow;
         var cutoff = readAt.AddDays(-ClientLookBackDays);
-        var incremental = previous is not null && readAt - previous.ReadAt <= DigestMaxAge;
+        // Records read before the Product field was known have no product: read everything again once it is (most of
+        // them: a few without one never make every load a full read).
+        var incremental = previous is not null && readAt - previous.ReadAt <= DigestMaxAge &&
+                          !(Tracking.Products.Field is not null && previous.Tickets.Count(t => t.Product is null) * 2 > previous.Tickets.Count);
         var read = incremental
             ? await ExportTicketsAsync($"group:{group} updated>{previous!.ReadAt.AddMinutes(-10).UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct)
             : await ExportTicketsAsync($"group:{group} created>{cutoff.UtcDateTime:yyyy-MM-dd}", ct);
         var byId = incremental ? previous!.Tickets.ToDictionary(t => t.Id) : [];
         foreach (var t in read)
-            byId[t.Id] = new TicketDigest(t.Id, t.OrganizationId, t.AssigneeId, t.CreatedAt);
+            byId[t.Id] = new TicketDigest(t.Id, t.OrganizationId, t.AssigneeId, t.CreatedAt, Tracking.Products.Of(t));
         return (new GroupDigest(readAt, byId.Values.Where(t => t.CreatedAt > cutoff).ToList()), read.Count, incremental);
     }
 

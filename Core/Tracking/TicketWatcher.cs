@@ -36,6 +36,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     /// <summary>Unassigned tickets per monitored group, as of the last check.</summary>
     private List<(WatchedGroup Group, List<Ticket> Tickets)> _unassigned = [];
+    private Dictionary<long, int> _otherProducts = []; // per group: unassigned tickets for other products (My products)
 
     /// <summary>The last check showed "already waiting" for a newly monitored group (so no start summary is needed).</summary>
     public bool ShowedAlreadyWaiting { get; private set; }
@@ -81,6 +82,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             Log.Error("Could not load group names", ex);
         }
+        // The ticket field "Product" (My products, and the product on notifications): read once a week.
+        await Products.EnsureFieldAsync(zendesk, settings.Subdomain, ct);
 
         try
         {
@@ -222,6 +225,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var total = 0;
         var byGroup = new List<(WatchedGroup Group, List<Ticket> Tickets)>();
         var justBaselined = new HashSet<long>();
+        var otherProducts = new Dictionary<long, int>();
         ShowedAlreadyWaiting = false;
 
         // Search finds the candidates, but its index can be stale for hours: a ticket assigned long ago may still
@@ -259,6 +263,34 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             tickets = tickets.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
             fresh = fresh.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
 
+            // Other products (My products, Groups → Products) work the same way, unless their priority is chosen
+            // for other products. Their product is kept, so one moved to my product (or raised) while unassigned notifies then.
+            var productWanted = new HashSet<long>();
+            var movedToMine = new List<(Ticket Ticket, string Heading)>();
+            foreach (var ticket in tickets)
+            {
+                if (await WantedProductAsync(ticket, ct))
+                {
+                    productWanted.Add(ticket.Id);
+                    // Moved to my product or raised: notifies. Wanted only since My products changed: quietly counts again.
+                    if (_state.QuietProduct.Remove(ticket.Id, out var was) && !fresh.Contains(ticket) &&
+                        Products.ComeBackHeading(was, Products.Of(ticket), ticket.Priority, Products.Field) is { } heading)
+                        movedToMine.Add((ticket, heading));
+                }
+                else
+                {
+                    if (!isBaseline && fresh.Contains(ticket))
+                    {
+                        Log.Info($"Ticket #{ticket.Id} {group.Describe()} is for another product ({Products.NameOf(ticket)}, {ticket.Priority ?? "no priority"}): not notified");
+                        notifier.HeldBackOtherProduct(ticket.Id);
+                    }
+                    _state.QuietProduct[ticket.Id] = Products.Quiet(Products.Of(ticket), ticket.Priority);
+                }
+            }
+            otherProducts[group.Id] = tickets.Count - productWanted.Count;
+            tickets = tickets.Where(t => productWanted.Contains(t.Id)).ToList();
+            fresh = fresh.Where(t => productWanted.Contains(t.Id)).ToList();
+
             // Priorities not chosen for the group (Notifications → New tickets) work the same way: neither notify nor count. Their priority is kept, so
             // one raised to a chosen priority while still unassigned notifies then.
             var raised = new List<Ticket>();
@@ -272,6 +304,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             }
             tickets = tickets.Where(t => WantedPriority(t, group)).ToList();
             fresh = fresh.Where(t => WantedPriority(t, group)).ToList();
+            movedToMine = movedToMine.Where(m => WantedPriority(m.Ticket, group) && !raised.Contains(m.Ticket)).ToList();
 
             total += tickets.Count;
             byGroup.Add((group, tickets));
@@ -289,6 +322,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 Log.Info($"{raised.Count} unassigned ticket(s) raised to a chosen priority {group.Describe()}: {string.Join(",", raised.Select(t => t.Id))}");
                 foreach (var ticket in raised)
                     await ShowNewTicketAsync(ticket, group, ct, "Priority raised");
+            }
+            if (!isBaseline && movedToMine.Count > 0 && settings.NotifyUnassigned && !(settings.OnlyNotifyDuringMyHours && await IAmOffWorkAsync(ct)))
+            {
+                Log.Info($"{movedToMine.Count} unassigned ticket(s) for another product now notify {group.Describe()}: {string.Join(",", movedToMine.Select(m => m.Ticket.Id))}");
+                foreach (var (ticket, heading) in movedToMine)
+                    await ShowNewTicketAsync(ticket, group, ct, heading);
             }
 
             // New tickets are always recorded, so switching notifications on later does not report old ones.
@@ -321,9 +360,12 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             _state.TakenQuickly.Remove(id);
         foreach (var id in _state.QuietPriority.Keys.Where(id => !_state.SeenUnassigned.ContainsKey(id)).ToList())
             _state.QuietPriority.Remove(id);
+        foreach (var id in _state.QuietProduct.Keys.Where(id => !_state.SeenUnassigned.ContainsKey(id)).ToList())
+            _state.QuietProduct.Remove(id);
 
         UnassignedCount = total;
         _unassigned = byGroup;
+        _otherProducts = otherProducts;
     }
 
     /// <summary>
@@ -397,7 +439,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                 _state.TakenQuickly[ticket.Id] = now; // looked at once, whatever comes of it
                 var important = IsImportant(ticket);
                 if (!important && (!TicketRules.MatchesPriority(ticket.Priority, settings.TakenQuicklyPriorities) ||
-                                   !TicketRules.IsWantedClient(ticket, ClientMode(ticket))))
+                                   !TicketRules.IsWantedClient(ticket, ClientMode(ticket)) || !await WantedProductAsync(ticket, ct)))
                     continue;
                 if (!important && settings.OnlyNotifyDuringMyHours && (offWork ??= await IAmOffWorkAsync(ct)))
                     continue;
@@ -429,7 +471,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var body = await CreatedLineAsync(ticket, ct) + "\n" + TicketRules.TakenLine(assignee, assigner, taken.ByRule, taken.At - ticket.CreatedAt) +
                    (ticket.IsOpen ? "" : $" · {ticket.Status}");
         Show(await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, "Already taken",
-            $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, GroupLabel(group))
+            $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, TicketLabel(ticket, group))
             { EventTime = ticket.CreatedAt, IsTicketNotification = true }, ticket, group, ct));
     }
 
@@ -475,7 +517,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         if (settings.ShowCommentText && TextCleanup.Plain(ticket.Description) is { Length: > 0 } message)
             body += "\n" + Quote(Markdown.Escape(message.Length <= 200 ? message : message[..200] + "\u2026"));
         return await WithClientAsync(new NotificationContent(NotificationKind.NewTicket, scheduled ? $"{heading} \u00b7 Scheduled" : heading,
-            $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, GroupLabel(group))
+            $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}", body, ticket.Id, ticket.Priority, TicketLabel(ticket, group))
             { CanTake = true, EventTime = ticket.CreatedAt, IsTicketNotification = true, ScheduledCount = scheduled ? 1 : 0 }, ticket, group, ct,
             sla: (ticket.CreatedAt, FirstReply: true), customerTexts: settings.GuessPriority ? await FirstMessageAsync(ticket, ct) : null);
     }
@@ -509,7 +551,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             var tickets = _state.MyTickets.Values;
             mine = (tickets.Count(t => t.Status is "new" or "open"), tickets.Count(t => t.Status == "pending"), tickets.Count(t => t.Status == "hold"));
         }
-        return new WatchSnapshot(DateTime.Now, _unassigned.Select(g => new GroupCount(g.Group, g.Tickets.Count, g.Tickets.Count(IsScheduled))).ToList(),
+        return new WatchSnapshot(DateTime.Now, _unassigned.Select(g => new GroupCount(g.Group, g.Tickets.Count, g.Tickets.Count(IsScheduled),
+                _otherProducts.GetValueOrDefault(g.Group.Id))).ToList(),
             waiting.Count > 0 ? waiting.Min(t => t.CreatedAt) : null, mine,
             settings.TrackCcTickets ? _state.CcTickets.Count : null, settings.TrackCcTickets && _state.CcBaselineFull);
     }
@@ -683,6 +726,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
                     continue; // first look at this group, you're off work (important clients still notify), or already reported as a CC'd ticket
                 if (!TicketRules.IsWantedClient(ticket, ClientMode(ticket)))
                     continue; // a muted client, or "only urgent" and it isn't (Clients page)
+                if (!await WantedProductAsync(ticket, ct))
+                    continue; // another product (My products), and not a priority chosen for them
 
                 void NotSeenAfterAll()
                 {
@@ -757,7 +802,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         Show(await WithClientAsync(new NotificationContent(NotificationKind.HelpColleague, "Colleague's ticket",
             $"#{ticket.Id} {TextCleanup.Plain(ticket.Subject)}",
             WhyUnderName(said, why + StatusSuffix(ticket)),
-            ticket.Id, ticket.Priority, GroupLabel(group))
+            ticket.Id, ticket.Priority, TicketLabel(ticket, group))
         { IsTicketNotification = true, ChangedAt = reply.At, EventTime = reply.At }, ticket, group, ct, sla: (reply.At, FirstReply: false),
             customerTexts: [TextCleanup.Plain(reply.Comment.PlainBody ?? reply.Comment.Body)], waitingSince: reply.At));
     }
@@ -1139,6 +1184,22 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
 
     private bool IsImportant(Ticket ticket) => ClientMode(ticket) == ZendeskWatcher.ClientMode.Important;
 
+    /// <summary>
+    /// Whether a new ticket or a colleague's ticket may notify by its product (My products): one of mine, not sure, or a
+    /// priority chosen for other products; important clients always. The client's products (already known, or one cached
+    /// request) only count when the ticket's product looks like another product's.
+    /// </summary>
+    private async Task<bool> WantedProductAsync(Ticket ticket, CancellationToken ct)
+    {
+        if (settings.MyProducts.Count == 0 || IsImportant(ticket) || Products.OtherProductNotifies(ticket.Priority, settings.OtherProductPriorities))
+            return true;
+        var product = Products.Of(ticket);
+        var fit = Products.Fit(product, settings.MyProducts, Products.Field, null);
+        if (fit == ProductFit.Other && ticket.OrganizationId is { } id && await zendesk.GetOrganizationAsync(id, ct) is { } org)
+            fit = Products.Fit(product, settings.MyProducts, Products.Field, org.Products);
+        return fit != ProductFit.Other;
+    }
+
     /// <summary>A new unassigned ticket with a priority chosen for its group (Notifications → New tickets), or from an important client.</summary>
     private bool WantedPriority(Ticket ticket, WatchedGroup group) => TicketRules.MatchesPriority(ticket.Priority, settings.NewTicketPrioritiesFor(group.Id)) || IsImportant(ticket);
 
@@ -1291,6 +1352,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     }
 
     internal static string GroupLabel(WatchedGroup group) => group.IsNoGroup ? "No group" : group.Name;
+
+    /// <summary>Next to a ticket notification's heading: its product (when known), then the group: "CMS PaaS · Support".</summary>
+    internal static string TicketLabel(Ticket ticket, WatchedGroup group) =>
+        Products.NameOf(ticket) is { } product ? $"{product} \u00b7 {GroupLabel(group)}" : GroupLabel(group);
 
     /// <param name="withText">Include (the start of) the comment text, or only say who commented.</param>
     private async Task<string?> DescribeAsync(AuditEvent ev, string authorName, bool withText, CancellationToken ct)

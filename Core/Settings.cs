@@ -177,6 +177,16 @@ public sealed class Settings
     /// </summary>
     public List<string> TakenQuicklyPriorities { get; set; } = [];
 
+    /// <summary>
+    /// The products I work with: values of the ticket field "Product" (Groups → Products). Empty: all products,
+    /// the default. New tickets and colleagues' tickets for another product only notify with
+    /// <see cref="OtherProductPriorities"/>; when unsure (no product, or one that doesn't fit the client) they notify.
+    /// </summary>
+    public List<string> MyProducts { get; set; } = [];
+
+    /// <summary>Tickets for other products still notify with these priorities (with <see cref="MyProducts"/> picked). Empty: never.</summary>
+    public List<string> OtherProductPriorities { get; set; } = ["urgent", "high"];
+
     /// <summary>The priorities of new unassigned tickets that notify in this group.</summary>
     public IReadOnlyList<string> NewTicketPrioritiesFor(long groupId) =>
         NewTicketPriorities.TryGetValue(groupId, out var chosen) && chosen.Count > 0 ? chosen : AllPriorities;

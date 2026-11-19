@@ -14,6 +14,9 @@ public sealed class WatchState
     /// <summary>Unassigned tickets kept quiet for a priority not chosen -> that priority, to notify once one is raised.</summary>
     public Dictionary<long, string> QuietPriority { get; set; } = [];
 
+    /// <summary>Unassigned tickets kept quiet for another product (My products) -> that product, to notify once it's mine.</summary>
+    public Dictionary<long, string> QuietProduct { get; set; } = [];
+
     /// <summary>Tickets someone took before the app saw them unassigned, already looked at -> when (Notifications → New tickets).</summary>
     public Dictionary<long, DateTimeOffset> TakenQuickly { get; set; } = [];
 
