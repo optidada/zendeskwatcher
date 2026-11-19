@@ -116,26 +116,30 @@ public sealed class PopupPalette
         Accent = (priority, _) => priority is "urgent" or "high" ? Color.FromArgb(255, 95, 86) : Color.FromArgb(57, 255, 110)
     };
 
-    /// <summary>The optimizely.com palette: fir greens, lime ("lfgreen") accent, light neutrals, pink and light blue.</summary>
+    /// <summary>
+    /// The Optimizely brand pack: white (Neutral 1) backdrop, Dark Fir text and outline (the only stroke color), the
+    /// brand's bright accents (LFGreen, Light Pink, Light Blue, Grass) on stripes and buttons with Dark Fir text on them.
+    /// No gradients, no glow. Text in an accent color is darkened until readable (<see cref="Contrast"/>).
+    /// </summary>
     public static readonly PopupPalette Optimizely = new()
     {
         ButtonRadius = UiPalette.ButtonRadiusFor(NotificationTheme.Optimizely),
         Name = "Optimizely",
-        Background = Color.FromArgb(0x0D, 0x3A, 0x29),    // midfir
-        BackgroundEnd = Color.FromArgb(0x08, 0x25, 0x1A), // darkfir
-        Border = Color.FromArgb(0x19, 0x70, 0x50),        // lightfir
-        Text = Color.FromArgb(0xEF, 0xF6, 0xE9),          // neutral-2
-        Muted = Color.FromArgb(0xA1, 0xAC, 0x8D),         // neutral-6
+        Background = Color.FromArgb(0xFF, 0xFF, 0xFF),    // neutral-1
+        BackgroundEnd = Color.FromArgb(0xFF, 0xFF, 0xFF), // no gradients
+        Border = Color.FromArgb(0x08, 0x25, 0x1A),        // darkfir
+        Text = Color.FromArgb(0x08, 0x25, 0x1A),          // darkfir
+        Muted = Color.FromArgb(0x4A, 0x5A, 0x52),         // dark fir greyed: lightfir text read as harsh green
         OnAccent = Color.FromArgb(0x08, 0x25, 0x1A),      // dark text on lime/pink/blue
         FontFamily = "Segoe UI",
         Stripe = true,
-        Dark = true,
+        Glow = false,
         Accent = (priority, kind) => priority switch
         {
             "urgent" => Color.FromArgb(0xFF, 0x99, 0xB6), // ltpink
             "high" => Color.FromArgb(0xAB, 0xFF, 0x44),   // lfgreen
-            "low" => Color.FromArgb(0xD8, 0xE4, 0xCB),    // neutral-4
-            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(0x71, 0xFF, 0x84) : Color.FromArgb(0x91, 0xDB, 0xDA) // green, ltblue
+            "low" => Color.FromArgb(0xC3, 0xCE, 0xAF),    // neutral-5
+            _ => kind is NotificationKind.MyTicket or NotificationKind.CcTicket ? Color.FromArgb(0x7D, 0xDD, 0x3D) : Color.FromArgb(0x91, 0xDB, 0xDA) // grass, ltblue
         }
     };
 

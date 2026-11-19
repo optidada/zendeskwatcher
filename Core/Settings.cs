@@ -640,7 +640,7 @@ public enum NotificationTheme
     /// <summary>Dusky purple with warm cream text and soft pastel accents. (Added last: settings store the number.)</summary>
     CozyPurple,
 
-    /// <summary>The optimizely.com look: dark fir green with lime accents. (Added last: settings store the number.)</summary>
+    /// <summary>The Optimizely brand pack: light green-grey and white, Dark Fir text, lime accents. (Added last: settings store the number.)</summary>
     Optimizely,
 
     /// <summary>For late evenings: warm near-black, dimmed cream text, muted colors, no glow. (Added last: settings store the number.)</summary>

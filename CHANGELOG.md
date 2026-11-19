@@ -3,6 +3,11 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.5
+
+- **The Optimizely theme follows the Optimizely brand**: light green-grey and white instead of dark green, dark green text, and buttons, toggles and choices in dark green with lime, like the logo. Notifications are white with the brand's colors on the edge and buttons: lime for P2, pink for P1, light blue for new tickets, green for your own.
+- **Easier on the eyes**: secondary text in the Optimizely theme is a calm grey-green, and no gradients or glow.
+
 ## 1.9.4
 
 - **Updates come from a new download place**: new versions and the installer now live at github.com/optidada/zendeskwatcher-releases. Nothing changes for you; the app keeps updating itself as before.

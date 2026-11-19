@@ -27,7 +27,7 @@ public sealed record UiPalette(
         NotificationTheme.NeonDark or NotificationTheme.CozyPurple => Pill,
         NotificationTheme.CleanLight => 8,
         NotificationTheme.WindowsNative => 2, // Native: like Windows 11, a bit squarer and edgier
-        _ => 6                                // Optimizely
+        _ => 10                               // Optimizely: the brand wants rounded corners
     };
 
     /// <summary>
@@ -93,13 +93,18 @@ public sealed record UiPalette(
         Sidebar: Rgb(2, 5, 3), SidebarHover: Rgb(12, 30, 16), SidebarText: Rgb(40, 190, 90), SidebarTitle: Rgb(57, 255, 110),
         Dark: true);
 
-    /// <summary>optimizely.com: darkfir page, midfir cards, lightfir borders, lime accent, light neutrals.</summary>
+    /// <summary>
+    /// The Optimizely brand pack: Neutral 3 backdrop, white cards, Dark Fir text and sidebar, Fir fills (buttons, toggles,
+    /// selected choices) with LFGreen on them, like the logo (pure LFGreen fills were too stark on white). Dark
+    /// Fir text, a muted Dark Fir grey for secondary text (Light Fir read as harsh green), Dark Blue links (LFGreen is unreadable as text on light). Pinks for warnings
+    /// and errors (the brand has no red or amber).
+    /// </summary>
     private static readonly UiPalette Optimizely = new(
-        Window: Rgb(0x08, 0x25, 0x1A), Surface: Rgb(0x0D, 0x3A, 0x29), Border: Rgb(0x19, 0x70, 0x50), Text: Rgb(0xEF, 0xF6, 0xE9), TextMuted: Rgb(0xB2, 0xBD, 0x9E),
-        Accent: Rgb(0xAB, 0xFF, 0x44), AccentHover: Rgb(0xC4, 0xFF, 0x7A), AccentSoft: Rgb(0x14, 0x52, 0x3B), OnAccent: Rgb(0x08, 0x25, 0x1A),
-        Success: Rgb(0x71, 0xFF, 0x84), Warning: Rgb(0xFF, 0xC4, 0x6B), Danger: Rgb(0xFF, 0x99, 0xB6), Neutral: Rgb(0x87, 0x8F, 0x77),
-        Sidebar: Rgb(0x05, 0x1A, 0x12), SidebarHover: Rgb(0x0D, 0x3A, 0x29), SidebarText: Rgb(0xD8, 0xE4, 0xCB), SidebarTitle: Rgb(0xAB, 0xFF, 0x44),
-        Dark: true);
+        Window: Rgb(0xE4, 0xF0, 0xDA), Surface: Rgb(0xFF, 0xFF, 0xFF), Border: Rgb(0xC3, 0xCE, 0xAF), Text: Rgb(0x08, 0x25, 0x1A), TextMuted: Rgb(0x4A, 0x5A, 0x52),
+        Accent: Rgb(0x0D, 0x3A, 0x29), AccentHover: Rgb(0x19, 0x70, 0x50), AccentSoft: Rgb(0xEF, 0xF6, 0xE9), OnAccent: Rgb(0xAB, 0xFF, 0x44),
+        Success: Rgb(0x22, 0x7D, 0x47), Warning: Rgb(0x8F, 0x47, 0x64), Danger: Rgb(0xB0, 0x2E, 0x5C), Neutral: Rgb(0xA1, 0xAC, 0x8D),
+        Sidebar: Rgb(0x08, 0x25, 0x1A), SidebarHover: Rgb(0x0D, 0x3A, 0x29), SidebarText: Rgb(0xD8, 0xE4, 0xCB), SidebarTitle: Rgb(0xAB, 0xFF, 0x44),
+        Dark: false) { LinkOverride = Rgb(0x00, 0x7B, 0x79) };
 
     private static readonly UiPalette CozyPurple = new(
         Window: Rgb(32, 24, 46), Surface: Rgb(46, 34, 64), Border: Rgb(78, 61, 104), Text: Rgb(252, 243, 235), TextMuted: Rgb(190, 172, 210),
