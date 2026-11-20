@@ -92,7 +92,7 @@ internal sealed class TickerBar : Form
     }
 
     /// <summary>At the top for the top positions, otherwise along the bottom.</summary>
-    public static bool AtTop(Settings settings) => settings.Position is PopupPosition.TopRight or PopupPosition.TopCenter;
+    public static bool AtTop(Settings settings) => settings.Position.IsTop();
 
     public int Count => _items.Count;
 

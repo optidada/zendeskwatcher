@@ -119,7 +119,7 @@ public sealed class ChoiceBox : Control
             menu.Items.Add(entry);
         }
         ThemedMenu.Apply(menu, Theme.Current);
-        menu.MinimumSize = new Size(Width, 0);
+        ThemedMenu.StretchTo(menu, Width);
         _open = true;
         menu.Closed += (_, _) =>
         {

@@ -51,6 +51,8 @@ public sealed class Notifier : INotificationSink
     /// <summary>Counts what happened to a ticket notification, per kind and (for the Insights suggestion) per client.</summary>
     private void Count(NotificationContent content, StatOutcome outcome)
     {
+        if (content.TicketId is { } ticketId && Tracking.TicketWatcher.IsTestTicket(ticketId))
+            return; // --test-take: not a real notification, like samples
         Stats.Record(content.Kind, outcome);
         if (content.ClientId is { } id && content.ClientName is { } name)
             Stats.RecordClient(id, name, outcome);
@@ -219,6 +221,8 @@ public sealed class Notifier : INotificationSink
     }
 
     public void CloseTaken(long ticketId, string? note = null) => _popups.CloseNewTicket(ticketId, note);
+
+    public void NoteTaken(long ticketId, string note) => _popups.NoteNewTicket(ticketId, note);
 
     public void HeldBackOtherProduct(long ticketId) => Stats.RecordHeldBack();
 

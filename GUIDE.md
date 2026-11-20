@@ -120,8 +120,8 @@ notify.
 Choose what you want to hear about: new tickets in your groups (for each group: all priorities, P1–P3, P1 and P2, or
 P1 only), changes on your own tickets and the ones you're CC'd on or follow, which kinds of change, and when you work.
 A ticket kept quiet for its priority notifies as "Priority raised" if someone raises it while it's still unassigned.
-"Also when someone took it before I saw it" (off by default) notifies tickets of the chosen priorities that someone took
-between two checks, as "Already taken", saying who took it and how fast: for leads who don't want to miss a P1. With "Only notify me during my working hours", notifications
+"Also tickets taken right away" (off by default) notifies tickets of the chosen priorities that someone took
+between two checks (looked for every 3 minutes), as "Already taken", saying who took it and how fast: for leads who don't want to miss a P1. With "Only notify me during my working hours", notifications
 outside them wait for Catch up, unless you're active in Zendesk.
 
 ![Notifications](docs/images/settings-notifications.png)
@@ -129,7 +129,10 @@ outside them wait for Catch up, unless you're active in Zendesk.
 ### Colleagues
 
 Choose whose tickets you cover when a colleague is off, by region or one by one. Each colleague's local time shows
-whether they're working now (green), off work (empty) or away today (amber: no Zendesk activity all day).
+whether they're active now (green with a ring: did something in Zendesk in the last 30 minutes; a grey ring with a
+green center outside their hours), in their working hours (green), away today (amber: no Zendesk activity all day) or off work (empty). Pointing at someone shows when they
+were last active. "Active in Zendesk outside their hours counts as working" (on by default): their clients' replies don't
+notify you while they're active late.
 
 **Cover today?** Once a day, 3 hours into your working day, a colleague in your region with open tickets in the groups
 you cover who hasn't done anything in Zendesk since their day started (e.g. off sick or on holiday) gets one
@@ -139,9 +142,14 @@ question: **Cover today** covers them until midnight (an outlined tick here), **
 
 ### Behavior
 
-How long notifications stay, what happens to ones that waited while you were away, and Snooze. "Hold ticket
-notifications while I'm typing a lot" (on by default) lets them wait until you slow down, at most 10 minutes; P1
-tickets, important clients and SLAs due within 15 minutes never wait. Only how often you type or click counts, never what.
+How long notifications stay, what happens to ones that waited while you were away, and Snooze. "Don't interrupt me
+while I'm busy typing" (on by default) lets ticket notifications wait until you pause, at most 10 minutes; P1 tickets,
+important clients and SLAs due within 15 minutes still come right away. Only how often you type or click counts, never what.
+
+**Drop notifications**: a notification that waited, or is on screen, is dropped when meanwhile the ticket was assigned
+to a colleague or to you, replied to by a colleague, or solved by you, a colleague or the client: a switch for
+each, all on by default. Off: it shows anyway, with a line saying what happened ("Taken by Anna meanwhile"). Leads:
+turn off "Assigned to a colleague" and "Replied to by a colleague" to see who took what and who answered. Deleted tickets are always dropped.
 
 **Keyboard**, while a notification is on screen: **Ctrl+Alt+O** opens the oldest one, **Ctrl+Alt+T** takes it (new
 tickets), **Ctrl+Alt+S** snoozes it, **Ctrl+Alt+X** closes it.
@@ -193,4 +201,6 @@ quiet thank-yous. Both are off until you switch them on.
 
 The app reads Zendesk with your own sign-in and only changes something when you click Take it or assign a ticket to a
 colleague. Nothing about your tickets is sent anywhere else. It checks every 3 minutes (every 10 while you're away), and
-new unassigned tickets every 1½ minutes, so it adds little to your company's shared Zendesk limit.
+new unassigned tickets every 1½ minutes, so it adds little to your company's shared Zendesk limit. To ask Zendesk less,
+it keeps on your PC who is in each group, how many tickets everyone has, who usually handles a client and when colleagues
+were last active (names, numbers and times; never ticket text), and shows them right away after a restart.

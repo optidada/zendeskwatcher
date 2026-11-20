@@ -11,6 +11,9 @@ internal static class AssignMenu
     /// <summary>Set by the app once signed in; null: the ▾ isn't shown.</summary>
     public static Func<long, Task<(List<AssignCandidate> Candidates, string? Note)>>? Find { get; set; }
 
+    /// <summary>A new-ticket notification came on screen: reads its group (id) early, so ▾ opens quickly. Set by the app.</summary>
+    public static Action<long>? Ready { get; set; }
+
     /// <summary>
     /// The menu, filled in when the candidates are read. <paramref name="chosen"/>: the picked colleague;
     /// <paramref name="filled"/>: the lines are in (the menu got taller: show it again so it stays on screen).

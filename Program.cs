@@ -138,6 +138,10 @@ internal static class Program
             app.ShowTestPopups(); // for trying the notification styles without waiting for real tickets
         if (args.Contains("--open-settings"))
             app.OpenSettingsOnStart(); // for trying Settings with the real session
+        if (Array.IndexOf(args, "--test-take") is >= 0 and var testAt)
+            app.TestTakeOnStart(args.ElementAtOrDefault(testAt + 1) is { } id && long.TryParse(id, out var testId) ? testId : null); // after the first check: a notification for a recent ticket, to try Take it ▾ (nothing can be assigned)
+        if (args.Contains("--measure-take"))
+            app.MeasureTakeOnStart(); // after signing in: "who could take it" on a few recent tickets, times to the log
         if (args.Contains("--guided-start"))
             app.OpenSettingsOnStart(guided: true); // Settings with the first-start guide, for trying it
         Application.Run(app);

@@ -124,7 +124,7 @@ public sealed partial class TicketWatcher
         var candidates = new Dictionary<long, User>();
         foreach (var group in settings.EffectiveHelpGroups)
         {
-            var entry = await GroupWorkloadCache.GetAsync(zendesk, settings.Subdomain, group.Id, TimeSpan.FromMinutes(15), ct);
+            var entry = await GroupWorkloadCache.GetAsync(zendesk, settings.Subdomain, group.Id, CacheAges.WorkloadFresh, ct);
             var withTickets = entry.Tickets.Select(t => t.AssigneeId).OfType<long>().ToHashSet();
             foreach (var member in entry.Members.Where(m => m.Id != me.Id && withTickets.Contains(m.Id)))
                 candidates.TryAdd(member.Id, member);

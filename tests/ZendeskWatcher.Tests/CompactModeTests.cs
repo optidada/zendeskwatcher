@@ -61,6 +61,8 @@ public class CompactModeTests
     [InlineData(PopupPosition.TopCenter, true)]
     [InlineData(PopupPosition.Center, false)]
     [InlineData(PopupPosition.LeftCenter, false)]
+    [InlineData(PopupPosition.TopLeft, true)]
+    [InlineData(PopupPosition.BottomLeft, false)]
     public void Ticker_follows_top_or_bottom_of_the_position(PopupPosition position, bool top) =>
         Assert.Equal(top, TickerBar.AtTop(new Settings { Position = position, Stacking = PopupStacking.Ticker }));
 

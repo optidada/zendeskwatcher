@@ -65,14 +65,22 @@ internal sealed class RecordingNotifier : INotificationSink
     }
 
     public Dictionary<long, string?> TakenNotes { get; } = [];
+
+    public void NoteTaken(long ticketId, string note) => NotedTaken[ticketId] = note;
+
+    /// <summary>Taken, but shown anyway (Drop notifications): the note it shows while it stays.</summary>
+    public Dictionary<long, string> NotedTaken { get; } = [];
 }
 
 /// <summary>
 /// A tiny Zendesk: tickets as they really are (show_many), a search index that can lag behind like the real one,
 /// the user's assigned / CC'd / followed lists, ticket changes (audits) and users. Anything else is a 404.
 /// </summary>
-internal sealed partial class FakeZendesk : IZendeskSession
+internal sealed partial class FakeZendesk : IZendeskSession, IHasOwnActivity
 {
+    /// <summary>Its own memory of who was active, so tests running side by side don't see each other's colleagues.</summary>
+    public ColleagueActivity Activity { get; } = new();
+
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     public User Me { get; } = new() { Id = 1, Name = "Test Agent", Role = "agent" };

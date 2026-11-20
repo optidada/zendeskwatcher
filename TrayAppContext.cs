@@ -113,6 +113,28 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>The first-start guide was finished or skipped in this run (Settings opens normally from then on).</summary>
     private bool _guideDone;
 
+    /// <summary>Developer switch --measure-take: after the first full check, "who could take it" is measured once (see <see cref="TicketWatcher.MeasureCandidatesAsync"/>).</summary>
+    private bool _measureTake;
+
+    public void MeasureTakeOnStart() => _measureTake = true;
+
+    /// <summary>Developer switch --test-take: after the first full check, a test notification to try Take it ▾ on (<see cref="TicketWatcher.ShowTestTicketAsync"/>).</summary>
+    private bool _testTake;
+    private long? _testTakeTicket;
+
+    /// <param name="ticketId">That ticket; null: the newest in the monitored groups.</param>
+    public void TestTakeOnStart(long? ticketId)
+    {
+        _testTake = true;
+        _testTakeTicket = ticketId;
+    }
+
+    private static async Task MeasureTakeAsync(TicketWatcher watcher)
+    {
+        try { await watcher.MeasureCandidatesAsync(CancellationToken.None); }
+        catch (Exception ex) { Log.Error("Measuring who could take it failed", ex); }
+    }
+
     public TrayAppContext()
     {
         Current = this;
@@ -210,6 +232,13 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>What a click on a notification does. Runs on the UI thread.</summary>
     private void HandleAction(string action, long? ticketId)
     {
+        // --test-take: an old ticket shown as new; taking or assigning it would change a real ticket.
+        if (ticketId is { } testId && TicketWatcher.IsTestTicket(testId) &&
+            (action == Notifier.ActionTake || action.StartsWith(NotificationActions.AssignPrefix, StringComparison.Ordinal)))
+        {
+            _notifier.ShowInfo($"#{testId}: test notification", "Nothing was assigned.", testId);
+            return;
+        }
         switch (action)
         {
             case Notifier.ActionOpenTicket when ticketId is { } id:
@@ -357,6 +386,8 @@ public sealed class TrayAppContext : ApplicationContext
         // Colleagues and authors looked up once a day, not after every start or save (staff only, in the cache folder).
         if (ZendeskClient.Users?.Subdomain != _settings.Subdomain)
             ZendeskClient.Users = new UserStore(Path.Combine(AppPaths.DataDir, "cache", "users.json"), _settings.Subdomain);
+        // Who was active when (ids and times only), so a restart doesn't read everyone's activity again.
+        Tracking.ColleagueActivity.Shared.UseFile(Path.Combine(AppPaths.DataDir, "cache", "activity.json"), _settings.Subdomain);
         var watcher = new TicketWatcher(_settings, new ZendeskClient(_settings, session), _notifier);
         watcher.TakeHistoryFrom(_lastWatcher); // a save restarts checking: the 90 days of tickets aren't read again
         _lastWatcher = watcher;
@@ -379,6 +410,7 @@ public sealed class TrayAppContext : ApplicationContext
                     UI.Popups.AssignMenu.Find = id => _lastWatcher is { Me: not null } current
                         ? current.FindCandidatesAsync(id, CancellationToken.None)
                         : Task.FromResult<(List<AssignCandidate>, string?)>(([], "Not signed in yet."));
+                    UI.Popups.AssignMenu.Ready = groupId => { if (_lastWatcher is { Me: not null } ready) _ = ready.ReadyCandidatesGroupAsync(groupId); };
                     _me = watcher.Me;
                     initialized = true;
                     // Signed in: show it right away; the first check (a few seconds) then sets the state (green while online).
@@ -396,6 +428,17 @@ public sealed class TrayAppContext : ApplicationContext
                     try { await watcher.PollAsync(ct); }
                     finally { _tray.EndBusy(); }
                     _signInPromptShown = false; // signed in again: a later failure may prompt again
+                    if (_measureTake)
+                    {
+                        _measureTake = false;
+                        _ = MeasureTakeAsync(watcher); // on this (UI) thread, like a click: the browser session lives here
+                    }
+                    if (_testTake)
+                    {
+                        _testTake = false;
+                        try { await watcher.ShowTestTicketAsync(_testTakeTicket, ct); }
+                        catch (Exception ex) when (ex is not OperationCanceledException) { Log.Error("Test notification failed", ex); }
+                    }
 
                     // Once per app run: Catch up as the greeting (also right after signing in for the first time). Without a
                     // monitored group it's shown anyway: its first line says to choose one (Settings → Groups).
@@ -432,6 +475,7 @@ public sealed class TrayAppContext : ApplicationContext
                     }
                 }
                 ZendeskClient.Users?.Save();
+                Tracking.ColleagueActivity.Shared.Save();
                 var summary = $"{watcher.UnassignedCount} unassigned · {watcher.MyOpenCount} mine · {Clock.Time(DateTime.Now)}";
                 _tray.SetStatus(_notifier.Paused ? $"Paused · {summary}" : summary,
                     watcher.UnassignedCount > 0 ? TrayState.Attention : TrayState.Ok);
@@ -621,6 +665,7 @@ public sealed class TrayAppContext : ApplicationContext
     /// <summary>"Take it": assigns the ticket to me (unless someone was faster), then opens it. Runs on the UI thread.</summary>
     private async Task TakeTicketAsync(long ticketId)
     {
+        ZendeskClient.Clicked.Value = true; // the user clicked: not behind the background checks
         if (_taker is not { } taker)
         {
             OpenUrl(_settings.TicketUrl(ticketId)); // not connected yet: just open it
@@ -655,6 +700,7 @@ public sealed class TrayAppContext : ApplicationContext
     /// </summary>
     private async Task AssignTicketAsync(long ticketId, long userId, string name)
     {
+        ZendeskClient.Clicked.Value = true; // the user clicked: not behind the background checks
         if (_taker is not { } taker)
             return;
         try
@@ -682,7 +728,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         if (_taker is not { } taker)
             return waiting.ToList();
-        return await TicketWatcher.StillNeededAsync(taker.Client, taker.MeId, waiting, _settings.DropAnswered, deep, CancellationToken.None);
+        return await TicketWatcher.StillNeededAsync(taker.Client, taker.MeId, waiting, _settings, deep, CancellationToken.None);
     }
 
     private void SendFeedback() => _ = FeedbackMail.SendAsync(_updates.CurrentVersion, _notifier);

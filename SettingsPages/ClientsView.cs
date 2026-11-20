@@ -445,7 +445,7 @@ internal sealed class ClientsView
 
 
     /// <summary>Opened again after this, the list reads what changed (new clients from today's tickets come in).</summary>
-    private static readonly TimeSpan RefreshAfter = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan RefreshAfter = CacheAges.ClientsTopUp;
 
     /// <summary>Each group's tickets as last read (per account), so the next load only reads what changed.</summary>
     private static (string Subdomain, Dictionary<long, GroupDigest> Groups)? _digests;

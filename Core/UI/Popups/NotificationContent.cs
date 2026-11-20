@@ -41,6 +41,13 @@ public sealed record NotificationContent(
     /// <summary>Just a thank-you from the customer (Experimental page): no sound, and only as long as Low (P4) ones stay.</summary>
     public bool Quiet { get; init; }
 
+    /// <summary>
+    /// What happened to the ticket while the notification waited, when it shows anyway (Notifications → Behavior →
+    /// Drop notifications): "Taken by Anna", "Solved by the client". Set by the check of waiting notifications, so the same
+    /// notification (not a copy) carries it into the queue. Shown as its own line under the first.
+    /// </summary>
+    public string? Meanwhile { get; set; }
+
     /// <summary>The body with the time since <see cref="EventTime"/> appended to its first line, under the SLA deadline.</summary>
     public string DisplayBody(DateTimeOffset now)
     {
@@ -58,6 +65,8 @@ public sealed record NotificationContent(
         var (first, rest) = newlineAt < 0 ? (body, "") : (body[..newlineAt], body[newlineAt..]);
         if (PriorityHint is { } hint)
             rest = "\n" + hint.Text + rest;
+        if (Meanwhile is { } meanwhile)
+            rest = $"\n**{Markdown.Escape(meanwhile)}** meanwhile" + rest;
         if (SlaDue is { } due)
         {
             var sla = $"!!{Tracking.Sla.DueText(due, now, SlaFirstReply)}!!";
@@ -103,6 +112,9 @@ public sealed record NotificationContent(
 
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
+
+    /// <summary>The ticket's group, on a new-ticket notification: its members and workload are read once it's on screen, so Take it ▾ is quick.</summary>
+    public long? GroupId { get; init; }
 
     /// <summary>A second choice next to the main button (e.g. "Always" next to "Cover today"): its label and action. Null: none.</summary>
     public (string Label, string Action)? SecondChoice { get; init; }

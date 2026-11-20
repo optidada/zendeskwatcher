@@ -830,6 +830,8 @@ public sealed class SettingsForm : Form
             // Shown as if signed in, with sample group members (cached, so nothing is requested).
             form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
             Tracking.AwayToday.Set(DateTime.Today, [9]); // Peter Gibbons: no activity today (amber dot)
+            Tracking.ColleagueActivity.Shared.Saw(11, DateTimeOffset.UtcNow.AddMinutes(-8)); // Joanna: active now (dot with a ring)
+            Tracking.ColleagueActivity.Shared.Saw(14, DateTimeOffset.UtcNow.AddMinutes(-3)); // Maurice Moss too
             form.Help.Card.ShowSample(new()
             {
                 [1] = [new(9, "Peter Gibbons", "Europe/Stockholm"), new(10, "Samir Nagheenanajar", "Europe/Stockholm"), new(11, "Joanna", "America/New_York"),

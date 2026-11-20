@@ -19,8 +19,11 @@ public class WaitingNotificationTests
         _zendesk.Users[Colleague] = new User { Id = Colleague, Name = "Sam Colleague", Role = "agent" };
     }
 
-    private Task<List<NotificationContent>> Check(NotificationContent content, bool dropAnswered = true, bool deep = true) =>
-        TicketWatcher.StillNeededAsync(new ZendeskClient(_settings, _zendesk), _zendesk.Me.Id, [content], dropAnswered, deep, CancellationToken.None);
+    private Task<List<NotificationContent>> Check(NotificationContent content, bool dropAnswered = true, bool deep = true)
+    {
+        _settings.DropAnswered = dropAnswered;
+        return TicketWatcher.StillNeededAsync(new ZendeskClient(_settings, _zendesk), _zendesk.Me.Id, [content], _settings, deep, CancellationToken.None);
+    }
 
     private DateTimeOffset LastChange(long ticket) => _zendesk.Audits[ticket].Max(a => a.CreatedAt);
 
@@ -30,13 +33,49 @@ public class WaitingNotificationTests
     // ---------------------------------------------------------------- still needed?
 
     [Fact]
-    public async Task New_ticket_taken_meanwhile_is_dropped()
+    public async Task New_ticket_taken_meanwhile_is_dropped_when_chosen()
     {
         _zendesk.AddUnassigned(100);
         _zendesk.AddUnassigned(101).AssigneeId = Colleague;
 
         Assert.Single(await Check(About(NotificationKind.NewTicket, 100)));
         Assert.Empty(await Check(About(NotificationKind.NewTicket, 101)));
+    }
+
+    [Fact]
+    public async Task Each_kind_of_solving_has_its_own_switch_deleted_is_always_dropped()
+    {
+        _settings.DropAnswered = false;
+        var since = DateTimeOffset.UtcNow.AddDays(-1);
+        _zendesk.AddAssigned(420, "normal");
+        _zendesk.Change(420, _zendesk.Me.Id, "status", "open", "solved");
+        _zendesk.Tickets[420].Status = "solved";
+        _zendesk.AddAssigned(421, "normal");
+        _zendesk.Change(421, Colleague, "status", "open", "closed");
+        _zendesk.Tickets[421].Status = "closed";
+
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 420, since))); // defaults: all stop
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 421, since)));
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 999, since))); // deleted
+
+        _settings.DropSolvedByMe = false;
+        Assert.Equal("Solved by you", Assert.Single(await Check(About(NotificationKind.MyTicket, 420, since))).Meanwhile);
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 421, since)));
+
+        _settings.DropSolvedByColleague = false;
+        Assert.Equal("Closed by Sam", Assert.Single(await Check(About(NotificationKind.MyTicket, 421, since))).Meanwhile);
+
+        _settings.DropSolvedByMe = _settings.DropSolvedByClient = false;
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 999, since))); // deleted: always
+    }
+
+    [Fact]
+    public async Task Assigned_to_me_shows_anyway_when_chosen()
+    {
+        _settings.DropAssignedToMe = false;
+        _zendesk.AddUnassigned(130).AssigneeId = _zendesk.Me.Id;
+
+        Assert.Equal("Taken by you", Assert.Single(await Check(About(NotificationKind.NewTicket, 130))).Meanwhile);
     }
 
     [Fact]
@@ -88,6 +127,62 @@ public class WaitingNotificationTests
 
         Assert.Empty(await Check(About(NotificationKind.MyTicket, 400)));
         Assert.Single(await Check(new NotificationContent(NotificationKind.NewTicket, "New tickets", "7 new unassigned tickets")));
+    }
+
+    [Fact]
+    public async Task Taken_by_a_colleague_shows_anyway_when_chosen_but_never_taken_by_me()
+    {
+        _settings.DropTaken = false;
+        _zendesk.AddUnassigned(110).AssigneeId = Colleague;
+        _zendesk.AddUnassigned(111).AssigneeId = _zendesk.Me.Id;
+
+        var kept = Assert.Single(await Check(About(NotificationKind.NewTicket, 110)));
+        Assert.Equal("Taken by Sam", kept.Meanwhile);
+        Assert.Contains("**Taken by Sam** meanwhile", kept.DisplayBody(DateTimeOffset.UtcNow));
+        Assert.Empty(await Check(About(NotificationKind.NewTicket, 111)));
+    }
+
+    [Fact]
+    public async Task Solved_by_the_client_shows_anyway_when_chosen_by_an_agent_never()
+    {
+        _settings.DropSolvedByClient = false;
+        _zendesk.AddAssigned(410, "normal");
+        var since = DateTimeOffset.UtcNow.AddDays(-1);
+        _zendesk.Change(410, Customer, "status", "open", "solved");
+        _zendesk.Tickets[410].Status = "solved";
+        _zendesk.AddAssigned(411, "normal");
+        _zendesk.Change(411, Colleague, "status", "open", "solved");
+        _zendesk.Tickets[411].Status = "solved";
+
+        var kept = Assert.Single(await Check(About(NotificationKind.MyTicket, 410, since)));
+        Assert.Equal("Solved by the client", kept.Meanwhile);
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 411, since)));
+
+        _settings.DropSolvedByClient = true; // the default: solved is solved
+        Assert.Empty(await Check(About(NotificationKind.MyTicket, 410, since)));
+    }
+
+    [Fact]
+    public async Task Taken_and_moved_to_the_takers_group_still_shows_as_taken()
+    {
+        _settings.DropTaken = false;
+        _settings.WatchedGroups = [new WatchedGroup { Id = 10, Name = "Support" }];
+        var ticket = _zendesk.AddUnassigned(122);
+        ticket.AssigneeId = Colleague;
+        ticket.GroupId = 99; // Sam's group
+
+        Assert.Equal("Taken by Sam", Assert.Single(await Check(About(NotificationKind.NewTicket, 122))).Meanwhile);
+    }
+
+    [Fact]
+    public async Task New_ticket_moved_to_a_group_I_dont_monitor_is_dropped()
+    {
+        _settings.WatchedGroups = [new WatchedGroup { Id = 10, Name = "Support" }];
+        _zendesk.AddUnassigned(120);
+        _zendesk.AddUnassigned(121, group: 99);
+
+        Assert.Single(await Check(About(NotificationKind.NewTicket, 120)));
+        Assert.Empty(await Check(About(NotificationKind.NewTicket, 121)));
     }
 
     // ---------------------------------------------------------------- summary

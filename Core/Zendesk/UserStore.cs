@@ -4,13 +4,13 @@ namespace ZendeskWatcher.Zendesk;
 
 /// <summary>
 /// Users read from Zendesk, remembered for a week across checks, Settings saves and app restarts, so a start
-/// doesn't look up every colleague and author again. Kept in the data folder (cache\users.json): agents and admins as
-/// read (name, email, role, time zone, tags); people at clients only by name, role and email domain ("*@client.com",
-/// enough to tell a client from a colleague), never their address, time zone or tags.
+/// doesn't look up every colleague and author again. Kept in the data folder (cache\users.json), only what the app uses
+/// (<see cref="ForDisk"/>): name, role and email domain ("*@client.com", enough to tell a client from a colleague), never
+/// an address; for agents and admins also their time zone and whether they're a service account.
 /// </summary>
 public sealed class UserStore(string file, string subdomain)
 {
-    public static readonly TimeSpan Lifetime = TimeSpan.FromDays(7); // a profile change (time zone, name) shows within a week
+    public static readonly TimeSpan Lifetime = CacheAges.Users; // a profile change (time zone, name) shows within a week
 
     internal sealed class Entry
     {
@@ -85,16 +85,23 @@ public sealed class UserStore(string file, string subdomain)
 
     private static bool IsStaff(User user) => user.Role is "agent" or "admin";
 
-    /// <summary>What's written to disk: staff as read; anyone else only name, role and email domain.</summary>
-    internal static Entry OnDisk(Entry entry) => IsStaff(entry.User) ? entry : new Entry
+    /// <summary>The one tag the app reads (<see cref="Tracking.TicketRules.IsServiceAccount"/>); other tags aren't kept.</summary>
+    private const string ServiceAccountTag = "serviceaccountuser";
+
+    /// <summary>
+    /// A user as written to disk (here and with a group's members): name, role, email domain; staff also their time zone
+    /// and the service-account tag. No address, no other tags.
+    /// </summary>
+    public static User ForDisk(User user) => new()
     {
-        At = entry.At,
-        User = new User
-        {
-            Id = entry.User.Id, Name = entry.User.Name, Role = entry.User.Role,
-            Email = entry.User.Email?.LastIndexOf('@') is > 0 and var at ? "*" + entry.User.Email[at..] : null
-        }
+        Id = user.Id, Name = user.Name, Role = user.Role,
+        Email = user.Email?.LastIndexOf('@') is > 0 and var at ? "*" + user.Email[at..] : null,
+        IanaTimeZone = IsStaff(user) ? user.IanaTimeZone : null,
+        TimeZone = IsStaff(user) ? user.TimeZone : null,
+        Tags = IsStaff(user) ? [.. user.Tags.Where(t => string.Equals(t, ServiceAccountTag, StringComparison.OrdinalIgnoreCase))] : []
     };
+
+    internal static Entry OnDisk(Entry entry) => new() { At = entry.At, User = ForDisk(entry.User) };
 
     private void LoadOnce()
     {
@@ -106,7 +113,11 @@ public sealed class UserStore(string file, string subdomain)
             if (!File.Exists(file) || JsonSerializer.Deserialize<Saved>(File.ReadAllText(file)) is not { } saved || saved.Subdomain != subdomain)
                 return;
             foreach (var entry in saved.Users.Where(e => DateTime.UtcNow - e.At < Lifetime))
+            {
+                // Saved by an older version with more (full address, every tag): rewritten trimmed.
+                _dirty |= entry.User.Email is { } email && !email.StartsWith('*') || entry.User.Tags.Count > ForDisk(entry.User).Tags.Count;
                 _users[entry.User.Id] = entry;
+            }
         }
         catch (Exception ex)
         {

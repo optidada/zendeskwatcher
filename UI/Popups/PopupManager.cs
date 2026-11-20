@@ -172,12 +172,10 @@ public sealed class PopupManager
     }
 
     /// <summary>Where a notification rests horizontally in this work area for this position.</summary>
-    private static int RestXFor(PopupPosition position, Rectangle area, int width, int margin) => position switch
-    {
-        PopupPosition.LeftCenter => area.Left + margin,
-        PopupPosition.TopCenter or PopupPosition.BottomCenter or PopupPosition.Center => area.Left + (area.Width - width) / 2,
-        _ => area.Right - width - margin
-    };
+    private static int RestXFor(PopupPosition position, Rectangle area, int width, int margin) =>
+        position.IsLeft() ? area.Left + margin
+        : position.IsCentered() ? area.Left + (area.Width - width) / 2
+        : area.Right - width - margin;
 
     public void Show(NotificationContent content, Settings settings) => Show(content, settings, overLimit: false);
 
@@ -202,6 +200,19 @@ public sealed class PopupManager
         SyncPill();
     }
 
+    /// <summary>
+    /// A new ticket someone took, shown anyway (Notifications → Behavior → Drop notifications): ones on screen say so where
+    /// Take it was and stay; waiting ones get the line when they show.
+    /// </summary>
+    public void NoteNewTicket(long ticketId, string note)
+    {
+        bool Match(NotificationContent c) => c.Kind == NotificationKind.NewTicket && c.TicketId == ticketId && !c.IsSample;
+        foreach (var w in _pending.Where(w => Match(w.Content)))
+            w.Content.Meanwhile = note;
+        foreach (var popup in _visible.Where(p => Match(p.Content)).ToList())
+            popup.ShowTaken(note, stays: true);
+    }
+
     /// <summary>Notifications on screen, waiting in line or in the ticker (for tests).</summary>
     internal int OpenCount => _visible.Count + _pending.Count + (_ticker?.Count ?? 0);
 
@@ -217,7 +228,8 @@ public sealed class PopupManager
 
     /// <param name="overLimit">Show it even when the stack is full (the "while you were away" summary).</param>
     /// <param name="mayHold">False when it comes out of the line: it waited enough.</param>
-    private void Show(NotificationContent content, Settings settings, bool overLimit, bool mayHold = true)
+    /// <returns>False when it didn't fit in the column on screen and waits (see <see cref="FitsInColumn"/>).</returns>
+    private bool Show(NotificationContent content, Settings settings, bool overLimit, bool mayHold = true)
     {
         _lastSettings = settings;
         SwitchMode(settings.Stacking);
@@ -228,7 +240,7 @@ public sealed class PopupManager
             _busyWatch.NoteHeld(content);
             _awayWatch.Start();
             SyncPill();
-            return;
+            return true;
         }
         // Presenting or full screen: wait in line, quietly, until it's over (WatchAway notices and shows them).
         // Achievements come one at a time, even the "while you were away" summary (it's next in line then).
@@ -238,7 +250,7 @@ public sealed class PopupManager
             _pending.Insert(overLimit ? 0 : _pending.Count, new Waiting(content, settings, DateTime.UtcNow));
             _awayWatch.Start();
             SyncPill();
-            return;
+            return true;
         }
         // Nothing on screen yet: this one, and the ones that join it, go to the monitor you're working on.
         if (_visible.Count == 0 && (_ticker?.Count ?? 0) == 0)
@@ -246,7 +258,7 @@ public sealed class PopupManager
         if (settings.Stacking == PopupStacking.Ticker && content.SecondChoice is null) // two choices need buttons: a card
         {
             ShowInTicker(content, settings);
-            return;
+            return true;
         }
 
         var palette = PopupPalette.For(settings.ActiveNotificationTheme);
@@ -257,6 +269,15 @@ public sealed class PopupManager
         var popup = new PopupForm(content, palette, settings.DisplaySecondsFor(content), DpiScale(), size,
             settings.Stacking == PopupStacking.Achievement ? AchievementStyle.Decoration : null, NotificationScreen.FontRatio);
         popup.StartHidden = settings.Stacking == PopupStacking.Pill && _pill is not { Expanded: true }; // the pill shows it
+        if (!FitsInColumn(popup, settings, screen, scale))
+        {
+            // Large notifications on a small screen: fewer than MaxVisible fit. It waits its turn instead of running off the edge.
+            popup.Dispose();
+            _pending.Insert(overLimit || !mayHold ? 0 : _pending.Count, new Waiting(content, settings, DateTime.UtcNow)); // from the line: back to its front
+            _awayWatch.Start();
+            SyncPill();
+            return false;
+        }
         popup.Finished += p => OnFinished(p, settings);
         popup.CopyClicked += p => _onCopy(p.Content);
         popup.ClientChosen += (p, choice) => ClientChosen?.Invoke(p.Content, choice);
@@ -276,13 +297,14 @@ public sealed class PopupManager
         popup.Peek = _peek;
         if (_peek != PopupForm.PeekEdge.None)
             margin = 0; // the tab sits right at the screen edge
-        var (restX, entry) = position switch
+        var restX = RestXFor(position, area, popup.Width, margin);
+        var entry = position switch
         {
-            PopupPosition.LeftCenter => (area.Left + margin, PopupForm.Entry.FromLeft),
-            PopupPosition.TopCenter => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.FromTop),
-            PopupPosition.BottomCenter => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.FromBottom),
-            PopupPosition.Center => (area.Left + (area.Width - popup.Width) / 2, PopupForm.Entry.Fade),
-            _ => (area.Right - popup.Width - margin, PopupForm.Entry.FromRight)
+            _ when position.IsLeft() => PopupForm.Entry.FromLeft,
+            PopupPosition.TopCenter => PopupForm.Entry.FromTop,
+            PopupPosition.BottomCenter => PopupForm.Entry.FromBottom,
+            PopupPosition.Center => PopupForm.Entry.Fade,
+            _ => PopupForm.Entry.FromRight
         };
         if (settings.Stacking == PopupStacking.Achievement)
             entry = PopupForm.Entry.Bounce; // rises from the bottom edge, game style
@@ -291,11 +313,14 @@ public sealed class PopupManager
         _deck = settings.Stacking == PopupStacking.Deck;
         Layout(position, scale);
         popup.Present(_peek is PopupForm.PeekEdge.Top or PopupForm.PeekEdge.Bottom ? popup.RestX : restX, entry); // top/bottom tabs sit side by side
+        if (content is { CanTake: true, IsSample: false, GroupId: { } groupId })
+            AssignMenu.Ready?.Invoke(groupId); // on screen now: Take it ▾ will be quick
         if (_deck)
             Layout(position, scale); // now that it has a place: the fan, newest card on top
         if (_mode == PopupStacking.Pill)
             OnPillCard(popup);
         Announce(content, settings);
+        return true;
     }
 
     /// <summary>It's there (a card, or an item in the ticker): counted as shown, its sound, and the edge glow.</summary>
@@ -356,6 +381,32 @@ public sealed class PopupManager
     // ------------------------------------------------------------------ pill, ticker, achievement
 
     /// <summary>Whether another one fits on screen now in this way of appearing (achievements: one at a time).</summary>
+    /// <summary>
+    /// Whether <paramref name="popup"/> fits in the column below or above the ones on screen (a list, the pill's cards,
+    /// tabs at a side edge), with the same margin and gaps as <see cref="Layout"/>. Always true for the first one, and
+    /// for ways of appearing that don't stack in a column (a deck, tabs along the top or bottom, the ticker).
+    /// </summary>
+    private bool FitsInColumn(PopupForm popup, Settings settings, Screen screen, float scale)
+    {
+        if (_visible.Count == 0)
+            return true;
+        var position = EffectivePosition(settings);
+        var column = settings.Stacking switch
+        {
+            PopupStacking.List or PopupStacking.Pill => true,
+            PopupStacking.Peek => position is not (PopupPosition.TopCenter or PopupPosition.BottomCenter),
+            _ => false
+        };
+        if (!column)
+            return true;
+        var area = PopupForm.WorkArea(screen);
+        var gap = (int)(10 * scale);
+        var margin = settings.Stacking == PopupStacking.Peek ? gap : (int)(16 * scale);
+        var top = settings.Stacking == PopupStacking.Pill ? PillHost.CardsTop(area, scale) : area.Top + margin;
+        var used = _visible.Sum(p => p.Height + gap) + popup.Height;
+        return used <= area.Bottom - margin - top;
+    }
+
     private bool HasRoom(Settings settings) => settings.Stacking switch
     {
         PopupStacking.Ticker => (_ticker?.Count ?? 0) < TickerBar.MaxItems,
@@ -436,7 +487,8 @@ public sealed class PopupManager
                     _busyWatch.NoteReleased(next.Content, DateTime.UtcNow - next.Since, calm: !_busyWatch.Busy);
                 if (WaitedLong(next.Content, next.Settings, next.Since) && (await CheckAsync([next.Content], deep: true)).Count == 0)
                     continue;
-                Show(next.Content, next.Settings, overLimit: false, mayHold: false);
+                if (!Show(next.Content, next.Settings, overLimit: false, mayHold: false))
+                    break; // didn't fit (back at the front of the line): the next one goes when one closes
             }
         }
         finally
@@ -624,7 +676,7 @@ public sealed class PopupManager
         if (_peek != PopupForm.PeekEdge.None)
             margin = gap; // tabs at the side edge: only a small gap from the top or bottom
 
-        if (position is PopupPosition.LeftCenter or PopupPosition.RightCenter or PopupPosition.Center)
+        if (position.IsMiddle())
         {
             // Centered vertically as a group, oldest at the top.
             var total = _visible.Sum(p => p.Height) + gap * Math.Max(0, _visible.Count - 1);
@@ -635,7 +687,7 @@ public sealed class PopupManager
                 y += popup.Height + gap;
             }
         }
-        else if (position is PopupPosition.TopRight or PopupPosition.TopCenter)
+        else if (position.IsTop())
         {
             var y = _mode == PopupStacking.Pill ? PillHost.CardsTop(area, scale) : area.Top + margin; // the pill opens below itself
             for (var i = 0; i < _visible.Count; i++)
@@ -674,12 +726,12 @@ public sealed class PopupManager
         _ => settings.Position
     };
 
-    /// <summary>The edge the notifications peek out from: right for the right corners, left, or top for Top center.</summary>
+    /// <summary>The edge the notifications peek out from: right or left for the sides, top or bottom for the centers.</summary>
     public static PopupForm.PeekEdge PeekEdgeFor(Settings settings) =>
         settings.Stacking != PopupStacking.Peek ? PopupForm.PeekEdge.None
         : EffectivePosition(settings) switch
         {
-            PopupPosition.LeftCenter => PopupForm.PeekEdge.Left,
+            var p when p.IsLeft() => PopupForm.PeekEdge.Left,
             PopupPosition.TopCenter => PopupForm.PeekEdge.Top,
             PopupPosition.BottomCenter => PopupForm.PeekEdge.Bottom,
             _ => PopupForm.PeekEdge.Right
@@ -697,18 +749,12 @@ public sealed class PopupManager
         var peek = (int)(12 * scale);
         var front = _visible[^1];
         var spread = (_visible.Count - 1) * peek; // how far the last card behind sticks out
-        var frontX = position switch
-        {
-            PopupPosition.LeftCenter => area.Left + margin,
-            PopupPosition.TopCenter or PopupPosition.BottomCenter or PopupPosition.Center => area.Left + (area.Width - front.Width - spread) / 2,
-            _ => area.Right - margin - front.Width - spread
-        };
-        var frontTop = position switch
-        {
-            PopupPosition.TopRight or PopupPosition.TopCenter => area.Top + margin + spread,
-            PopupPosition.LeftCenter or PopupPosition.RightCenter or PopupPosition.Center => area.Top + (area.Height - front.Height + spread) / 2,
-            _ => area.Bottom - margin - front.Height
-        };
+        var frontX = position.IsLeft() ? area.Left + margin
+            : position.IsCentered() ? area.Left + (area.Width - front.Width - spread) / 2
+            : area.Right - margin - front.Width - spread;
+        var frontTop = position.IsTop() ? area.Top + margin + spread
+            : position.IsMiddle() ? area.Top + (area.Height - front.Height + spread) / 2
+            : area.Bottom - margin - front.Height;
         for (var i = 0; i < _visible.Count; i++)
         {
             var depth = _visible.Count - 1 - i; // 0 = front

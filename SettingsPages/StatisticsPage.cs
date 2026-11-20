@@ -26,10 +26,10 @@ internal sealed class StatisticsPage : SettingsPage
     private readonly GridTable _team = new() { Margin = new Padding(0, 2, 0, 0), ShrinkColumn = 2 }; // the summary gives way, not the names
 
     /// <summary>How often the group's tickets are read again, at most (only while Insights is shown).</summary>
-    private static readonly TimeSpan TeamRefresh = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan TeamRefresh = CacheAges.TeamWorkload;
 
     /// <summary>A group "Who could take it" read this recently is used as it is (<see cref="GroupWorkloadCache"/>).</summary>
-    private static readonly TimeSpan SharedDataAge = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan SharedDataAge = CacheAges.WorkloadFresh;
 
     /// <summary>
     /// Team workload as last read for one choice of groups, kept in cache\team-workload.json (one per choice) so Insights shows it
@@ -168,7 +168,7 @@ internal sealed class StatisticsPage : SettingsPage
             var watch = Stopwatch.StartNew();
             // Shared with "Who could take it": a group it read in the last few minutes isn't read again.
             var read_ = await Task.WhenAll(groups.Select(id =>
-                GroupWorkloadCache.GetAsync(client, settings.Subdomain, id, SharedDataAge, CancellationToken.None)));
+                GroupWorkloadCache.GetAsync(client, settings.Subdomain, id, SharedDataAge, CancellationToken.None, waitWhenStale: true)));
             var members = read_.SelectMany(g => g.Members).DistinctBy(u => u.Id).ToList();
             var tickets = read_.Select(g => g.Tickets).ToList();
             var team = members.ToDictionary(u => u.Id, u => u.Id == me.Id ? "You" : u.Name ?? $"User {u.Id}");

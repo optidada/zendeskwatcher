@@ -36,7 +36,7 @@ internal sealed class NotificationsPage : SettingsPage
     /// <summary>The priorities that notify even when someone took the ticket before the app saw it unassigned.</summary>
     private static readonly (string Label, string[] Priorities)[] TakenQuicklyChoices =
         [("Off", []), ("P1", ["urgent"]), ("P1, P2", ["urgent", "high"]), ("All", Settings.AllPriorities)];
-    private readonly ChoicePills _takenQuickly = new([.. TakenQuicklyChoices.Select(c => c.Label)]) { AccessibleName = "Also when someone took it before I saw it" };
+    private readonly ChoicePills _takenQuickly = new([.. TakenQuicklyChoices.Select(c => c.Label)]) { AccessibleName = "Also tickets taken right away" };
 
     /// <summary>Groups with fewer priorities than all, as chosen here (also for groups not shown right now).</summary>
     private Dictionary<long, List<string>> _newPriorities = [];
@@ -50,13 +50,27 @@ internal sealed class NotificationsPage : SettingsPage
         unassigned.Body.Controls.Add(_notifyUnassigned);
         unassigned.Body.Controls.Add(_groupPriorities);
         // Tickets someone took between two checks (never seen unassigned): off for most, P1 for managers.
-        var takenLabel = Theme.Label("Also when someone took it before I saw it");
+        var takenLabel = Theme.Label("Also tickets taken right away");
         takenLabel.Margin = new Padding(50, 8, 0, 0);
         _takenQuickly.Margin = new Padding(50, 4, 0, 6);
         unassigned.Body.Controls.Add(takenLabel);
         unassigned.Body.Controls.Add(_takenQuickly);
-        _productsHint.Margin = new Padding(50, 4, 0, 6);
-        unassigned.Body.Controls.Add(_productsHint);
+        var takenHint = Theme.Label("A colleague took it before the app saw it unassigned. It comes as “Already taken by Anna, after 2 min”.",
+            Theme.Small, Theme.TextMuted, Kit.CardWidth - 44 - 50);
+        takenHint.Margin = new Padding(50, 0, 0, 0);
+        unassigned.Body.Controls.Add(takenHint);
+        // About all new tickets, not the switch above it: at the card's left edge, with a product (box) icon.
+        var productsRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Surface, Margin = new Padding(0, 10, 0, 4) };
+        var productsIcon = new Label
+        {
+            Text = "", // Segoe MDL2 Assets: package
+            Font = new Font("Segoe MDL2 Assets", Theme.Small.SizeInPoints + 1), ForeColor = Theme.Accent, AutoSize = true,
+            Margin = new Padding(3, 2, 2, 0)
+        };
+        _productsHint.Margin = new Padding(0);
+        productsRow.Controls.Add(productsIcon);
+        productsRow.Controls.Add(_productsHint);
+        unassigned.Body.Controls.Add(productsRow);
         Panel.Controls.Add(unassigned);
 
         var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose.", Kit.CardWidth);
@@ -64,18 +78,23 @@ internal sealed class NotificationsPage : SettingsPage
         mine.Body.Controls.Add(_myPriorities.Row);
         mine.Body.Controls.Add(_trackCc);
         mine.Body.Controls.Add(_ccPriorities.Row);
-        Panel.Controls.Add(mine);
 
-        // Its own card: the change types apply to both kinds of tickets above, not to one of the switches.
-        var which = new Card("Which changes", "For your own and CC'd tickets. Your own changes never notify.", Kit.CardWidth);
+        // The change types apply to both kinds of tickets above, not to one of the switches: their own heading, same card.
+        // Looks like the card's own title and description: a second part of the card, not a note under the switches.
+        var whichTitle = Theme.Label("Which changes", Theme.CardTitle);
+        whichTitle.Margin = new Padding(0, 18, 0, 0);
+        mine.Body.Controls.Add(whichTitle);
+        var whichText = Theme.Label("For both kinds above. Your own changes never notify.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
+        whichText.Margin = new Padding(0, 0, 0, 8);
+        mine.Body.Controls.Add(whichText);
         var options = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 0) };
         options.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (Kit.CardWidth - 44) / 2));
         options.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         CheckBox[] changeTypes = [_replies, _notes, _status, _priority, _assignment, _automatic];
         for (var i = 0; i < changeTypes.Length; i++)
             options.Controls.Add(changeTypes[i], i % 2, i / 2);
-        which.Body.Controls.Add(options);
-        Panel.Controls.Add(which);
+        mine.Body.Controls.Add(options);
+        Panel.Controls.Add(mine);
 
         // The hours are used by two switches: this one, and "only while I'm working myself" on the Colleagues page.
         var working = new Card("Working hours", "When you work (this PC's time). Outside these hours notifications can stay quiet, and Catch up shows what you " +

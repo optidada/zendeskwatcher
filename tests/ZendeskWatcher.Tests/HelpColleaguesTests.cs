@@ -127,6 +127,31 @@ public class HelpColleaguesTests
     }
 
     [Fact]
+    public async Task Off_work_and_active_still_counts_as_off_work_when_chosen()
+    {
+        _settings.HelpRegionDefaultDone = true;
+        _settings.HelpActiveCountsAsWorking = false; // Colleagues page: active outside their hours is still off work
+        _zendesk.AddAssigned(303, "normal", assignee: Berlin);
+        _zendesk.Reply(303, Berlin, "Looking into it.");
+        _zendesk.Audits[303][^1].CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+
+        Assert.Equal([301L, 302L], await CustomerRepliesNotifiedAsync());
+    }
+
+    [Fact]
+    public async Task Activity_seen_in_a_history_read_anyway_needs_no_extra_request()
+    {
+        var client = new ZendeskClient(_settings, _zendesk);
+        _zendesk.AddAssigned(304, "normal", assignee: Berlin);
+        _zendesk.Reply(304, Berlin, "Done.");
+        Assert.Null(_zendesk.Activity.LastSeen(Berlin));
+
+        await client.GetAuditsSinceAsync(304, DateTimeOffset.UtcNow.AddDays(-1), CancellationToken.None);
+        Assert.Equal(_zendesk.Audits[304][^1].CreatedAt, _zendesk.Activity.LastSeen(Berlin));
+        Assert.Null(_zendesk.Activity.LastSeen(-1)); // automations are nobody
+    }
+
+    [Fact]
     public async Task In_working_hours_but_inactive_for_hours_counts_as_away()
     {
         _settings.HelpRegionDefaultDone = true;

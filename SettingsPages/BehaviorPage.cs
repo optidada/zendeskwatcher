@@ -14,9 +14,14 @@ internal sealed class BehaviorPage : SettingsPage
     private readonly ChoicePills _ticketLength = new("Short", "Normal", "Long");
     private readonly Label _ticketTimes = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
     private readonly Label _otherTimes = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
-    private readonly ToggleSwitch _dropAnswered = new("Also drop it when someone from your side already replied");
+    private readonly ToggleSwitch _dropTaken = new("Assigned to a colleague");
+    private readonly ToggleSwitch _dropAssignedToMe = new("Assigned to you");
+    private readonly ToggleSwitch _dropAnswered = new("Replied to by a colleague");
+    private readonly ToggleSwitch _dropSolvedByMe = new("Solved by you");
+    private readonly ToggleSwitch _dropSolvedByColleague = new("Solved by a colleague");
+    private readonly ToggleSwitch _dropSolvedByClient = new("Solved by the client");
     private readonly ToggleSwitch _pauseAway = new("Hold the countdown while I'm away");
-    private readonly ToggleSwitch _holdBusy = new("Hold ticket notifications while I'm typing a lot");
+    private readonly ToggleSwitch _holdBusy = new("Don't interrupt me while I'm busy typing");
     private readonly ChoiceBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
 
     public BehaviorPage(SettingsContext context)
@@ -34,13 +39,26 @@ internal sealed class BehaviorPage : SettingsPage
         screen.Body.Controls.Add(Theme.Label("Away means the screen is locked, or no mouse or keyboard for a minute.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         _holdBusy.Margin = new Padding(_holdBusy.Margin.Left, 10, _holdBusy.Margin.Right, _holdBusy.Margin.Bottom);
         screen.Body.Controls.Add(_holdBusy);
-        screen.Body.Controls.Add(Theme.Label("They come when you slow down, at most 10 minutes later. P1, important clients and SLAs due soon never wait.",
+        screen.Body.Controls.Add(Theme.Label("Ticket notifications wait until you pause, at most 10 minutes. P1s, important clients and SLAs due soon still come right away.",
             Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(screen);
 
-        var back = new Card("Already handled", "A notification that had to wait is checked again first, and dropped if the ticket was " +
-            "taken, solved or closed meanwhile.", Kit.CardWidth);
-        back.Body.Controls.Add(_dropAnswered);
+        var back = new Card("Drop notifications", "Drop a notification (one that waited, or is on screen) when meanwhile the ticket was:",
+            Kit.CardWidth);
+        // Two columns: assigned and replied on the left; solved on the right.
+        var drops = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 2, 0, 4) };
+        drops.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, (Kit.CardWidth - 44) / 2));
+        drops.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        ToggleSwitch[] left = [_dropTaken, _dropAssignedToMe, _dropAnswered], right = [_dropSolvedByMe, _dropSolvedByColleague, _dropSolvedByClient];
+        for (var i = 0; i < left.Length; i++)
+            drops.Controls.Add(left[i], 0, i);
+        for (var i = 0; i < right.Length; i++)
+            drops.Controls.Add(right[i], 1, i);
+        back.Body.Controls.Add(drops);
+        back.Body.Controls.Add(Theme.Label("Off: it shows anyway and says what happened (“Taken by Anna meanwhile”). Deleted or moved out of your groups: always dropped. " +
+            "Leads: turn off “Assigned to a colleague” and “Replied to by a colleague” to see who took what and who answered. " +
+            "Taken before you saw it: (Notifications → New tickets).",
+            Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(back);
 
         var snooze = new Card("Snooze", "Snooze hides a notification and brings it back later, if the ticket still needs you.", Kit.CardWidth);
@@ -52,7 +70,7 @@ internal sealed class BehaviorPage : SettingsPage
         snooze.Body.Controls.Add(snoozeGrid);
         Panel.Controls.Add(snooze);
 
-        TrackChanges(_pauseAway, _holdBusy, _dropAnswered, _snoozeMinutes);
+        TrackChanges(_pauseAway, _holdBusy, _dropTaken, _dropAssignedToMe, _dropAnswered, _dropSolvedByMe, _dropSolvedByColleague, _dropSolvedByClient, _snoozeMinutes);
         _ticketLength.SelectedIndexChanged += (_, _) => Changed();
     }
 
@@ -64,7 +82,12 @@ internal sealed class BehaviorPage : SettingsPage
         ShowTicketTimes();
         _pauseAway.Checked = settings.PausePopupsWhenAway;
         _holdBusy.Checked = settings.HoldWhileBusy;
+        _dropTaken.Checked = settings.DropTaken;
+        _dropAssignedToMe.Checked = settings.DropAssignedToMe;
         _dropAnswered.Checked = settings.DropAnswered;
+        _dropSolvedByMe.Checked = settings.DropSolvedByMe;
+        _dropSolvedByColleague.Checked = settings.DropSolvedByColleague;
+        _dropSolvedByClient.Checked = settings.DropSolvedByClient;
         Kit.Select(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
     }
 
@@ -75,7 +98,12 @@ internal sealed class BehaviorPage : SettingsPage
         // Only the duration: the sound is set on Look & sound.
         s.PausePopupsWhenAway = _pauseAway.Checked;
         s.HoldWhileBusy = _holdBusy.Checked;
+        s.DropTaken = _dropTaken.Checked;
+        s.DropAssignedToMe = _dropAssignedToMe.Checked;
         s.DropAnswered = _dropAnswered.Checked;
+        s.DropSolvedByMe = _dropSolvedByMe.Checked;
+        s.DropSolvedByColleague = _dropSolvedByColleague.Checked;
+        s.DropSolvedByClient = _dropSolvedByClient.Checked;
         s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);
     }
 

@@ -3,6 +3,15 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.9
+
+- **Faster "Take it ▾"**: the list of who could take a ticket usually comes up in well under a second, also right after the app starts. The app now remembers on your PC who is in each group, how many tickets everyone has, who usually handles a client and when colleagues were last active (names, numbers and times; never ticket text or email addresses), and refreshes them in the background when needed.
+- **Drop notifications** (Notifications → Behavior, was "Already handled"): six switches, all on, for tickets that were assigned to a colleague or to you, replied to by a colleague, or solved by you, a colleague or the client while the notification waited. Switch one off to see those anyway, with a line like "Taken by Anna meanwhile".
+- **Colleagues**: the dots now show active now, active late, in their hours, away today and off work; point at someone to see "active 12 min ago". "Active in Zendesk outside their hours counts as working" is on by default.
+- **Position on screen**: Top left and Bottom left added.
+- **Fewer requests to Zendesk**: "Also tickets taken right away" looks every 3 minutes (it still finds every ticket).
+- A notification that doesn't fit on the screen waits instead of running off the edge. Drop-down lists highlight the whole row, Send feedback shows its hint right away, and the Notifications and Behavior pages have clearer texts.
+
 ## 1.9.8
 
 - **Cover today?** Once a day, 3 hours into your working day, the app asks about a colleague in your region who hasn't done anything in Zendesk since their day started (e.g. off sick or on holiday): **Cover today** covers their tickets until midnight, **Always** ticks them on Colleagues for good. On Colleagues, an amber dot means "away today" and an outlined tick "covered today only".

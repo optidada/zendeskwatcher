@@ -24,7 +24,7 @@ public static class Products
     public const string FieldTitle = "Product";
 
     /// <summary>Read again after this.</summary>
-    public static readonly TimeSpan FieldMaxAge = TimeSpan.FromDays(7);
+    public static readonly TimeSpan FieldMaxAge = CacheAges.ProductField;
 
     /// <summary>The account's Product field as last read (null until known: then no ticket has a product).</summary>
     public static ProductField? Field

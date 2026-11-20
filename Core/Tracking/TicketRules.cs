@@ -327,6 +327,18 @@ public static class TicketRules
         return null;
     }
 
+    /// <summary>
+    /// Who solved or closed the ticket in these audits (the newest such change made by a person), or null. A later
+    /// automatic close (Zendesk closes solved tickets after some days, author -1) doesn't hide who solved it.
+    /// </summary>
+    public static long? SolvedBy(IEnumerable<Audit> audits) => audits
+        .OrderByDescending(a => a.CreatedAt)
+        .Where(a => a.AuthorId > 0 && a.Events.Any(e => e.Type == "Change" && e.FieldName == "status" &&
+                                                        e.Value is { ValueKind: System.Text.Json.JsonValueKind.String } v &&
+                                                        v.GetString() is "solved" or "closed"))
+        .Select(a => (long?)a.AuthorId)
+        .FirstOrDefault();
+
     /// <summary>A user id in an audit value: a number, or a number as text; null for none.</summary>
     private static long? UserIdOf(System.Text.Json.JsonElement? value) => value switch
     {

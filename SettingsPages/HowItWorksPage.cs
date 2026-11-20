@@ -46,9 +46,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 "to them in Zendesk.",
                 "“Suggest from my tickets” picks the products of the tickets assigned to you in your groups in the last 90 days; " +
                 "the counts next to each product are your groups' tickets in that time (the same tickets the Clients list reads).",
-                "The app checks every few minutes, so a ticket someone takes in between is never seen unassigned. With “Also when " +
-                "someone took it before I saw it” (Notifications → New tickets), those with the priorities you pick come anyway, as " +
-                "“Already taken”, saying who took it and how fast. Off by default; useful for leads who don't want to miss a P1.",
+                "The app checks every few minutes, so a ticket someone takes in between is never seen unassigned. With “Also tickets " +
+                "taken right away” (Notifications → New tickets), those with the priorities you pick come anyway, as " +
+                "“Already taken”, saying who took it and how fast (looked for every 3 minutes). Off by default; useful for leads who don't want to miss a P1.",
                 "No group ticked yet: nothing comes, and Catch up reminds you each time the app starts."
             ]),
         new("Clients",
@@ -90,12 +90,12 @@ internal sealed class HowItWorksPage : SettingsPage
             [
                 "Changes on your tickets: when someone else replies, adds an internal note, or changes the status, priority or " +
                 "assignee, you get a notification with what happened. Your own changes never notify.",
-                "Which changes (Notifications → Which changes) and which priorities count: the ticket's current priority; none " +
+                "Which changes (Notifications → Ticket changes) and which priorities count: the ticket's current priority; none " +
                 "counts as P3. CC / following starts with P1 and P2.",
                 "Status changes leave out New → Open, Solved → Closed, and a ticket reopened by a reply (the reply says it). " +
                 "Custom statuses count too, e.g. In progress → Escalated.",
                 "Automatic updates stay quiet: the auto-reply and group move on a new ticket, and changes by Zendesk triggers or " +
-                "service accounts. Their status changes still notify (Notifications → Which changes).",
+                "service accounts. Their status changes still notify (Notifications → Ticket changes).",
                 "[[Working hours|Notifications/Working hours]]: your hours and days (this PC's time). With “Only notify me during my working hours”, ticket " +
                 "notifications outside them are skipped and Catch up shows what still needs you. With “Also outside them, while " +
                 "I'm active in Zendesk”, they come as long as you changed or commented on a ticket in the last 30 minutes. " +
@@ -115,7 +115,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "half an open ticket less busy, up to 3 open tickets, so someone who knows the client comes first unless " +
                 "they're clearly busier. You're asked before it's assigned.",
                 "If someone takes it (or it's solved) while the notification is still up, it says so (“Taken by Anna”, “Solved”) " +
-                "for a few seconds and closes, within a few minutes.",
+                "within a few minutes, then stays or goes away as chosen in [[Drop notifications|Behavior/Drop notifications]].",
                 "Scheduled ones (a time is booked, nobody owns it yet) say “Scheduled”, also in the summaries.",
                 "New tickets and colleagues' tickets show the ticket's product next to the group at the top, e.g. “CMS PaaS · Support”.",
                 "The two copy icons at the top copy the ticket (title, link, details) or just its number. " +
@@ -137,8 +137,11 @@ internal sealed class HowItWorksPage : SettingsPage
             [
                 "Off work: outside their working hours, in their own time zone. Colleagues without a time zone in Zendesk are skipped.",
                 "Activity in Zendesk counts too: off work but they changed or commented on a ticket in the last 30 minutes means " +
-                "they're on it (no notification). In their working hours but nothing for 3 hours means probably away, so you're " +
+                "they're on it (no notification), unless you turn off “Active in Zendesk outside their hours counts as working”. In their working hours but nothing for 3 hours means probably away, so you're " +
                 "told, with the reason on the notification. Calls, chat and just reading tickets don't show in Zendesk.",
+                "The dots in the list: ◉ active now (did something in Zendesk in the last 30 minutes), ⊙ active late (outside their hours), ● in their hours, " +
+                "◐ away today, ○ off work. Active is seen in what the app reads anyway (ticket histories and comments, also on " +
+                "your own and CC'd tickets); pointing at someone reads it if nothing recent is known. Not seen doesn't mean inactive.",
                 "Waiting means the client's message is the newest public comment; an internal note isn't an answer. Any status " +
                 "counts (Pending, On-hold, Escalated, …).",
                 "The client is someone outside your company. Colleagues on the ticket, also as CC, count as you, except the " +
@@ -164,8 +167,12 @@ internal sealed class HowItWorksPage : SettingsPage
                 "app, notifications wait silently, so nothing pops up over your screen.",
                 "Very busy means keyboard or mouse nearly every second for about 3 minutes. Then ticket notifications wait until you " +
                 "slow down, at most 10 minutes; P1 tickets, important clients and SLAs due within 15 minutes never wait (a switch on that page turns it off). Only how often you type or click counts, never what.",
-                "[[Already handled|Behavior/Already handled]]: when you're back, notifications that waited 15 minutes or more are checked again and dropped if " +
-                "the ticket was taken, solved or closed, or (if you choose) already answered by someone.",
+                "[[Drop notifications|Behavior/Drop notifications]]: when you're back, notifications that waited 15 minutes or more are checked again " +
+                "(a new ticket on screen at every check). A switch for each: assigned to a colleague or to you, replied to by a colleague, " +
+                "solved by you, a colleague or the client. On: it's dropped (a waiting one never shows, one on screen goes " +
+                "away). All on by default. Off: it shows anyway, with a line saying what happened (“Taken by Anna meanwhile”); leads turn off " +
+                "“Assigned to a colleague” and “Replied to by a colleague” to see who took what and who answered. A merge or an automation " +
+                "counts as a colleague. Always dropped: a deleted ticket, and a new ticket moved to a group you don't monitor.",
                 "[[Snooze|Behavior/Snooze]] brings a notification back after the time you chose, but only if the ticket still needs you.",
                 "Several at once take turns instead of piling up.",
                 "Keyboard, while a notification is on screen: Ctrl+Alt+O opens the oldest one, Ctrl+Alt+T takes it (new " +
@@ -224,7 +231,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "[[Team workload|Insights]]: everyone in your monitored groups (or the one group you pick) who is in working hours " +
                 "(in their Zendesk time zone; people off work aren't shown), and their open tickets there. The bar counts open and " +
                 "In progress tickets twice, P1 and P2 once more, escalated, scheduled and waiting ones once, like the " +
-                "suggestions next to Take it. Read while the page is open (at most every 10 minutes); each group's last result " +
+                "suggestions next to Take it. Read while the page is open (at most every 15 minutes); each group's last result " +
                 "shows right away."
             ]),
         new("Experimental",
@@ -268,7 +275,9 @@ internal sealed class HowItWorksPage : SettingsPage
                 "company's shared Zendesk limit. New unassigned tickets are also checked in between, so they show within about " +
                 "1½ minutes. If Zendesk says it's busy, the app pauses until it may go on.",
                 "Names are remembered for a week (colleagues with their time zone; people at clients only by name and email domain), so " +
-                "starting the app doesn't look them all up again.",
+                "starting the app doesn't look them all up again. Likewise who is in each group, how many tickets everyone has, " +
+                "who usually handles a client, and when colleagues were last active (no ticket text): shown right away after a " +
+                "restart and read again in the background when needed.",
                 "Your settings, statistics and the lists Settings shows are kept in your Windows profile on this PC; with Priority " +
                 "guess on, also 90 days of ticket numbers, subjects and priorities (no ticket text), read again once a week."
             ])

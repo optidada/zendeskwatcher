@@ -373,11 +373,36 @@ public sealed class Settings
     public const int SummarizeWaitingAbove = 5;
 
     /// <summary>
-    /// A customer reply counts as handled once an agent answered it publicly (colleagues' tickets), and changes on
-    /// your own / CC'd tickets once you've acted on the ticket yourself. Used by the checks above, Snooze, and
-    /// "Colleague's ticket" (no notification when a colleague already answered).
+    /// Colleagues page: a colleague active in Zendesk in the last 30 minutes counts as working, even outside their hours
+    /// (their clients' replies don't notify). False: outside their hours they're off work, active or not.
+    /// </summary>
+    public bool HelpActiveCountsAsWorking { get; set; } = true;
+
+    // Drop notifications (Notifications → Behavior): stop showing a notification that waited (it never shows) or is on
+    // screen (it goes away) when meanwhile the ticket was … Off: it shows anyway, with a line saying what happened
+    // ("Taken by Anna meanwhile"). Deleted, or moved out of my monitored groups: always dropped (fixed rules, How it works).
+    // All on by default, the agent's view: leads turn off DropTaken and DropAnswered to see who took what and who answered.
+
+    /// <summary>
+    /// … replied to by a colleague: a customer reply on a colleague's ticket once an agent answered it publicly; a change
+    /// on your own / CC'd ticket once you acted on the ticket yourself.
     /// </summary>
     public bool DropAnswered { get; set; } = true;
+
+    /// <summary>… a new ticket assigned to a colleague. Off: on screen it says "Taken by Anna" and stays.</summary>
+    public bool DropTaken { get; set; } = true;
+
+    /// <summary>… a new ticket assigned to you.</summary>
+    public bool DropAssignedToMe { get; set; } = true;
+
+    /// <summary>… solved or closed by you.</summary>
+    public bool DropSolvedByMe { get; set; } = true;
+
+    /// <summary>… solved or closed by a colleague (also a merge, or an automation).</summary>
+    public bool DropSolvedByColleague { get; set; } = true;
+
+    /// <summary>… solved by the client themselves.</summary>
+    public bool DropSolvedByClient { get; set; } = true;
 
     public string BaseUrl => $"https://{Subdomain}.zendesk.com";
     public string TicketUrl(long id) => $"{BaseUrl}/agent/tickets/{id}";
@@ -757,9 +782,23 @@ public enum NotificationTheme
     Retro
 }
 
-/// <summary>Where Zendesk Watcher's own notifications appear. Stored as a number: new values go at the end.</summary>
 /// <summary>Where notifications appear. New values go at the end: settings store the number.</summary>
-public enum PopupPosition { BottomRight, TopRight, TopCenter, LeftCenter, Center, BottomCenter, RightCenter }
+public enum PopupPosition { BottomRight, TopRight, TopCenter, LeftCenter, Center, BottomCenter, RightCenter, TopLeft, BottomLeft }
+
+public static class PopupPositions
+{
+    /// <summary>Along the left edge of the screen.</summary>
+    public static bool IsLeft(this PopupPosition p) => p is PopupPosition.TopLeft or PopupPosition.LeftCenter or PopupPosition.BottomLeft;
+
+    /// <summary>Centered left to right.</summary>
+    public static bool IsCentered(this PopupPosition p) => p is PopupPosition.TopCenter or PopupPosition.Center or PopupPosition.BottomCenter;
+
+    /// <summary>Along the top of the screen.</summary>
+    public static bool IsTop(this PopupPosition p) => p is PopupPosition.TopLeft or PopupPosition.TopCenter or PopupPosition.TopRight;
+
+    /// <summary>Centered top to bottom.</summary>
+    public static bool IsMiddle(this PopupPosition p) => p is PopupPosition.LeftCenter or PopupPosition.Center or PopupPosition.RightCenter;
+}
 
 /// <summary>How several notifications on screen at once are arranged.</summary>
 public enum PopupStacking

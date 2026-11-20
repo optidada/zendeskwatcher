@@ -44,7 +44,9 @@ public sealed class FeedbackForm : Form
 
         // The message box with the app's thin scrollbar beside it instead of Windows' own (unthemed) one.
         var bar = new ThinScrollBar { BackColor = Theme.Surface };
-        _message = Theme.TextBox(440 - 14, "What happened, or what would you like?");
+        // Its own placeholder: Windows' (PlaceholderText) isn't drawn reliably in a multi-line box without a border, only
+        // after something else made the window repaint (e.g. pointing at Cancel).
+        _message = new HintTextBox { Width = 440 - 14, Font = Theme.Body, Hint = "What happened, or what would you like?" };
         _message.Multiline = true;
         _message.AcceptsReturn = true;
         _message.ScrollBars = ScrollBars.None;
@@ -151,4 +153,28 @@ public sealed class FeedbackForm : Form
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hwnd, int msg, int wParam, int lParam);
+
+    /// <summary>A text box that shows <see cref="Hint"/> in the muted color while it's empty, drawn after Windows paints it.</summary>
+    private sealed class HintTextBox : TextBox
+    {
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public string Hint { get; set; } = "";
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg != 0x000F /* WM_PAINT */ || TextLength > 0 || Hint.Length == 0)
+                return;
+            using var g = CreateGraphics();
+            var margin = (int)(2 * DeviceDpi / 96f); // where Windows starts the text
+            TextRenderer.DrawText(g, Hint, Font, new Rectangle(margin, 0, ClientSize.Width - margin, ClientSize.Height), Theme.TextMuted, BackColor,
+                TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+        }
+
+        protected override void OnTextChanged(EventArgs e)
+        {
+            base.OnTextChanged(e);
+            Invalidate(); // the hint goes, or comes back when emptied
+        }
+    }
 }

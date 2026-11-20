@@ -258,9 +258,17 @@ public class UnassignedTicketTests
         await watcher.PollAsync(CancellationToken.None);
         Assert.Empty(TakeShown()); // not again
 
-        // Solved straight away (solving gives it an assignee): found too, and the line says it's solved.
+        // Solved straight away (solving gives it an assignee): found too, and the line says it's solved. Only the full
+        // check looks (every 3 minutes, 30 minutes back): the quick one in between doesn't search for it.
         _zendesk.AddTakenQuickly(205, "urgent", by: 55, to: 55).Status = "solved";
+        var searches = _zendesk.Requested.Count;
+        await watcher.PollAsync(CancellationToken.None, newTicketsOnly: true);
+        Assert.Empty(TakeShown());
+        static bool TakenSearch(string url) => Uri.UnescapeDataString(url.Replace('+', ' ')).Contains("-assignee:none");
+        Assert.DoesNotContain(_zendesk.Requested.Skip(searches), TakenSearch);
+        searches = _zendesk.Requested.Count;
         await watcher.PollAsync(CancellationToken.None);
+        Assert.Contains(_zendesk.Requested.Skip(searches), TakenSearch);
         Assert.EndsWith("**Anna Agent** took it after 1 min · solved", Assert.Single(TakeShown()).Body);
     }
 
@@ -322,6 +330,7 @@ public class UnassignedTicketTests
 
         await watcher.PollAsync(CancellationToken.None);
         Assert.Equal(2, _notifier.ClosedTaken.Count); // once each
+        Assert.Empty(_notifier.NotedTaken);
         Assert.Empty(TakeShown());
     }
 

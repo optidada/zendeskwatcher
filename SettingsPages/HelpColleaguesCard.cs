@@ -39,6 +39,7 @@ internal sealed class HelpColleaguesCard
     private readonly DayChecks _workDays = new("Days", new Padding(0, 2, 0, 0));
     private readonly PriorityChoice _priorities = new(new Padding(0, 0, 0, 0), label: false);
     private readonly CheckBox _myHours = Kit.Check("Only notify me while I'm working myself");
+    private readonly CheckBox _activeCounts = Kit.Check("Active in Zendesk outside their hours counts as working");
 
     /// <summary>Groups chosen under "Only these groups".</summary>
     private readonly HashSet<long> _chosen = [];
@@ -95,8 +96,12 @@ internal sealed class HelpColleaguesCard
             // Covered for today only: an outlined tick (the legend says what it means).
             IsTemporary = CoveredToday,
             // No activity in Zendesk today, by the daily "Cover today?" check: an amber dot in their working hours.
-            IsAway = Tracking.AwayToday.Contains
+            IsAway = Tracking.AwayToday.Contains,
+            // Seen doing something in Zendesk (in what the app reads anyway, or read on hover): active now.
+            LastSeen = id => Activity.LastSeen(id),
+            TipSuffix = ActivityTip
         };
+        _peopleList.PersonPointed += person => _ = ReadActivityAsync(person.Id);
         _peopleList.GroupToggled += group =>
         {
             if (group.Tag is TimeRegion region)
@@ -138,11 +143,14 @@ internal sealed class HelpColleaguesCard
         options.Controls.Add(_workHours);
         options.Controls.Add(_workDays.Row);
         options.Controls.Add(Note("In each colleague's own time zone (from Zendesk). Colleagues without a time zone are skipped."));
+        _activeCounts.Margin = new Padding(0, 8, 0, 0);
+        options.Controls.Add(_activeCounts);
+        options.Controls.Add(Note("Working late: they did something in Zendesk in the last 30 minutes, so you're not notified about their clients' replies."));
 
         var myHoursLink = Theme.Linked("[[Change my work hours|Notifications/Working hours]]", Theme.Body);
         myHoursLink.Margin = new Padding(6, 4, 0, 0);
         var myHoursRow = Kit.Row(_myHours, myHoursLink);
-        myHoursRow.Margin = new Padding(0, 18, 0, 0);
+        myHoursRow.Margin = new Padding(0, 8, 0, 0); // with the switch above it: both about when you hear
         options.Controls.Add(myHoursRow);
         Card.Body.Controls.Add(options);
 
@@ -151,6 +159,7 @@ internal sealed class HelpColleaguesCard
         _help.CheckedChanged += (_, _) => { UpdateOptions(); RefreshPeople(); _context.Changed(); };
         _workHours.RangeChanged += (_, _) => { _peopleList.Invalidate(); _context.Changed(); };
         _myHours.CheckedChanged += (_, _) => _context.Changed();
+        _activeCounts.CheckedChanged += (_, _) => _context.Changed();
         _workDays.Changed += () => { _peopleList.Invalidate(); _context.Changed(); };
         _priorities.Changed += () => _context.Changed();
 
@@ -193,6 +202,7 @@ internal sealed class HelpColleaguesCard
             _excluded[colleague.Id] = colleague.Name;
         _workHours.SetRange(settings.WorkdayStartHour, settings.WorkdayEndHour);
         _myHours.Checked = settings.HelpOnlyDuringMyHours;
+        _activeCounts.Checked = settings.HelpActiveCountsAsWorking;
         _workDays.Selected = settings.WorkDays;
         _priorities.Selected = settings.HelpPriorities;
         ShowGroups();
@@ -213,6 +223,7 @@ internal sealed class HelpColleaguesCard
         s.WorkdayStartHour = _workHours.Start;
         s.WorkdayEndHour = _workHours.End;
         s.HelpOnlyDuringMyHours = _myHours.Checked;
+        s.HelpActiveCountsAsWorking = _activeCounts.Checked;
         s.WorkDays = _workDays.Selected;
         s.HelpPriorities = _priorities.Selected;
     }
@@ -549,11 +560,66 @@ internal sealed class HelpColleaguesCard
         _peopleHint.Text = text;
     }
 
+    /// <summary>" · active 12 min ago", " · no activity in Zendesk in the last 3 hours", or nothing while it isn't known.</summary>
+    private string? ActivityTip(AssigneeList.Person person)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (Activity.LastSeen(person.Id) is { } seen && now - seen < TicketRules.InactiveFor)
+            return $" · active {UI.Popups.NotificationContent.Ago(now - seen)}";
+        return Activity.LastChecked(person.Id) is { } read && now - read < ActivityFresh
+            ? $" · no activity in Zendesk in the last {TicketRules.InactiveFor.TotalHours:0} hours"
+            : null;
+    }
+
+    /// <summary>Who was seen active: the app's one memory (the Settings window's own connection feeds it too).</summary>
+    private Tracking.ColleagueActivity Activity => _context.Client?.Activity ?? Tracking.ColleagueActivity.Shared;
+
+    /// <summary>A colleague's activity, read on hover, is good for this long.</summary>
+    private static readonly TimeSpan ActivityFresh = CacheAges.ActivityRead;
+
+    private readonly HashSet<long> _reading = [];
+
+    /// <summary>When each colleague's activity was asked for on hover (also when Zendesk sent nothing usable): not again for a while.</summary>
+    private readonly Dictionary<long, DateTimeOffset> _askedAt = [];
+
+    /// <summary>
+    /// Pointing at a colleague: when nothing recent is known about their activity, one request (Zendesk's "assignee
+    /// updated at" of their latest tickets) fills it in; the dot and the tooltip update.
+    /// </summary>
+    private async Task ReadActivityAsync(long userId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_context.Client is not { } client || _context.SignedOut || !_reading.Add(userId))
+            return;
+        try
+        {
+            var seen = Activity.LastSeen(userId);
+            var read = Activity.LastChecked(userId);
+            var asked = _askedAt.TryGetValue(userId, out var at) ? at : (DateTimeOffset?)null;
+            if ((seen is { } s && now - s < TicketRules.ActiveWithin) || (read is { } r && now - r < ActivityFresh) ||
+                (asked is { } a && now - a < ActivityFresh))
+                return; // known well enough, or just asked
+            _askedAt[userId] = now;
+            ZendeskClient.Reason.Value = "colleague activity (pointed at)";
+            ZendeskClient.Clicked.Value = true;
+            await client.GetAssigneeLastUpdatesAsync(userId, CancellationToken.None); // feeds ColleagueActivity (and notes it as read, when it could)
+            _peopleList.RefreshTip();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Could not read the activity of user {userId}", ex);
+        }
+        finally
+        {
+            _reading.Remove(userId);
+        }
+    }
+
     private void UpdateOptions()
     {
         var on = _help.Checked;
         var signedIn = !_context.SignedOut; // signed out: the lists from Zendesk can't be changed
-        _workHours.Enabled = _myHours.Enabled = on;
+        _workHours.Enabled = _myHours.Enabled = _activeCounts.Enabled = on;
         // Which groups: a choice between lists from Zendesk, so it waits for sign-in too (the current choice stays).
         _same.Enabled = on && signedIn;
         _custom.Enabled = on && signedIn && _hasGroupsToChoose; // nothing to choose: greyed out

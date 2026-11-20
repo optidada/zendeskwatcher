@@ -13,11 +13,11 @@ public sealed partial class TicketWatcher
 {
     /// <summary>How far back the ticket history goes, and how often it's read again.</summary>
     private const int HistoryDays = 90;
-    private static readonly TimeSpan HistoryRefresh = TimeSpan.FromHours(6);
+    private static readonly TimeSpan HistoryRefresh = CacheAges.GuessHistoryTopUp;
 
     /// <summary>How long a history read in full is only topped up (new tickets) before it's read in full again, so
     /// priorities changed later on older tickets come in too.</summary>
-    private static readonly TimeSpan HistoryFullRefresh = TimeSpan.FromDays(7);
+    private static readonly TimeSpan HistoryFullRefresh = CacheAges.GuessHistoryFull;
 
     /// <summary>The history as kept on disk (cache\ticket-history.json).</summary>
     private sealed class SavedHistory

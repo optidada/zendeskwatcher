@@ -9,6 +9,8 @@ public class PeekTests
     [InlineData(PopupPosition.BottomRight, PopupForm.PeekEdge.Right)]
     [InlineData(PopupPosition.TopRight, PopupForm.PeekEdge.Right)]
     [InlineData(PopupPosition.LeftCenter, PopupForm.PeekEdge.Left)]
+    [InlineData(PopupPosition.TopLeft, PopupForm.PeekEdge.Left)]
+    [InlineData(PopupPosition.BottomLeft, PopupForm.PeekEdge.Left)]
     [InlineData(PopupPosition.TopCenter, PopupForm.PeekEdge.Top)]
     [InlineData(PopupPosition.RightCenter, PopupForm.PeekEdge.Right)]
     [InlineData(PopupPosition.BottomCenter, PopupForm.PeekEdge.Bottom)]

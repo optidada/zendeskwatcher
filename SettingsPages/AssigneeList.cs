@@ -103,6 +103,31 @@ internal sealed class AssigneeList : Control
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public Func<long, bool>? IsAway { get; set; }
 
+    /// <summary>When someone was last seen doing something in Zendesk: within 30 minutes, active now (before any other dot).</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<long, DateTimeOffset?>? LastSeen { get; set; }
+
+    /// <summary>Text added to a person's tooltip when it shows (e.g. " · active 12 min ago"), worked out each time.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<Person, string?>? TipSuffix { get; set; }
+
+    /// <summary>The mouse came to a person's row (e.g. to read what isn't known about them yet).</summary>
+    public event Action<Person>? PersonPointed;
+
+    /// <summary>Something about the people changed (e.g. their activity): the dots and the open tooltip show it.</summary>
+    public void RefreshTip()
+    {
+        if (IsDisposed)
+            return;
+        if (_hover?.Person is { } person && NamePointed is null)
+            _tips.SetToolTip(this, TipFor(person));
+        Invalidate();
+    }
+
+    private string? TipFor(Person person) => person.Tip is null ? null : person.Tip + TipSuffix?.Invoke(person);
+
+    private bool ActiveNow(long id) => LastSeen?.Invoke(id) is { } at && DateTimeOffset.UtcNow - at < Tracking.TicketRules.ActiveWithin;
+
     /// <summary>
     /// Optional: a click on the name (or a right-click) asks for a menu at that point (screen coordinates) instead of
     /// toggling; the check box still toggles. Used by the Clients page.
@@ -418,8 +443,9 @@ internal sealed class AssigneeList : Control
                         TextRenderer.DrawText(g, time, Theme.Small, new Rectangle(right - timeWidth, rect.Y, timeWidth, rect.Height), Theme.TextMuted,
                             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                         var dotX = right - timeWidth - 12 * s;
+                        var active = ActiveNow(item.Person.Id);
                         DrawDot(g, dotX, item.Rect.Y + item.Rect.Height / 2, IsWorkingAt(local), s,
-                            away: IsWorkingAt(local) && IsAway?.Invoke(item.Person.Id) == true);
+                            away: !active && IsWorkingAt(local) && IsAway?.Invoke(item.Person.Id) == true, active: active);
                         text.Width = (int)(dotX - 8 * s) - text.X;
                     }
                     TextRenderer.DrawText(g, item.Text, Font, text, Active && !locked && IsDim?.Invoke(item.Person.Id) != true ? Theme.Text : Theme.TextMuted,
@@ -496,18 +522,18 @@ internal sealed class AssigneeList : Control
                 }
 
                 case ItemKind.Legend:
-                    // "● working now   ◐ away today   ○ off work: you hear about their clients' replies", with the same dots
-                    // ("away today" only while someone is).
+                    // All five dots, always, so each is explained before anyone has it: "◉ active now  ⊙ active late
+                    // ● in hours  ◐ away today  ○ off work".
                     var x = item.Rect.X + 6 * s;
                     var middle = item.Rect.Y + item.Rect.Height / 2;
-                    var anyAway = _items.Any(i => i.Person is { } p && IsAway?.Invoke(p.Id) == true);
-                    var entries = new List<(bool Working, bool Away, string Label)> { (true, false, "working now") };
-                    if (anyAway)
-                        entries.Add((true, true, "away today"));
-                    entries.Add((false, false, anyAway ? "off work" : "off work: you hear about their clients' replies"));
-                    foreach (var (working, away, label) in entries)
+                    (bool Working, bool Away, bool Active, string Label)[] entries =
+                    [
+                        (true, false, true, "active now"), (false, false, true, "active late"), (true, false, false, "in hours"),
+                        (true, true, false, "away today"), (false, false, false, "off work")
+                    ];
+                    foreach (var (working, away, activeNow, label) in entries)
                     {
-                        DrawDot(g, x, middle, working, s, away);
+                        DrawDot(g, x, middle, working, s, away, activeNow);
                         var width = TextRenderer.MeasureText(label, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
                         TextRenderer.DrawText(g, label, Theme.Small, new Rectangle((int)(x + 10 * s), rect.Y, width + 2, rect.Height), Theme.TextMuted,
                             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
@@ -525,14 +551,36 @@ internal sealed class AssigneeList : Control
         Theme.DrawTickBox(g, box, state, hover, s, Active && !dim, temporary);
 
     /// <summary>
-    /// A small dot centered at (x, y): filled in the success color when working, an empty ring when off, and half
-    /// amber (◐) when in their hours but away today.
+    /// A small dot centered at (x, y): filled in the success color when working, an empty ring when off, half amber (◐)
+    /// when in their hours but away today. Active now: in their hours a filled dot with a ring around it (◉); outside them
+    /// the off-work ring with a green center (⊙), working late. Only for the eye: who's covered doesn't depend on it.
     /// </summary>
-    private void DrawDot(Graphics g, float x, float y, bool working, float s, bool away = false)
+    private void DrawDot(Graphics g, float x, float y, bool working, float s, bool away = false, bool active = false)
     {
         var r = 3.5f * s;
         var dot = new RectangleF(x - r, y - r, 2 * r, 2 * r);
-        if (away)
+        if (active)
+        {
+            var color = Active ? Theme.Success : Theme.Neutral;
+            using var fill = new SolidBrush(color);
+            if (working)
+            {
+                var inner = 2.5f * s;
+                using var ring = new Pen(color, 1.2f * s);
+                g.FillEllipse(fill, x - inner, y - inner, 2 * inner, 2 * inner);
+                var outer = r + 1f * s;
+                g.DrawEllipse(ring, x - outer, y - outer, 2 * outer, 2 * outer);
+            }
+            else
+            {
+                var outer = r + 1f * s;
+                using var ring = new Pen(Theme.Neutral, 1.2f * s);
+                g.DrawEllipse(ring, x - outer, y - outer, 2 * outer, 2 * outer);
+                var inner = 2f * s;
+                g.FillEllipse(fill, x - inner, y - inner, 2 * inner, 2 * inner);
+            }
+        }
+        else if (away)
         {
             var color = Active ? Theme.Warning : Theme.Neutral;
             using var ring = new Pen(color, 1.2f * s);
@@ -566,7 +614,9 @@ internal sealed class AssigneeList : Control
         _hoverOnGroupOptions = onOptions;
         _hover = hit;
         Cursor = hit is not null && Active ? Cursors.Hand : Cursors.Default;
-        _tips.SetToolTip(this, NamePointed is null ? hit?.Person?.Tip : null); // with a card instead: no tooltip
+        _tips.SetToolTip(this, NamePointed is null && hit?.Person is { } pointed ? TipFor(pointed) : null); // with a card instead: no tooltip
+        if (hit?.Person is { } person && !hit.Group.Locked)
+            PersonPointed?.Invoke(person);
         Invalidate();
     }
 

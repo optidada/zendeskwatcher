@@ -28,6 +28,27 @@ internal static class ThemedMenu
         }
     }
 
+    /// <summary>
+    /// Makes the menu at least <paramref name="width"/> wide by widening its rows, so the hover highlight spans the whole
+    /// row. (MinimumSize alone widens the menu but leaves the rows as wide as the longest text.) Call before showing it.
+    /// </summary>
+    public static void StretchTo(ToolStripDropDown menu, int width)
+    {
+        menu.MinimumSize = new Size(width, 0);
+        // Only once it's laid out do the rows know their width: then give them the rest of the menu's.
+        menu.Opened += (_, _) =>
+        {
+            var rows = menu.Items.OfType<ToolStripMenuItem>().ToList();
+            var extra = rows.Count == 0 ? 0 : menu.DisplayRectangle.Right - 2 - rows.Max(r => r.Bounds.Right); // the rows hold the tick column too; 2 = the borders
+            if (extra <= 0)
+                return;
+            menu.SuspendLayout();
+            foreach (var row in rows)
+                row.Padding = row.Padding with { Right = row.Padding.Right + extra };
+            menu.ResumeLayout();
+        };
+    }
+
     /// <summary>The tray menu as PNGs, one per app theme (developer helper: --render-menu).</summary>
     public static void RenderSamples(string dir)
     {
@@ -53,6 +74,21 @@ internal static class ThemedMenu
             bitmap.Save(Path.Combine(dir, $"{theme}.png"));
         }
         Popups.AssignMenu.RenderSample(Path.Combine(dir, "who-could-take-it.png")); // in the app theme of the moment
+
+        // A drop-down list (ChoiceBox) wider than its texts, with the second choice hovered.
+        using var list = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true };
+        foreach (var text in new[] { "Top left", "Top center", "Top right" })
+            list.Items.Add(new ToolStripMenuItem(text) { Checked = text == "Top right" });
+        Apply(list, Theme.Current);
+        StretchTo(list, 260);
+        list.Show(-3000, -3000);
+        list.Items[1].Select();
+        using (var bitmap = new Bitmap(list.Width, list.Height))
+        {
+            list.DrawToBitmap(bitmap, new Rectangle(Point.Empty, list.Size));
+            bitmap.Save(Path.Combine(dir, "dropdown.png"));
+        }
+        list.Close();
     }
 
     private sealed class Renderer(UiPalette p) : ToolStripProfessionalRenderer(new Colors(p))

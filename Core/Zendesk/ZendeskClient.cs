@@ -17,6 +17,9 @@ public sealed record TakeResult(bool Taken, string? TakenBy = null);
 /// </summary>
 public sealed class ZendeskClient(Settings settings, IZendeskSession session)
 {
+    /// <summary>Who was seen active, from what this connection reads (<see cref="Tracking.ColleagueActivity"/>): the app's shared one.</summary>
+    public Tracking.ColleagueActivity Activity { get; } = (session as Tracking.IHasOwnActivity)?.Activity ?? Tracking.ColleagueActivity.Shared;
+
     private const int MaxPages = 10;
     private const int MaxRateLimitRetries = 3;
 
@@ -70,6 +73,19 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// <summary>The limit in use: tests lift it (they send hundreds of requests to a fake Zendesk within seconds).</summary>
     internal static int LocalLimit { get; set; } = LocalLimitPerMinute;
 
+    /// <summary>
+    /// Extra places in the last minute for what the user just clicked (<see cref="Clicked"/>): Take it ▾, Take, Assign,
+    /// pointing at a colleague. So a click doesn't wait behind the background checks (they keep the plain limit and
+    /// wait a little longer instead); only a runaway of clicks waits.
+    /// </summary>
+    public const int ClickHeadroom = 20;
+
+    /// <summary>The requests from here on (in this async flow) are for something the user clicked: see <see cref="ClickHeadroom"/>.</summary>
+    public static readonly AsyncLocal<bool> Clicked = new();
+
+    /// <summary>The limit a request has: the plain one, or with <see cref="ClickHeadroom"/> for a click.</summary>
+    internal static int LimitFor(bool clicked) => !clicked ? LocalLimit : (int)Math.Min(int.MaxValue, (long)LocalLimit + ClickHeadroom); // tests lift it to the most
+
     private static DateTime _localLimitLogged;
 
     /// <summary>
@@ -95,7 +111,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         {
             TimeSpan? wait;
             lock (RecentRequests)
-                wait = TakeLocalSlot(RecentRequests, DateTimeOffset.UtcNow, LocalLimit);
+                wait = TakeLocalSlot(RecentRequests, DateTimeOffset.UtcNow, LimitFor(Clicked.Value));
             if (wait is not { } delay)
                 return;
             if (DateTime.UtcNow - _localLimitLogged > TimeSpan.FromMinutes(1))
@@ -138,6 +154,19 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
     /// <see cref="TakeRequestsByReason"/>. Set at the start of an async method: it's back to before when that returns.
     /// </summary>
     public static readonly AsyncLocal<string?> Reason = new();
+
+    /// <summary>
+    /// Counts the requests made from here on in this async flow (also in tasks it starts), e.g. for one click on Take it ▾:
+    /// set a new counter at the start, read it at the end.
+    /// </summary>
+    public static readonly AsyncLocal<RequestCounter?> Counter = new();
+
+    public sealed class RequestCounter
+    {
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+        internal void Add() => Interlocked.Increment(ref _count);
+    }
 
     private static readonly ConcurrentDictionary<string, int> RequestsByReason = new();
 
@@ -338,6 +367,8 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             foreach (var author in response.Users ?? [])
                 RememberUser(author); // the authors came along: looking them up later costs nothing
             var audits = response.Audits;
+            foreach (var audit in audits)
+                Activity.Saw(audit.AuthorId, audit.CreatedAt); // read anyway: who was active, for free
             result.AddRange(audits.Where(a => a.CreatedAt > since));
 
             var newestFirst = audits.Count < 2 || audits[0].CreatedAt >= audits[^1].CreatedAt;
@@ -364,6 +395,8 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             foreach (var author in response.Users ?? [])
                 RememberUser(author);
             var comments = response.Comments;
+            foreach (var comment in comments)
+                Activity.Saw(comment.AuthorId, comment.CreatedAt);
             result.AddRange(comments.Where(c => c.CreatedAt > since).Select(c => new Audit
             {
                 Id = c.Id, AuthorId = c.AuthorId, CreatedAt = c.CreatedAt,
@@ -709,9 +742,13 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         // Only trusted newest first: in another order the 5 could be old ones, and the colleague would look inactive.
         if (response.Tickets.Zip(response.Tickets.Skip(1)).Any(p => p.First.UpdatedAt < p.Second.UpdatedAt))
             return null;
-        return response.MetricSets is { Count: > 0 } metrics
-            ? [.. metrics.Select(m => m.AssigneeUpdatedAt).OfType<DateTimeOffset>()]
-            : null;
+        if (response.MetricSets is not { Count: > 0 } metrics)
+            return null;
+        List<DateTimeOffset> updates = [.. metrics.Select(m => m.AssigneeUpdatedAt).OfType<DateTimeOffset>()];
+        foreach (var at in updates)
+            Activity.Saw(userId, at);
+        Activity.NoteChecked(userId, DateTimeOffset.UtcNow);
+        return updates;
     }
 
     /// <summary>All open tickets in a group that are assigned to someone (Insights → Team workload, and who could take a ticket).</summary>
@@ -775,6 +812,7 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
             Interlocked.Increment(ref _requestTotal);
             RequestsByPurpose.AddOrUpdate(caller, 1, (_, n) => n + 1);
             RequestsByReason.AddOrUpdate(Reason.Value ?? "other", 1, (_, n) => n + 1);
+            Counter.Value?.Add();
             var waited = System.Diagnostics.Stopwatch.StartNew();
             var response = method is null
                 ? await session.GetAsync(url, ct)

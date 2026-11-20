@@ -91,10 +91,10 @@ internal sealed class GroupsPage : SettingsPage
     private sealed record SavedGroups(List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions);
 
     /// <summary>How long loaded groups, group members (Colleagues) and clients are reused; Reload fetches them again.</summary>
-    public static readonly TimeSpan CacheLifetime = TimeSpan.FromHours(24);
+    public static readonly TimeSpan CacheLifetime = CacheAges.SettingsLists;
 
     /// <summary>The group list itself changes rarely: reused for a week (Reload fetches it at once).</summary>
-    public static readonly TimeSpan GroupsLifetime = TimeSpan.FromDays(7);
+    public static readonly TimeSpan GroupsLifetime = CacheAges.Groups;
 
     /// <summary>Reload was clicked: the account is checked again and everything is fetched fresh.</summary>
     public event Action? ReloadRequested;

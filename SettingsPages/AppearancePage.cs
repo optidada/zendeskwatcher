@@ -33,9 +33,10 @@ internal sealed class AppearancePage : SettingsPage
     ];
     private readonly RadioButton _likeApp = Kit.Radio("Same as the app theme");
     private readonly RadioButton _ownStyle = Kit.Radio("A different style for notifications:");
-    private readonly ChoiceBox _position = Kit.Combo<PopupPosition>([new(PopupPosition.BottomRight, "Bottom right"), new(PopupPosition.TopRight, "Top right"),
-        new(PopupPosition.RightCenter, "Right center"), new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.BottomCenter, "Bottom center"),
-        new(PopupPosition.LeftCenter, "Left center"), new(PopupPosition.Center, "Center")], width: PlacementWidth);
+    private readonly ChoiceBox _position = Kit.Combo<PopupPosition>([
+        new(PopupPosition.TopLeft, "Top left"), new(PopupPosition.TopCenter, "Top center"), new(PopupPosition.TopRight, "Top right"),
+        new(PopupPosition.LeftCenter, "Left center"), new(PopupPosition.Center, "Center"), new(PopupPosition.RightCenter, "Right center"),
+        new(PopupPosition.BottomLeft, "Bottom left"), new(PopupPosition.BottomCenter, "Bottom center"), new(PopupPosition.BottomRight, "Bottom right")], width: PlacementWidth);
     private readonly ChoiceBox _stacking = Kit.Combo<PopupStacking>([new(PopupStacking.List, "Below each other"), new(PopupStacking.Deck, "Stacked like cards"), new(PopupStacking.Peek, "Peek from the edge"),
         new(PopupStacking.Pill, "A pill at the top"), new(PopupStacking.Ticker, "A ticker at the screen edge"), new(PopupStacking.Achievement, "Achievement unlocked")], width: PlacementWidth);
     private readonly Label _peekNote = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 60);

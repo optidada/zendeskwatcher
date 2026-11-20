@@ -128,8 +128,8 @@ public static class StatsInsights
     {
         NotificationKind.NewTicket => "Muting clients or hearing only their P1 and P2 (Groups → Clients), or monitoring fewer groups, gives fewer.",
         NotificationKind.MyTicket => settings.MyTicketPriorities.Count == Settings.AllPriorities.Length
-            ? "Fewer priorities (Notifications → Ticket changes) or change types (Notifications → Which changes) give fewer."
-            : "Fewer change types (Notifications → Which changes) give fewer, e.g. without status changes.",
+            ? "Fewer priorities (Notifications → Ticket changes) or change types (Notifications → Ticket changes) give fewer."
+            : "Fewer change types (Notifications → Ticket changes) give fewer, e.g. without status changes.",
         NotificationKind.CcTicket => settings.CcTicketPriorities.Count > 1
             ? "Only P1 for CC / following tickets (Notifications → Ticket changes) gives fewer."
             : "Turning off CC / following tickets (Notifications → Ticket changes) stops them.",

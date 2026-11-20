@@ -392,24 +392,32 @@ public sealed class PopupForm : Form
     /// <summary>"Taken by Anna", shown in the footer while it closes by itself (<see cref="ShowTaken"/>).</summary>
     private string? _takenNote;
 
+    /// <summary>It stays after saying "Taken by Anna" (Notifications → Behavior → Drop notifications): Dismiss and Open still work.</summary>
+    private bool _takenStays;
+
     /// <summary>Saying "Taken by Anna" before it closes: its buttons are done, and so are the shortcuts.</summary>
-    public bool Taken => _takenNote is not null;
+    public bool Taken => _takenNote is not null && !_takenStays;
 
     /// <summary>
     /// Someone took the ticket (or it was solved): says so where Take it was, for a few seconds, then closes. Without
-    /// a Take it button (a compact style) it closes at once, as before.
+    /// a Take it button (a compact style) it closes at once, as before. <paramref name="stays"/>: says so where Snooze
+    /// and Take it were, and stays for its usual time (a compact style just stays).
     /// </summary>
-    public void ShowTaken(string note)
+    public void ShowTaken(string note, bool stays = false)
     {
         if (_phase == Phase.Leaving || _takenNote is not null)
             return;
         if (!HasExtraButton || _takeRect.IsEmpty)
         {
-            Dismiss(Result.None);
+            if (!stays)
+                Dismiss(Result.None);
             return;
         }
         _takenNote = note;
+        _takenStays = stays;
         Invalidate();
+        if (stays)
+            return;
         var wait = new System.Windows.Forms.Timer { Interval = 4000 };
         wait.Tick += (_, _) =>
         {
@@ -999,8 +1007,11 @@ public sealed class PopupForm : Form
     {
         if (_takenNote is not null)
         {
-            // Someone took it: "Taken by Anna" where Dismiss, Snooze and Take it were, until it closes by itself.
-            var area = new[] { _dismissRect, _snoozeRect, _takeRect }.Where(r => r.Width > 0).Aggregate(Rectangle.Union);
+            // Someone took it: "Taken by Anna" where Dismiss, Snooze and Take it were, until it closes by itself. One
+            // that stays keeps Dismiss.
+            var area = new[] { _takenStays ? Rectangle.Empty : _dismissRect, _snoozeRect, _takeRect }.Where(r => r.Width > 0).Aggregate(Rectangle.Union);
+            if (_takenStays && _dismissRect.Width > 0)
+                PaintButton(g, _dismissRect, DismissLabel, primary: false);
             DrawText(g, _takenNote, _smallFont, area, _palette.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
             PaintButton(g, _openRect, _openLabel, primary: true);
             return;

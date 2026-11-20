@@ -29,6 +29,12 @@ public interface INotificationSink
     /// <param name="note">What to say while it closes ("Taken by Anna", "Solved"); null: just close.</param>
     void CloseTaken(long ticketId, string? note = null) { }
 
+    /// <summary>
+    /// A new ticket someone has taken meanwhile, when it shows anyway (Notifications → Behavior → Drop notifications): its
+    /// notification stays and says so (<paramref name="note"/>: "Taken by Anna").
+    /// </summary>
+    void NoteTaken(long ticketId, string note) { }
+
     /// <summary>A new ticket for another product wasn't notified (My products): counted for Insights.</summary>
     void HeldBackOtherProduct(long ticketId) { }
 }

@@ -12,10 +12,10 @@ public class AssignCandidatesTests
     public async Task Least_busy_first_among_those_in_working_hours_and_active()
     {
         File.Delete(AppPaths.StateFile);
-        GroupWorkloadCache.Clear();
+        GroupWorkloadCache.Forget();
         var settings = new Settings
         {
-            Subdomain = "test", WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }],
+            Subdomain = "take-least-busy", WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }],
             WorkdayStartHour = 0, WorkdayEndHour = 24, WorkDays = [.. Enum.GetValues<DayOfWeek>()] // everyone is in working hours
         };
         var zendesk = new FakeZendesk();
@@ -68,10 +68,10 @@ public class AssignCandidatesTests
     {
         const long Premium = 6;
         File.Delete(AppPaths.StateFile);
-        GroupWorkloadCache.Clear();
+        GroupWorkloadCache.Forget();
         var settings = new Settings
         {
-            Subdomain = "test", WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }],
+            Subdomain = "take-every-group", WatchedGroups = [new WatchedGroup { Id = 10, Name = "Tier 2" }],
             WorkdayStartHour = 0, WorkdayEndHour = 24, WorkDays = [.. Enum.GetValues<DayOfWeek>()]
         };
         var zendesk = new FakeZendesk();
@@ -130,7 +130,7 @@ public class AssignCandidatesTests
         var client = new ZendeskClient(settings, zendesk);
         int Exports() => zendesk.Requested.Count(u => u.Contains("search/export"));
 
-        GroupWorkloadCache.Clear();
+        GroupWorkloadCache.Forget();
         var both = await Task.WhenAll(
             GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.FromMinutes(5), CancellationToken.None),
             GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.FromMinutes(5), CancellationToken.None));
@@ -140,10 +140,35 @@ public class AssignCandidatesTests
 
         await GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.FromMinutes(5), CancellationToken.None);
         Assert.Equal(1, Exports()); // fresh enough
-        await GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.Zero, CancellationToken.None);
-        Assert.Equal(2, Exports()); // too old for this caller
+        zendesk.AddAssigned(701, "normal", assignee: Free).GroupId = 77;
+        var stale = await GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.Zero, CancellationToken.None);
+        Assert.Equal([700L], stale.Tickets.Select(t => t.Id)); // too old for this caller: answered at once with what's known…
+        await GroupWorkloadCache.WhenIdleAsync();
+        Assert.Equal(2, Exports()); // …while it's read again in the background, once
+        var fresh = await GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.FromMinutes(5), CancellationToken.None);
+        Assert.Equal([700L, 701L], fresh.Tickets.Select(t => t.Id).Order());
         GroupWorkloadCache.Clear();
         await GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.FromMinutes(5), CancellationToken.None);
-        Assert.Equal(3, Exports()); // after an assign
+        Assert.Equal(3, Exports()); // after an assign: waited for
+        Assert.Equal(1, zendesk.Requested.Count(u => u.Contains("/groups/77/users"))); // members stay: they change rarely
+
+        GroupWorkloadCache.Reload(); // as after a restart: from disk, no requests
+        var restarted = await GroupWorkloadCache.GetAsync(client, "cache-test", 77, TimeSpan.FromMinutes(5), CancellationToken.None);
+        Assert.Equal([700L, 701L], restarted.Tickets.Select(t => t.Id).Order());
+        Assert.Equal("Fred Free", restarted.Members.Single().Name);
+        Assert.Equal(3, Exports());
+        var saved = File.ReadAllText(Path.Combine(AppPaths.DataDir, "cache", "group-workload.json"));
+        Assert.DoesNotContain("subject", saved, StringComparison.OrdinalIgnoreCase); // no ticket text on disk
+    }
+
+    [Fact]
+    public void Who_handled_a_client_survives_a_restart()
+    {
+        var key = ("handlers-test", 77L, 900L);
+        ClientHandlerStore.Set(key, new Dictionary<long, int> { [Free] = 12 });
+        ClientHandlerStore.Reload();
+        var (at, counts) = ClientHandlerStore.Get(key);
+        Assert.Equal(12, counts![Free]);
+        Assert.True(DateTime.UtcNow - at < TimeSpan.FromMinutes(1));
     }
 }

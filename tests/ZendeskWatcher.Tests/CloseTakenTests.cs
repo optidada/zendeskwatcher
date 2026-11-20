@@ -131,6 +131,86 @@ public class CloseTakenTests
         Assert.True(close);
     }
 
+    [Fact]
+    public void Shown_anyway_it_says_who_took_it_and_stays()
+    {
+        var (open, taken, meanwhile) = OnUiThread(() =>
+        {
+            var manager = new PopupManager((_, _) => { }, _ => { }, (_, _) => { }, _ => { });
+            var settings = new Settings { Stacking = PopupStacking.List };
+            var waiting = NewTicket(2);
+            manager.Show(NewTicket(1), settings);
+            Pump(TimeSpan.FromMilliseconds(500));
+
+            manager.NoteNewTicket(1, "Taken by Anna"); // Drop notifications: "Assigned to a colleague" off
+            manager.NoteNewTicket(2, "Taken by Sam");  // not shown yet: nothing happens to an unknown one
+            Pump(TimeSpan.FromSeconds(6));             // longer than a closing note stays
+            var open = manager.OpenCount;
+            var taken = Application.OpenForms.OfType<PopupForm>().Any(f => f.Taken); // its buttons still work
+            foreach (var form in Application.OpenForms.OfType<PopupForm>().ToList())
+                form.Close();
+            return (open, taken, waiting.Meanwhile);
+        });
+
+        Assert.Equal(1, open); // on screen, or waiting in line if the PC is "busy": either way still there
+        Assert.False(taken);
+        Assert.Null(meanwhile);
+    }
+
+    [Fact]
+    public void Large_notifications_that_dont_fit_wait_instead_of_running_off_the_screen()
+    {
+        var (visible, open, area) = OnUiThread(() =>
+        {
+            var manager = new PopupManager((_, _) => { }, _ => { }, (_, _) => { }, _ => { });
+            var settings = new Settings { Stacking = PopupStacking.List, NotificationSize = 200 }; // 4 never fit 1040 px
+            for (var id = 1; id <= 4; id++)
+                manager.Show(NewTicket(id) with { Body = "Jane Doe · Created 09:00\nLine two\nLine three\nLine four\nLine five" }, settings);
+            Pump(TimeSpan.FromSeconds(1.5)); // slid in and settled
+            var visible = Application.OpenForms.OfType<PopupForm>().Where(f => f.Visible).Select(f => f.Bounds).ToList();
+            var open = manager.OpenCount;
+            foreach (var form in Application.OpenForms.OfType<PopupForm>().ToList())
+                form.Close();
+            return (visible, open, PopupForm.WorkArea(Screen.PrimaryScreen!));
+        });
+
+        Assert.Equal(4, open); // none lost: the others wait their turn
+        Assert.True(visible.Count < 4);
+        Assert.All(visible, bounds => Assert.True(bounds.Top >= area.Top && bounds.Bottom <= area.Bottom, $"{bounds} outside {area}"));
+    }
+
+    [Fact]
+    public void A_new_ticket_on_screen_has_its_group_read_early_for_take_it()
+    {
+        var ready = new System.Collections.Concurrent.ConcurrentBag<long>();
+        var shown = false;
+        AssignMenu.Ready = ready.Add;
+        try
+        {
+            shown = OnUiThread(() =>
+            {
+                var manager = new PopupManager((_, _) => { }, _ => { }, (_, _) => { }, _ => { });
+                var settings = new Settings { Stacking = PopupStacking.List };
+                manager.Show(NewTicket(1) with { GroupId = 4242 }, settings);
+                manager.Show(NewTicket(2) with { GroupId = 4343, IsSample = true }, settings); // a sample asks nothing
+                Pump(TimeSpan.FromMilliseconds(300));
+                var visible = Application.OpenForms.OfType<PopupForm>().Any(f => f.Visible);
+                foreach (var form in Application.OpenForms.OfType<PopupForm>().ToList())
+                    form.Close();
+                return visible;
+            });
+        }
+        finally
+        {
+            AssignMenu.Ready = null;
+        }
+
+        // On screen: read now (waiting in line instead, if the PC is "busy": then it's read once it shows).
+        if (shown)
+            Assert.Contains(4242L, ready);
+        Assert.DoesNotContain(4343L, ready);
+    }
+
     private static void Pump(TimeSpan time)
     {
         var until = DateTime.UtcNow + time;

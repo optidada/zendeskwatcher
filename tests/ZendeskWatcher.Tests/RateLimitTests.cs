@@ -44,6 +44,21 @@ public class RateLimitTests
     }
 
     [Fact]
+    public void A_click_doesnt_wait_behind_the_background_checks()
+    {
+        var recent = new Queue<DateTimeOffset>();
+        var now = DateTimeOffset.UtcNow;
+        const int plain = ZendeskClient.LocalLimitPerMinute, click = ZendeskClient.LocalLimitPerMinute + ZendeskClient.ClickHeadroom;
+        for (var i = 0; i < plain; i++)
+            Assert.Null(ZendeskClient.TakeLocalSlot(recent, now, plain)); // the checks used the whole minute
+
+        Assert.NotNull(ZendeskClient.TakeLocalSlot(recent, now, plain));  // another check waits
+        for (var i = 0; i < ZendeskClient.ClickHeadroom; i++)
+            Assert.Null(ZendeskClient.TakeLocalSlot(recent, now, click)); // Take it ▾ goes at once
+        Assert.NotNull(ZendeskClient.TakeLocalSlot(recent, now, click));  // only a runaway of clicks waits
+    }
+
+    [Fact]
     public async Task A_Zendesk_hiccup_on_a_read_is_tried_again_instead_of_failing()
     {
         var zendesk = new FakeZendesk();
