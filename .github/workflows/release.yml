@@ -33,7 +33,12 @@ jobs:
 
       # A failing notification rule stops the release before anything is built or published.
       - name: Test
-        run: dotnet test tests/ZendeskWatcher.Tests -c Release
+        run: dotnet test tests/ZendeskWatcher.Tests -c Release --logger "trx;LogFileName=results.trx" --results-directory TestResults
+
+      - name: Name the failed tests
+        if: failure()
+        shell: pwsh
+        run: .github/report-failed-tests.ps1 TestResults
 
       # Framework-dependent keeps the installer small (~17 MB instead of ~65 MB). Setup installs the
       # .NET Desktop Runtime and WebView2 when they're missing (see --framework below).

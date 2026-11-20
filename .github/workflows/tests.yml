@@ -1,0 +1,27 @@
+# Runs the tests on every push to main (and by hand), as the release does, so a test that fails only on GitHub's
+# machines shows before a version is tagged. Failed tests become annotations (name and message), readable without
+# signing in: https://api.github.com/repos/optidada/zendeskwatcher/check-runs/<job id>/annotations
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0, pinned
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1, pinned
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test tests/ZendeskWatcher.Tests -c Release --logger "trx;LogFileName=results.trx" --results-directory TestResults
+      - name: Name the failed tests
+        if: failure()
+        shell: pwsh
+        run: .github/report-failed-tests.ps1 TestResults
