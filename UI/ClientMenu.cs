@@ -35,7 +35,9 @@ internal static class ClientMenu
         // Whose notifications these choices are about, so "Mute" clearly means this client.
         var headerFont = new Font(menu.Font, FontStyle.Bold);
         menu.Disposed += (_, _) => headerFont.Dispose(); // an item's font isn't disposed with it
-        menu.Items.Add(new ToolStripMenuItem($"Notifications from {current.Name.Replace("&", "&&")}") { Enabled = false, Font = headerFont });
+        // Choices are per group: "… in Tier 1", so it's clear their tickets in other groups aren't affected.
+        var inGroup = current.GroupName is { Length: > 0 } group ? $" in {group}" : "";
+        menu.Items.Add(new ToolStripMenuItem($"Notifications from {current.Name}{inGroup}".Replace("&", "&&")) { Enabled = false, Font = headerFont });
         menu.Items.Add(new ToolStripSeparator());
 
         // The client's own choice (kept while muted); picking one also unmutes.
@@ -48,7 +50,7 @@ internal static class ClientMenu
             menu.Items.Add(new ToolStripMenuItem("Your own tickets always notify: muting is for new and colleagues' tickets") { Enabled = false });
             return Finish(menu);
         }
-        Item("Only urgent  – P1 and P2", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
+        Item("Only P1 and P2", own == ClientMode.OnlyUrgent, c => WithMode(c, ClientMode.OnlyUrgent));
         menu.Items.Add(new ToolStripSeparator());
         var muted = current.IsMutedAt(now);
         var mutedFor = muted && current.MutedUntil is { } until ? until : (DateTimeOffset?)null;

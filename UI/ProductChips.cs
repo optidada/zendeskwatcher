@@ -9,7 +9,7 @@ public sealed class ProductChips : Control
     private List<(string Value, string Name)> _items = [];
     private readonly List<(Rectangle Rect, string Value)> _hits = [];
     private int _hover = -1;
-    private readonly ToolTip _tip = new();
+    private readonly ThemedToolTip _tip = new(); // in the app's colors
 
     /// <summary>A product's × was clicked: its value.</summary>
     public event Action<string>? Removed;
@@ -17,6 +17,10 @@ public sealed class ProductChips : Control
     /// <summary>Shown when nothing is picked.</summary>
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public string EmptyText { get; set; } = "";
+
+    /// <summary>Shown under the picked products, in an amber band (a caution); "" for none.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public string CautionText { get; set; } = "";
 
     public ProductChips()
     {
@@ -46,9 +50,23 @@ public sealed class ProductChips : Control
         var textHeight = TextRenderer.MeasureText("Ag", font, Size.Empty, Measure).Height;
         if (_items.Count == 0)
         {
+            // Nothing picked is a state worth noticing (every product notifies): a soft accent band with an accent edge.
+            var band = new Rectangle(0, P(2), Width - 1, textHeight + P(16));
             if (g is not null)
-                TextRenderer.DrawText(g, EmptyText, Theme.Body, new Rectangle(0, P(6), Width, textHeight), Theme.TextMuted, Line);
-            return textHeight + P(12);
+            {
+                using var soft = new SolidBrush(Theme.AccentSoft);
+                if (Math.Min(Theme.ButtonRadius(band.Height, S), band.Height / 2f) is var radius and > 0)
+                {
+                    using var path = Theme.RoundedRect(band, Math.Min(radius, P(6)));
+                    g.FillPath(soft, path);
+                }
+                else
+                    g.FillRectangle(soft, band);
+                using var edge = new SolidBrush(Theme.Accent);
+                g.FillRectangle(edge, band.X, band.Y + P(4), P(3), band.Height - P(8));
+                TextRenderer.DrawText(g, EmptyText, font, new Rectangle(P(14), band.Y + P(8), Width - P(20), textHeight), Theme.Text, Line);
+            }
+            return band.Bottom + P(6);
         }
         var chipHeight = textHeight + P(12);
         const string Cross = "×";
@@ -83,7 +101,43 @@ public sealed class ProductChips : Control
             }
             x += chipWidth + P(6);
         }
-        return y + chipHeight + P(4);
+        y += chipHeight + P(4);
+        if (CautionText.Length > 0)
+            y = Caution(g, y + P(6)) + P(4);
+        return y;
+    }
+
+    /// <summary>
+    /// The caution under the picks (e.g. the Product field can be wrong): a soft amber band with an amber edge and a ⚠,
+    /// the text wrapped in the normal text color. Returns where it ends.
+    /// </summary>
+    private int Caution(Graphics? g, int top)
+    {
+        const TextFormatFlags Wrap = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.WordBreak;
+        var font = Theme.Body;
+        var signWidth = TextRenderer.MeasureText("⚠", font, Size.Empty, Measure).Width;
+        var textLeft = P(14) + signWidth + P(6);
+        var textWidth = Math.Max(1, Width - textLeft - P(10));
+        var textHeight = TextRenderer.MeasureText(CautionText, font, new Size(textWidth, int.MaxValue), Wrap).Height;
+        var band = new Rectangle(0, top, Width - 1, textHeight + P(16));
+        if (g is not null)
+        {
+            var w = Theme.Warning;
+            var surface = Theme.Surface;
+            using var soft = new SolidBrush(Color.FromArgb(surface.R + (w.R - surface.R) * 15 / 100, surface.G + (w.G - surface.G) * 15 / 100, surface.B + (w.B - surface.B) * 15 / 100));
+            if (Math.Min(Theme.ButtonRadius(band.Height, S), P(6)) is var radius and > 0)
+            {
+                using var path = Theme.RoundedRect(band, radius);
+                g.FillPath(soft, path);
+            }
+            else
+                g.FillRectangle(soft, band);
+            using var edge = new SolidBrush(w);
+            g.FillRectangle(edge, band.X, band.Y + P(4), P(3), band.Height - P(8));
+            TextRenderer.DrawText(g, "⚠", font, new Rectangle(P(14), band.Y + P(8), signWidth, textHeight), w, Measure);
+            TextRenderer.DrawText(g, CautionText, font, new Rectangle(textLeft, band.Y + P(8), textWidth, textHeight), Theme.Text, Wrap);
+        }
+        return band.Bottom;
     }
 
     protected override void OnPaint(PaintEventArgs e)

@@ -66,6 +66,71 @@ public class CloseTakenTests
         Assert.Equal(0, left);
     }
 
+    [Fact]
+    public void A_shortcut_acts_on_the_oldest_notification_and_only_where_its_button_is()
+    {
+        var (outcomes, states, takeOnUpdate) = OnUiThread(() =>
+        {
+            var outcomes = new List<(long?, PopupForm.Result)>();
+            var states = new List<bool>();
+            var manager = new PopupManager((_, _) => { }, _ => { }, (c, r) => outcomes.Add((c.TicketId, r)), _ => { }) { OnScreenChanged = states.Add };
+            var settings = new Settings { Stacking = PopupStacking.List, HoldWhileBusy = false };
+            manager.Show(NewTicket(1), settings);
+            manager.Show(NewTicket(2), settings);
+            manager.Show(NewTicket(3) with { Kind = NotificationKind.MyTicket, Heading = "Ticket updated", CanTake = false }, settings);
+            Pump(TimeSpan.FromMilliseconds(500));
+
+            manager.ActOnOldest(PopupForm.Result.Dismiss); // Ctrl+Alt+X: #1, the oldest
+            Pump(TimeSpan.FromSeconds(1.5));
+            manager.ActOnOldest(PopupForm.Result.Dismiss); // then #2
+            Pump(TimeSpan.FromSeconds(1.5));
+            var takeOnUpdate = manager.ActOnOldest(PopupForm.Result.Take); // Ctrl+Alt+T on a ticket update: no Take it there
+            manager.ActOnOldest(PopupForm.Result.Dismiss);
+            Pump(TimeSpan.FromSeconds(1.5));
+            foreach (var form in Application.OpenForms.OfType<PopupForm>().ToList())
+                form.Close();
+            return (outcomes, states, takeOnUpdate);
+        });
+
+        if (!states.Contains(true))
+            return; // the PC was "busy" (presenting, full screen): they only waited in line, nothing to press
+        Assert.Equal([(1L, PopupForm.Result.Dismiss), (2L, PopupForm.Result.Dismiss), (3L, PopupForm.Result.Dismiss)],
+            outcomes.Select(o => ((long)o.Item1!, o.Item2)));
+        Assert.False(takeOnUpdate);
+        Assert.Equal([true, false], states); // the shortcuts work while some are on screen, then the keys are free again
+    }
+
+    [Fact]
+    public void A_shortcut_never_answers_the_cover_today_question()
+    {
+        var (open, take, snooze, close, states) = OnUiThread(() =>
+        {
+            var states = new List<bool>();
+            var manager = new PopupManager((_, _) => { }, _ => { }, (_, _) => { }, _ => { }) { OnScreenChanged = states.Add };
+            var question = new NotificationContent(NotificationKind.MyTicket, "Colleague away?", "Anna hasn't been active in Zendesk today", "…")
+            {
+                Action = NotificationActions.Cover(7, "Anna"), SecondChoice = ("Always", NotificationActions.CoverAlways(7, "Anna")), Style = Quiet
+            };
+            manager.Show(question, new Settings { Stacking = PopupStacking.List, HoldWhileBusy = false });
+            Pump(TimeSpan.FromMilliseconds(500));
+            var open = manager.ActOnOldest(PopupForm.Result.Open);     // would be "Cover today": no
+            var take = manager.ActOnOldest(PopupForm.Result.Take);
+            var snooze = manager.ActOnOldest(PopupForm.Result.Snooze);
+            var close = manager.ActOnOldest(PopupForm.Result.Dismiss); // closing it is fine
+            Pump(TimeSpan.FromSeconds(1.5));
+            foreach (var form in Application.OpenForms.OfType<PopupForm>().ToList())
+                form.Close();
+            return (open, take, snooze, close, states);
+        });
+
+        if (!states.Contains(true))
+            return; // the PC was "busy" (presenting): it only waited in line
+        Assert.False(open);
+        Assert.False(take);
+        Assert.False(snooze);
+        Assert.True(close);
+    }
+
     private static void Pump(TimeSpan time)
     {
         var until = DateTime.UtcNow + time;

@@ -54,6 +54,8 @@ public class SettingsWindowTests
         Theme = NotificationTheme.CleanLight,
         AppTheme = NotificationTheme.Terminal,
         PausePopupsWhenAway = false,
+        HoldWhileBusy = false,
+        HelpCoveredToday = [new TodayCover { Id = 77, Name = "Huy Example", Until = DateTimeOffset.UtcNow.AddHours(12) }],
         EdgeGlow = true,
         DropAnswered = false,
         OnlyNotifyDuringMyHours = true,

@@ -5,6 +5,9 @@ namespace ZendeskWatcher.SettingsPages;
 /// <summary>Notifications: what to be notified about, and how often to check.</summary>
 internal sealed class NotificationsPage : SettingsPage
 {
+    /// <summary>Under New tickets: whether My products filters right now, with a link to the Products page.</summary>
+    private readonly Control _productsHint = Theme.Label(ProductsHint(0), Theme.Small, Theme.TextMuted);
+
     private readonly ToggleSwitch _notifyUnassigned = new("New unassigned tickets in my monitored groups");
     private readonly ToggleSwitch _trackMine = new("Changes on tickets assigned to me (any group)");
     private readonly ToggleSwitch _trackCc = new("Changes on tickets where I'm CC or a follower (any group)");
@@ -52,9 +55,8 @@ internal sealed class NotificationsPage : SettingsPage
         _takenQuickly.Margin = new Padding(50, 4, 0, 6);
         unassigned.Body.Controls.Add(takenLabel);
         unassigned.Body.Controls.Add(_takenQuickly);
-        var productsHint = Theme.Label("Only the products you work with: the Products page.", Theme.Small, Theme.TextMuted);
-        productsHint.Margin = new Padding(50, 4, 0, 6);
-        unassigned.Body.Controls.Add(productsHint);
+        _productsHint.Margin = new Padding(50, 4, 0, 6);
+        unassigned.Body.Controls.Add(_productsHint);
         Panel.Controls.Add(unassigned);
 
         var mine = new Card("Ticket changes", "When someone else changes these tickets, for the priorities you choose.", Kit.CardWidth);
@@ -106,8 +108,14 @@ internal sealed class NotificationsPage : SettingsPage
         _myHours.RangeChanged += (_, _) => Changed();
     }
 
+    /// <summary>"All products notify" until some are picked (Products page), so it never sounds like a filter that isn't on.</summary>
+    internal static string ProductsHint(int picked) => picked == 0
+        ? "All products notify. Pick yours on the Products page."
+        : $"Only your products notify ({picked} picked). Change it on the Products page.";
+
     public override void Load(Settings settings)
     {
+        _productsHint.Text = ProductsHint(settings.MyProducts.Count);
         _notifyUnassigned.Checked = settings.NotifyUnassigned;
         // A value from an older version or an edited file (e.g. 75 s) gets the nearest step.
         _trackMine.Checked = settings.TrackMyTickets;
@@ -160,7 +168,11 @@ internal sealed class NotificationsPage : SettingsPage
     }
 
 
-    public override void OnShowing() => ShowGroupPriorities();
+    public override void OnShowing()
+    {
+        ShowGroupPriorities();
+        _productsHint.Text = ProductsHint(Context.Current().MyProducts.Count); // the Products page may have changed (not saved yet)
+    }
 
     /// <summary>The rows under "New unassigned tickets": a group and its priorities.</summary>
     private readonly List<(long GroupId, PriorityChoice Choice)> _groupChoices = [];

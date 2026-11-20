@@ -91,6 +91,15 @@ public sealed class ThemedDialog : Form
             using var bitmap = new Bitmap(dialog.Width, dialog.Height);
             dialog.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
             bitmap.Save(Path.Combine(dir, $"dialog-{theme}.png"));
+
+            // Send feedback with a long message: the box's own thin scrollbar.
+            using var feedback = new FeedbackForm { StartPosition = FormStartPosition.Manual, Location = new Point(-5000, -5000) };
+            feedback.Show();
+            feedback.SampleText(string.Join(Environment.NewLine, Enumerable.Range(1, 14).Select(i => $"Line {i}: something happened when I opened Settings.")));
+            Application.DoEvents();
+            using var form = new Bitmap(feedback.Width, feedback.Height);
+            feedback.DrawToBitmap(form, new Rectangle(Point.Empty, form.Size));
+            form.Save(Path.Combine(dir, $"feedback-{theme}.png"));
         }
     }
 

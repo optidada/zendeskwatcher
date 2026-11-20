@@ -25,6 +25,7 @@ is ready, you get a notification: click it to restart and update now, or it inst
 - Green icon: watching (hover for how many unassigned tickets are waiting). Gray: not signed in, or a problem
   (hover for details).
 - **Take it** on a new-ticket notification assigns the ticket to you and opens it.
+- **Keyboard**, while a notification shows: Ctrl+Alt+O open, Ctrl+Alt+T take it, Ctrl+Alt+S snooze, Ctrl+Alt+X close (the oldest one first).
 - **Catch up** greets you when the app starts: what still needs you since you stopped working last time, and your
   tickets by status. It also comes by itself when your working day starts, and from the tray menu at any time.
 - Wondering why you got a notification, or didn't? Settings → **How it works** explains the rules.

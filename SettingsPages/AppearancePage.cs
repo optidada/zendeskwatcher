@@ -54,12 +54,12 @@ internal sealed class AppearancePage : SettingsPage
     private static readonly int[] VolumeSteps = [25, 50, 75, 100];
     private int SelectedVolume => VolumeSteps[Math.Clamp(_volume.SelectedIndex, 0, VolumeSteps.Length - 1)];
     private readonly ToggleSwitch _commentText = new("Show the comment text in notifications");
-    private readonly ToggleSwitch _edgeGlow = new("Glow at the screen edge for Urgent, important clients and SLA breaches");
+    private readonly ToggleSwitch _edgeGlow = new("Glow at the screen edge for P1, important clients and SLA breaches");
     private readonly Button _testNew = Theme.SecondaryButton("New ticket");
     private readonly Button _testMine = Theme.SecondaryButton("My ticket");
     private readonly Button _testHelp = Theme.SecondaryButton("Colleague");
     private readonly Button _testBurst = Theme.SecondaryButton("Several");
-    private readonly ToolTip _tips = new();
+    private readonly ThemedToolTip _tips = new(); // in the app's colors
 
     /// <summary>The ▶ buttons; the one whose sound plays shows ■ until it ends (checked while one plays).</summary>
     private readonly List<PlayButton> _playButtons = [];

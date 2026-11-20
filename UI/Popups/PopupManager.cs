@@ -14,6 +14,8 @@ public sealed class PopupManager
     private readonly System.Windows.Forms.Timer _awayWatch = new() { Interval = 1000 };
     private bool _wasAway;
     private bool _wasBusy;
+    private bool _wasTyping;
+    private readonly BusyWatch _busyWatch = new();
     private bool _draining;
     private Settings _lastSettings = new();
 
@@ -22,7 +24,88 @@ public sealed class PopupManager
     private TickerBar? _ticker;
     private PopupStacking _mode;
 
-    private sealed record Waiting(NotificationContent Content, Settings Settings, DateTime Since);
+    /// <param name="BusyHeld">Waits because you're very busy typing or clicking (<see cref="Tracking.BusyRule"/>).</param>
+    private sealed record Waiting(NotificationContent Content, Settings Settings, DateTime Since, bool BusyHeld = false);
+
+    /// <summary>Notifications on screen went from none to some (true) or back (false): the shortcuts work only meanwhile.</summary>
+    public Action<bool>? OnScreenChanged { get; set; }
+    private bool _onScreen;
+
+    private void NoteOnScreen()
+    {
+        var any = _visible.Count > 0 || (_ticker?.Count ?? 0) > 0;
+        if (any == _onScreen)
+            return;
+        _onScreen = any;
+        OnScreenChanged?.Invoke(any);
+    }
+
+    /// <summary>
+    /// A keyboard shortcut (Ctrl+Alt+O, T, S or X): the oldest notification on screen (in every style, the card stack
+    /// too) is opened, taken, snoozed or closed, as if its button were clicked. False when there is none, or it has no
+    /// such button (Take it only on new tickets, Snooze where the Snooze button is). Every press is logged.
+    /// </summary>
+    public bool ActOnOldest(PopupForm.Result result)
+    {
+        if (!CanShowPopups())
+        {
+            Log.Info($"Shortcut for {result}: notifications wait while you present or use a full-screen app");
+            return false;
+        }
+        NotificationContent? target = null;
+        Action? act = null;
+        switch (Oldest())
+        {
+            case PopupForm popup:
+                target = popup.Content;
+                act = () => popup.Dismiss(result);
+                break;
+            case NotificationContent item when _ticker is { } ticker:
+                target = item;
+                act = () => ticker.Remove(item, result);
+                break;
+        }
+        if (target is null || act is null)
+        {
+            Log.Info($"Shortcut for {result}: no notification on screen");
+            return false;
+        }
+        if (!Allows(target, result))
+        {
+            Log.Info($"Shortcut for {result}: not on this one ({target.LogName})");
+            return false;
+        }
+        Log.Info($"Shortcut: {result} on {target.LogName}");
+        act();
+        return true;
+    }
+
+    /// <summary>
+    /// The oldest notification on screen, a card or a ticker item (whichever was shown first); null when none. The
+    /// keyboard shortcuts act on it.
+    /// </summary>
+    private object? Oldest()
+    {
+        var card = _visible.Where(p => !p.Leaving && !p.Taken).Select(p => (Item: (object)p, At: _shownAt.GetValueOrDefault(p, DateTime.MaxValue))).MinBy(c => c.At);
+        var item = _ticker is { Count: > 0 } t ? (Item: (object)t.Items[0].Content, At: t.Items[0].ShownAt) : default;
+        if (card.Item is null)
+            return item.Item;
+        if (item.Item is null)
+            return card.Item;
+        return item.At < card.At ? item.Item : card.Item;
+    }
+
+    /// <summary>
+    /// The shortcut works where the button is: Take it on new tickets, Snooze on tickets and their samples. Never on a
+    /// question with two choices ("Colleague away?"): that's answered on purpose, by clicking, not by a key meant for
+    /// a ticket.
+    /// </summary>
+    private static bool Allows(NotificationContent content, PopupForm.Result result) => content.SecondChoice is null || result == PopupForm.Result.Dismiss ? result switch
+    {
+        PopupForm.Result.Take => content.CanTake,
+        PopupForm.Result.Snooze => content.IsTicketNotification || content.ResolvedAction == Notifier.ActionNone, // as PopupForm.SecondButton
+        _ => true
+    } : false;
 
     /// <summary>A notification really appeared (not when it only joins the line; dropped ones never do).</summary>
     public Action<NotificationContent>? Shown { get; set; }
@@ -128,14 +211,25 @@ public sealed class PopupManager
         foreach (var popup in _visible.Where(p => match(p.Content)).ToList())
             popup.Dismiss(PopupForm.Result.None);
         _ticker?.RemoveWhere(match);
+        NoteOnScreen();
         SyncPill();
     }
 
     /// <param name="overLimit">Show it even when the stack is full (the "while you were away" summary).</param>
-    private void Show(NotificationContent content, Settings settings, bool overLimit)
+    /// <param name="mayHold">False when it comes out of the line: it waited enough.</param>
+    private void Show(NotificationContent content, Settings settings, bool overLimit, bool mayHold = true)
     {
         _lastSettings = settings;
         SwitchMode(settings.Stacking);
+        // Very busy (keyboard and mouse nearly every second): ticket notifications other than Urgent wait a little.
+        if (mayHold && !overLimit && settings.HoldWhileBusy && _busyWatch.Busy && Tracking.BusyRule.Holds(content))
+        {
+            _pending.Add(new Waiting(content, settings, DateTime.UtcNow, BusyHeld: true));
+            _busyWatch.NoteHeld(content);
+            _awayWatch.Start();
+            SyncPill();
+            return;
+        }
         // Presenting or full screen: wait in line, quietly, until it's over (WatchAway notices and shows them).
         // Achievements come one at a time, even the "while you were away" summary (it's next in line then).
         var full = !HasRoom(settings) && !(overLimit && settings.Stacking != PopupStacking.Achievement);
@@ -149,7 +243,7 @@ public sealed class PopupManager
         // Nothing on screen yet: this one, and the ones that join it, go to the monitor you're working on.
         if (_visible.Count == 0 && (_ticker?.Count ?? 0) == 0)
             NotificationScreen.FollowMouse();
-        if (settings.Stacking == PopupStacking.Ticker)
+        if (settings.Stacking == PopupStacking.Ticker && content.SecondChoice is null) // two choices need buttons: a card
         {
             ShowInTicker(content, settings);
             return;
@@ -170,6 +264,7 @@ public sealed class PopupManager
         popup.PauseWhenAway = settings.PausePopupsWhenAway;
         _visible.Add(popup);
         _shownAt[popup] = DateTime.UtcNow;
+        NoteOnScreen();
         Log.Info($"Notification shown ({_visible.Count} on screen): {content.LogName}");
         _awayWatch.Start();
         UpdateTurns();
@@ -221,6 +316,7 @@ public sealed class PopupManager
     {
         _visible.Remove(popup);
         _shownAt.Remove(popup);
+        NoteOnScreen();
         Log.Info($"Notification closed ({popup.Outcome}): {popup.Content.LogName}");
         UpdateTurns();
         _onClosed(popup.Content, popup.Outcome);
@@ -250,6 +346,9 @@ public sealed class PopupManager
                 break;
             case PopupForm.Result.Snooze:
                 _onSnooze(content);
+                break;
+            case PopupForm.Result.Second when content.SecondChoice is { } second:
+                _onAction(second.Action, content.TicketId);
                 break;
         }
     }
@@ -304,6 +403,7 @@ public sealed class PopupManager
             _ticker = new TickerBar();
             _ticker.Finished += (item, outcome) =>
             {
+                NoteOnScreen();
                 _onClosed(item, outcome);
                 Act(item, outcome, null);
                 _ = DrainAsync();
@@ -314,6 +414,7 @@ public sealed class PopupManager
         _ticker.Add(content, settings.DisplaySecondsFor(content), PopupPalette.For(settings.ActiveNotificationTheme), settings.ActiveNotificationTheme,
             DpiScale(), Math.Clamp(settings.NotificationSize, 100, 200) / 100f, TickerBar.AtTop(settings), NotificationScreen.FontRatio);
         _awayWatch.Start();
+        NoteOnScreen();
         Announce(content, settings);
     }
 
@@ -327,13 +428,15 @@ public sealed class PopupManager
         _draining = true;
         try
         {
-            while (_pending.Count > 0 && HasRoom(_pending[0].Settings) && CanShowPopups())
+            while (CanShowPopups() && _pending.FindIndex(w => !HeldByBusy(w)) is var index and >= 0 && HasRoom(_pending[index].Settings))
             {
-                var next = _pending[0];
-                _pending.RemoveAt(0);
+                var next = _pending[index];
+                _pending.RemoveAt(index);
+                if (next.BusyHeld)
+                    _busyWatch.NoteReleased(next.Content, DateTime.UtcNow - next.Since, calm: !_busyWatch.Busy);
                 if (WaitedLong(next.Content, next.Settings, next.Since) && (await CheckAsync([next.Content], deep: true)).Count == 0)
                     continue;
-                Show(next.Content, next.Settings);
+                Show(next.Content, next.Settings, overLimit: false, mayHold: false);
             }
         }
         finally
@@ -342,6 +445,10 @@ public sealed class PopupManager
             SyncPill(); // some were dropped as no longer needed
         }
     }
+
+    /// <summary>Still waiting because you're very busy (and not for too long yet).</summary>
+    private bool HeldByBusy(Waiting w) =>
+        w.BusyHeld && _lastSettings.HoldWhileBusy && _busyWatch.Busy && DateTime.UtcNow - w.Since < Tracking.BusyRule.MaxHold;
 
     private static bool WaitedLong(NotificationContent content, Settings settings, DateTime since) =>
         content.IsTicketNotification && content.TicketId is not null && DateTime.UtcNow - since >= Settings.RecheckWaitingAfter;
@@ -388,6 +495,13 @@ public sealed class PopupManager
             _ = CameBackThenDrainAsync(_lastSettings);
         }
         _wasAway = away;
+        // Very busy: held ones come out once you calm down, or after the longest wait.
+        var typing = _busyWatch.Busy;
+        if (_wasTyping && !typing && _pending.Count(w => w.BusyHeld && w.Content.IsTicketNotification) > Settings.SummarizeWaitingAbove)
+            _ = CameBackThenDrainAsync(_lastSettings, afterBusy: true); // many: one summary, like coming back
+        else if (_pending.Any(w => w.BusyHeld && !HeldByBusy(w)))
+            _ = DrainAsync();
+        _wasTyping = typing;
         if (_visible.Count == 0 && _pending.Count == 0 && (_ticker?.Count ?? 0) == 0)
         {
             _awayWatch.Stop();
@@ -395,9 +509,9 @@ public sealed class PopupManager
         }
     }
 
-    private async Task CameBackThenDrainAsync(Settings settings)
+    private async Task CameBackThenDrainAsync(Settings settings, bool afterBusy = false)
     {
-        await CameBackAsync(settings);
+        await CameBackAsync(settings, afterBusy);
         await DrainAsync(); // held while presenting: their turn now
     }
 
@@ -405,7 +519,8 @@ public sealed class PopupManager
     /// The user is back: outdated notifications on screen close quietly, and more than
     /// <see cref="Settings.SummarizeWaitingAbove"/> waiting ones become one "while you were away" summary.
     /// </summary>
-    private async Task CameBackAsync(Settings settings)
+    /// <param name="afterBusy">After a very busy spell (not away): "While you were busy".</param>
+    private async Task CameBackAsync(Settings settings, bool afterBusy = false)
     {
         var tickets = _pending.Where(w => w.Content.IsTicketNotification).ToList();
         if (tickets.Count > Settings.SummarizeWaitingAbove)
@@ -416,8 +531,11 @@ public sealed class PopupManager
             var kept = await CheckAsync(contents, deep: false);
             if (kept.Count > Settings.SummarizeWaitingAbove)
             {
-                Log.Info($"Back after being away: {contents.Count} waiting notifications, {kept.Count} still needed; showing a summary");
-                Show(Notifier.AwaySummary(kept, contents.Count - kept.Count) with { Style = settings.SummaryStyle }, settings, overLimit: true);
+                Log.Info($"{(afterBusy ? "No longer busy" : "Back after being away")}: {contents.Count} waiting notifications, {kept.Count} still needed; showing a summary");
+                foreach (var w in tickets.Where(w => w.BusyHeld))
+                    _busyWatch.NoteReleased(w.Content, DateTime.UtcNow - w.Since, calm: !_busyWatch.Busy);
+                Show(Notifier.AwaySummary(kept, contents.Count - kept.Count, afterBusy ? "While you were busy" : "While you were away")
+                    with { Style = settings.SummaryStyle }, settings, overLimit: true);
             }
             else
             {

@@ -11,7 +11,7 @@ public sealed class ThemedCheckBox : CheckBox
 {
     private bool _hover;
 
-    /// <summary>A priority ("urgent" … "low") shown as a colored tag after the text: "Urgent [P1]".</summary>
+    /// <summary>A priority ("urgent" … "low") shown as a colored tag after the text: "[P1]".</summary>
     [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public string? Priority { get; set; }
 

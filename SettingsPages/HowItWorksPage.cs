@@ -33,7 +33,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Tickets that came in while the app was closed come too, if they're still unassigned when it starts.",
                 "Each monitored group can notify for all priorities or only the higher ones (Notifications → New tickets); " +
                 "the others stay quiet and aren't counted. If one is raised while still unassigned, it comes then as “Priority " +
-                "raised”. Important clients always come.",
+                "raised”; the same when a client set to Only P1 and P2 gets a ticket raised to P1 or P2. Important clients always come.",
                 "My products (Groups → Products): pick the products you work with, from the ticket's Product field. " +
                 "New tickets for other products then stay quiet and aren't counted, except the priorities you choose under " +
                 "“Other products notify” (P1 and P2 to begin with). Nothing picked: every product comes. Tickets assigned to " +
@@ -57,17 +57,23 @@ internal sealed class HowItWorksPage : SettingsPage
             "On the [[Groups → Clients|Clients]] page, untick a client (or a whole group) to mute it, or use Options ▾ for more. " +
             "Options ▾ on a group's row sets it for all its clients at once, and Options ▾ on a notification's client line " +
             "does the same for one client. On your own and CC'd tickets it only offers Normal and Important: those always " +
-            "notify, so muting and Only urgent don't apply there.",
+            "notify, so muting and Only P1 and P2 don't apply there.",
             [
                 "Important ★: always notifies, also outside your hours and for priorities you left out, and stays until you close it.",
-                "Only urgent: notifies just for Urgent (P1) and High (P2).",
+                "Only P1 and P2: notifies just for those priorities.",
+                "Together with a group's priorities ([[Notifications → New tickets|Notifications/New tickets]]) the stricter one wins: a " +
+                "group on All and a client on Only P1 and P2 gives only that client's P1 and P2. Important is the exception: it " +
+                "comes even when the group is set to fewer priorities.",
                 "Mute for a while: until your shift ends, until your next shift ([[your working hours|Notifications/Working hours]]), or for a week.",
                 "A sound of its own, so you know who it is before you look.",
-                "Muting and “only urgent” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
+                "Muting and “Only P1 and P2” are about new tickets and colleagues' tickets. Your own and CC'd tickets always notify, " +
                 "whatever the client.",
                 "The list comes from the last 90 days of tickets in your monitored groups.",
-                "A choice is for the client, in every group. Choices made in a group you no longer monitor still count: that " +
-                "group shows greyed at the end of the list, and Clear forgets them.",
+                "A choice applies only in the group where you made it: mute a client in Tier 1 and their tickets in other " +
+                "groups still notify. A ticket moved to another group follows that group's choice. Choices made before " +
+                "version 1.9.8 apply in every group until you change them in one.",
+                "Choices in a group you no longer monitor are kept: that group shows greyed at the end of the list, and " +
+                "Clear forgets them.",
                 "All · Worked with · Not worked with shows only the clients you've had a ticket from in that group in the " +
                 "last 90 days (“you 6” after the name), or only the others. It only changes what's shown: a group's tick " +
                 "box and Options ▾ then apply to those, e.g. Not worked with, untick the group, tick back the few to keep.",
@@ -85,7 +91,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Changes on your tickets: when someone else replies, adds an internal note, or changes the status, priority or " +
                 "assignee, you get a notification with what happened. Your own changes never notify.",
                 "Which changes (Notifications → Which changes) and which priorities count: the ticket's current priority; none " +
-                "counts as Normal. CC / following starts with Urgent (P1) and High (P2).",
+                "counts as P3. CC / following starts with P1 and P2.",
                 "Status changes leave out New → Open, Solved → Closed, and a ticket reopened by a reply (the reply says it). " +
                 "Custom statuses count too, e.g. In progress → Escalated.",
                 "Automatic updates stay quiet: the auto-reply and group move on a new ticket, and changes by Zendesk triggers or " +
@@ -139,7 +145,10 @@ internal sealed class HowItWorksPage : SettingsPage
                 "person who opened it.",
                 "Colleagues are chosen by region: newcomers follow their region's tick, and you can tick or untick people one by " +
                 "one. Your own region starts unticked: they usually work when you do.",
-                "Not for [[muted clients|How it works/Clients]], and only Urgent (P1) and High (P2) for “only urgent” ones.",
+                "Cover today: 3 hours into your working day, a colleague in your region with open tickets in the groups you " +
+                "cover who has done nothing in Zendesk since their day started (e.g. off sick or on holiday) gets one question, once a day. “Cover today” " +
+                "covers them until midnight, as if ticked here (shown with “today”); untick to stop. “Always” ticks them for good.",
+                "Not for [[muted clients|How it works/Clients]], and only P1 and P2 for clients set to “Only P1 and P2”.",
                 "My products count here too (Groups → Products): a colleague's ticket for another product only comes " +
                 "with the priorities chosen for other products.",
                 "Only while you're working yourself, if you chose that; Catch up brings up what was held back."
@@ -149,14 +158,18 @@ internal sealed class HowItWorksPage : SettingsPage
             "had to wait, and Snooze.",
             "On the Behavior page.",
             [
-                "How long a ticket notification stays: Short, Normal or Long, then by priority; Urgent stays until you close it. " +
+                "How long a ticket notification stays: Short, Normal or Long, then by priority; P1 stays until you close it. " +
                 "Pointing at one pauses its countdown.",
                 "Away means the screen is locked, or no mouse or keyboard for a minute. While you present or use a full-screen " +
                 "app, notifications wait silently, so nothing pops up over your screen.",
+                "Very busy means keyboard or mouse nearly every second for about 3 minutes. Then ticket notifications wait until you " +
+                "slow down, at most 10 minutes; P1 tickets, important clients and SLAs due within 15 minutes never wait (a switch on that page turns it off). Only how often you type or click counts, never what.",
                 "[[Already handled|Behavior/Already handled]]: when you're back, notifications that waited 15 minutes or more are checked again and dropped if " +
                 "the ticket was taken, solved or closed, or (if you choose) already answered by someone.",
                 "[[Snooze|Behavior/Snooze]] brings a notification back after the time you chose, but only if the ticket still needs you.",
-                "Several at once take turns instead of piling up."
+                "Several at once take turns instead of piling up.",
+                "Keyboard, while a notification is on screen: Ctrl+Alt+O opens the oldest one, Ctrl+Alt+T takes it (new " +
+                "tickets), Ctrl+Alt+S snoozes it, Ctrl+Alt+X closes it."
             ]),
         new("Look & sound",
             "How notifications look and sound, from a classic list in the corner to a small pill at the top of the screen.",
@@ -166,7 +179,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "along the screen edge, or Achievement (one at a time, with a short tune).",
                 "With more than one monitor, notifications appear on the one you're working on (where the mouse is). The " +
                 "ones that follow join them there until all are gone; then the next ones again go where the mouse is.",
-                "Glow at the screen edge: urgent tickets, SLAs breached or due within 15 minutes and important clients make the " +
+                "Glow at the screen edge: P1 tickets, SLAs breached or due within 15 minutes and important clients make the " +
                 "screen edges pulse briefly, so you notice them even when you look away.",
                 "A sound per kind of notification, and a volume for all of them (this app only).",
                 "Show the comment text: what the client wrote on new tickets, and replies and notes on changes. When off, " +
@@ -210,7 +223,7 @@ internal sealed class HowItWorksPage : SettingsPage
                 "Counted on this PC only; nothing is sent anywhere.",
                 "[[Team workload|Insights]]: everyone in your monitored groups (or the one group you pick) who is in working hours " +
                 "(in their Zendesk time zone; people off work aren't shown), and their open tickets there. The bar counts open and " +
-                "In progress tickets twice, Urgent and High once more, escalated, scheduled and waiting ones once, like the " +
+                "In progress tickets twice, P1 and P2 once more, escalated, scheduled and waiting ones once, like the " +
                 "suggestions next to Take it. Read while the page is open (at most every 10 minutes); each group's last result " +
                 "shows right away."
             ]),

@@ -161,6 +161,43 @@ public static class Theme
     [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern int SetWindowTheme(IntPtr hwnd, string? appName, string? idList);
 
+    /// <summary>
+    /// A tick box as every list in the app draws it: ticked (accent fill), empty (a neutral outline, accent when
+    /// pointed at), mixed (null, a dash), or ticked for a while only (an accent outline and tick).
+    /// </summary>
+    public static void DrawTickBox(Graphics g, RectangleF box, bool? state, bool hover, float s, bool active, bool temporary = false)
+    {
+        using var path = Theme.RoundedRect(box, 3 * s);
+        if (temporary && state is true)
+        {
+            // Ticked for a while only: an accent outline and tick, no fill.
+            var color = active ? Theme.Accent : Theme.Neutral;
+            using var outline = new Pen(color, 1.5f * s);
+            g.DrawPath(outline, path);
+            using var tick = new Pen(color, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLines(tick, [
+                new PointF(box.X + 4 * s, box.Y + 8.5f * s), new PointF(box.X + 7 * s, box.Y + 11.5f * s), new PointF(box.X + 12 * s, box.Y + 5 * s)
+            ]);
+            return;
+        }
+        if (state is false)
+        {
+            using var border = new Pen(active && hover ? Theme.Accent : Theme.Neutral, 1.2f * s);
+            g.DrawPath(border, path);
+            return;
+        }
+        using var fill = new SolidBrush(active ? Theme.Accent : Theme.Border);
+        g.FillPath(fill, path);
+        using var mark = new Pen(active ? Theme.OnAccent : Theme.Surface, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        if (state is true)
+            g.DrawLines(mark, [
+                new PointF(box.X + 4 * s, box.Y + 8.5f * s), new PointF(box.X + 7 * s, box.Y + 11.5f * s), new PointF(box.X + 12 * s, box.Y + 5 * s)
+            ]);
+        else
+            g.DrawLine(mark, box.X + 4 * s, box.Y + 8 * s, box.X + 12 * s, box.Y + 8 * s);
+    }
+
+
     public const string FontFamily = "Segoe UI";
     public static readonly Font Body = new(FontFamily, 9.75f);
     public static readonly Font BodyBold = new(FontFamily, 9.75f, FontStyle.Bold);
@@ -628,113 +665,6 @@ public sealed class InputBox : Panel
             g.DrawLine(pen, cx - r, cy + r, cx + r, cy - r);
         }
     }
-}
-
-/// <summary>A ListView that paints without flicker and whose single column always fills the width.</summary>
-public sealed class SmoothListView : ListView
-{
-    public SmoothListView()
-    {
-        DoubleBuffered = true;
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-    }
-
-    public void FitColumn()
-    {
-        if (Columns.Count == 1)
-            Columns[0].Width = Math.Max(50, VisibleWidth is { } visible ? visible : ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
-    }
-
-    /// <summary>When the list is wider than what shows (its own scrollbar cut off): the width the column fits in.</summary>
-    [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    public int? VisibleWidth
-    {
-        get => _visibleWidth;
-        set { _visibleWidth = value; FitColumn(); }
-    }
-
-    private int? _visibleWidth;
-
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        FitColumn();
-    }
-
-    protected override void OnResize(EventArgs e)
-    {
-        base.OnResize(e);
-        FitColumn();
-    }
-
-    // ---- For a themed scrollbar (ThinScrollBar) instead of the Windows one, and themed tick boxes (set by the owner).
-
-    /// <summary>The list scrolled (or its content changed so the scroll range did).</summary>
-    public event Action? ScrollChanged;
-
-    private (int, int, int, int)? _lastScroll;
-
-    /// <summary>Windows applied a new visual style and reset the tick boxes: set the themed ones again.</summary>
-    public event Action? ThemeChanged;
-
-    /// <summary>Vertical scroll range, page and position (pixels in group view); null without a handle.</summary>
-    public (int Min, int Max, int Page, int Pos)? VerticalScrollState()
-    {
-        if (!IsHandleCreated)
-            return null;
-        var info = new SCROLLINFO { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<SCROLLINFO>(), fMask = 0x17 /* SIF_ALL */ };
-        if (!GetScrollInfo(Handle, 1 /* SB_VERT */, ref info))
-            return (0, 0, 0, 0); // no scrollbar: nothing to scroll
-        return (info.nMin, info.nMax, (int)info.nPage, info.nPos);
-    }
-
-    public void ScrollToPosition(int position)
-    {
-        if (VerticalScrollState() is not { } s)
-            return;
-        var target = Math.Clamp(position, s.Min, Math.Max(s.Min, s.Max - s.Page + 1));
-        if (target != s.Pos)
-            SendMessage(Handle, 0x1014 /* LVM_SCROLL */, IntPtr.Zero, target - s.Pos);
-    }
-
-    protected override void WndProc(ref Message m)
-    {
-        base.WndProc(ref m);
-
-        // A new visual style (SetWindowTheme for dark/light lists, or Windows' own theme): Windows replaces the tick
-        // boxes with its own then, faint on dark themes. The owner puts its themed ones back (after this message).
-        if (m.Msg == 0x031A /* WM_THEMECHANGED */ && CheckBoxes && IsHandleCreated)
-            BeginInvoke(() => ThemeChanged?.Invoke());
-
-        // Every way of scrolling ends in a repaint, so that's where the scrollbar learns about it.
-        if (m.Msg is 0x000F or 0x0115 /* WM_VSCROLL */ or 0x020A /* WM_MOUSEWHEEL */)
-        {
-            var state = VerticalScrollState();
-            var key = state is { } s ? (s.Min, s.Max, s.Page, s.Pos) : ((int, int, int, int)?)null;
-            if (key != _lastScroll)
-            {
-                _lastScroll = key;
-                ScrollChanged?.Invoke();
-            }
-        }
-    }
-
-    private static GraphicsPath RoundedRect(RectangleF r, float radius) => Theme.RoundedRect(r, radius);
-
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct SCROLLINFO
-    {
-        public uint cbSize, fMask;
-        public int nMin, nMax;
-        public uint nPage;
-        public int nPos, nTrackPos;
-    }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool GetScrollInfo(IntPtr hwnd, int bar, ref SCROLLINFO info);
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, int lParam);
 }
 
 /// <summary>A selectable tile with a miniature preview of a notification theme.</summary>

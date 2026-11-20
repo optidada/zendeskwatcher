@@ -22,7 +22,7 @@ internal sealed class ClientsPage : SettingsPage
     private readonly Label _clear = Kit.LinkLabel("Clear customizations", Theme.Small);
 
     public ClientsPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Options: important, only urgent, its own sound or mute for a while.")
+        : base(context, "Clients", "Untick a client, or a whole group, to mute it. Options: important, only P1 and P2, its own sound or mute for a while.")
     {
         _groups = groups;
         _clients.GroupName = id => _groups.AllGroups.FirstOrDefault(g => g.Id == id)?.Name;

@@ -643,6 +643,30 @@ public sealed class SettingsForm : Form
         return true;
     }
 
+    /// <summary>"Cover today" from a notification while Settings is open: the Colleagues page shows the tick.</summary>
+    internal void CoveredTodaySaved(long id, string name)
+    {
+        var wasDirty = HasUnsavedChanges;
+        Result = Result.Clone();
+        Result.CoverToday(id, name);
+        (_pages[HelpIndex] as HelpColleaguesPage)?.Card.CoverToday(id, name, Result.HelpCoveredToday.First(c => c.Id == id).Until);
+        if (!wasDirty)
+            _savedSnapshot = Snapshot();
+        UpdateSaveState();
+    }
+
+    /// <summary>"Always" from a notification while Settings is open: the Colleagues page shows the tick.</summary>
+    internal void CoveredAlwaysSaved(long id, string name)
+    {
+        var wasDirty = HasUnsavedChanges;
+        Result = Result.Clone();
+        Result.CoverAlways(id, name);
+        (_pages[HelpIndex] as HelpColleaguesPage)?.Card.CoverAlways(id, name);
+        if (!wasDirty)
+            _savedSnapshot = Snapshot();
+        UpdateSaveState();
+    }
+
     /// <summary>
     /// A client choice was made from a notification (already saved): the Clients page shows it, and it counts as
     /// saved, so it's neither an unsaved change nor lost when other changes are saved.
@@ -752,6 +776,7 @@ public sealed class SettingsForm : Form
                 HelpColleagues = true, HelpSameAsMonitored = true, HelpGroups = [new WatchedGroup { Id = 4, Name = "Onboarding" }],
                 HelpRegionDefaultDone = true, HelpOffRegions = [TimeRegion.EuropeAfrica],
                 HelpExcludedAssignees = [new Colleague { Id = 13, Name = "Milton Waddams" }],
+                HelpCoveredToday = [new TodayCover { Id = 10, Name = "Samir Nagheenanajar", Until = TodayCover.Midnight() }], // Europe: "today"
                 WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }, new WatchedGroup { Id = 2, Name = "Premium Support" }, new WatchedGroup { Id = 3, Name = "Billing" }],
                 NewTicketPriorities = new() { [1] = ["urgent", "high"] },
                 Clients = [new ClientChoice { Id = 23, Name = "Chotchkie's", GroupId = 1, Mode = ClientMode.Important, IsMuted = true },
@@ -796,10 +821,15 @@ public sealed class SettingsForm : Form
             form.Show();
             Application.DoEvents();
             form._groups.ShowSample(new() { [3] = new Suggestion(false, 2), [4] = new Suggestion(true, 6) },
-                [new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding"), new GroupItem(5, "Partner Support")]);
+                [new GroupItem(1, "Support Tier 2"), new GroupItem(2, "Premium Support"), new GroupItem(3, "Billing"), new GroupItem(4, "Onboarding"), new GroupItem(5, "Partner Support"),
+                 // enough to scroll, as real accounts do (the list then looks as it does there)
+                 new GroupItem(6, "Commerce Support"), new GroupItem(7, "Content Cloud"), new GroupItem(8, "Data Platform"),
+                 new GroupItem(9, "Escalations"), new GroupItem(10, "Experimentation"), new GroupItem(11, "Managed Services"),
+                 new GroupItem(12, "Professional Services"), new GroupItem(13, "Training")]);
 
             // Shown as if signed in, with sample group members (cached, so nothing is requested).
             form._context.SetSession(new ZendeskClient(settings, new SignedOutSession()), new User { Id = 99, Name = "Sample Agent" });
+            Tracking.AwayToday.Set(DateTime.Today, [9]); // Peter Gibbons: no activity today (amber dot)
             form.Help.Card.ShowSample(new()
             {
                 [1] = [new(9, "Peter Gibbons", "Europe/Stockholm"), new(10, "Samir Nagheenanajar", "Europe/Stockholm"), new(11, "Joanna", "America/New_York"),
@@ -852,6 +882,42 @@ public sealed class SettingsForm : Form
                 filtered.Save(Path.Combine(dir, $"{theme}-{ClientsIndex}-filtered.png"));
             }
             form.BuiltClients?.ShowFilter("");
+
+            // A tooltip in this theme (they only show while pointing, so drawn on their own).
+            {
+                const string tip = "Maurice Moss · Europe/London · covered today, until midnight";
+                var tipSize = ThemedToolTip.Measure(tip, 1f);
+                using var tipImage = new Bitmap(tipSize.Width + 20, tipSize.Height + 20, System.Drawing.Imaging.PixelFormat.Format24bppRgb); // no alpha: smoothed text draws as on screen
+                using (var tg = Graphics.FromImage(tipImage))
+                {
+                    tg.Clear(Theme.Window);
+                    ThemedToolTip.Paint(tg, new Rectangle(10, 10, tipSize.Width, tipSize.Height), tip, (Theme.Surface, Theme.Border, Theme.Text), 1f);
+                }
+                tipImage.Save(Path.Combine(dir, $"{theme}-tooltip.png"));
+            }
+
+            // Groups with the mouse over a monitored row: the hover background, as on Clients.
+            form.SelectPage(GroupsIndex);
+            Application.DoEvents();
+            form._groups.ShowHoverForRender(1);
+            Application.DoEvents();
+            using (var hover = new Bitmap(form.Width, form.Height))
+            {
+                form.DrawToBitmap(hover, new Rectangle(Point.Empty, hover.Size));
+                hover.Save(Path.Combine(dir, $"{theme}-{GroupsIndex}-hover.png"));
+            }
+            form._groups.ShowHoverForRender(-1);
+
+            // Products with nothing picked: the band that says every product notifies.
+            form.SelectPage(ProductsIndex);
+            Application.DoEvents();
+            (form._pages[ProductsIndex] as ProductsPage)?.RemoveAll();
+            Application.DoEvents();
+            using (var empty = new Bitmap(form.Width, form.Height))
+            {
+                form.DrawToBitmap(empty, new Rectangle(Point.Empty, empty.Size));
+                empty.Save(Path.Combine(dir, $"{theme}-{ProductsIndex}-empty.png"));
+            }
 
             // Groups, Clients and Colleagues while signed out: the strip, read-only lists.
             form._context.SetSignedOut(true);

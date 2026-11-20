@@ -75,7 +75,7 @@ public class StatsInsightsTests
 
         var text = Assert.Single(Analyze()).Text;
         Assert.Contains("closed 60% of CC / following notifications", text);
-        Assert.Contains("Only Urgent (P1)", text); // default is Urgent and High
+        Assert.Contains("Only P1 for CC", text); // default is P1 and P2
     }
 
     [Fact]

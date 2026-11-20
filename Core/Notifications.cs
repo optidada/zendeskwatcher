@@ -58,6 +58,16 @@ public static class NotificationActions
 
     public static string Assign(long userId, string name) => $"{AssignPrefix}{userId}:{name}";
 
+    /// <summary>Covers a colleague for today ("Cover today"): "cover:", their user id, ":" and their name.</summary>
+    public const string CoverPrefix = "cover:";
+
+    public static string Cover(long userId, string name) => $"{CoverPrefix}{userId}:{name}";
+
+    /// <summary>Covers a colleague for good (ticked on Colleagues): "coveralways:", their user id, ":" and their name.</summary>
+    public const string CoverAlwaysPrefix = "coveralways:";
+
+    public static string CoverAlways(long userId, string name) => $"{CoverAlwaysPrefix}{userId}:{name}";
+
     /// <summary>Opens a web page: "url:" and the address (e.g. the release notes).</summary>
     public const string UrlPrefix = "url:";
 

@@ -71,6 +71,28 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _catchUpItem = new("Catch up");
     private readonly GlobalHotkey _catchUpHotkey;
 
+    /// <summary>Ctrl+Alt+O/T/S/X for the oldest notification: registered only while one is on screen (the keys stay
+    /// free for other programs the rest of the time).</summary>
+    private readonly List<GlobalHotkey> _notificationHotkeys = [];
+
+    private void SetNotificationHotkeys(bool on)
+    {
+        foreach (var hotkey in _notificationHotkeys)
+            hotkey.Dispose();
+        _notificationHotkeys.Clear();
+        if (!on)
+            return;
+        foreach (var (key, result, what) in new[]
+                 {
+                     (Keys.O, UI.Popups.PopupForm.Result.Open, "open the oldest notification"),
+                     (Keys.T, UI.Popups.PopupForm.Result.Take, "take it"),
+                     (Keys.S, UI.Popups.PopupForm.Result.Snooze, "snooze it"),
+                     (Keys.X, UI.Popups.PopupForm.Result.Dismiss, "close it")
+                 })
+            _notificationHotkeys.Add(new GlobalHotkey(key, control: true, alt: true, shift: false, win: false,
+                () => _notifier.ActOnOldest(result), what, quiet: true));
+    }
+
     /// <summary>Catch up was asked for: runs right after the next check (which is started at once).</summary>
     private bool _catchUpRequested;
 
@@ -98,6 +120,9 @@ public sealed class TrayAppContext : ApplicationContext
         UI.SoundVolume.Apply(_settings.SoundVolume); // Look & sound → Volume, also for previews before any notification
         _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _notifier = new Notifier(HandleAction) { Settings = _settings, StillNeeded = StillNeededAsync };
+        // Posted, not called: closing the last notification by a shortcut runs inside that shortcut's own message,
+        // and its window mustn't go away while it handles it.
+        _notifier.NotificationsOnScreenChanged += on => _ui.Post(_ => SetNotificationHotkeys(on), null);
         _notifier.ClientChoiceRequested += SetClientChoice;
 
         var menu = new ContextMenuStrip();
@@ -216,6 +241,14 @@ public sealed class TrayAppContext : ApplicationContext
             case var assign when assign.StartsWith(NotificationActions.AssignPrefix, StringComparison.Ordinal) && ticketId is { } assignId:
                 var parts = assign[NotificationActions.AssignPrefix.Length..].Split(':', 2);
                 _ = AssignTicketAsync(assignId, long.Parse(parts[0]), parts[1]);
+                break;
+            case var always when always.StartsWith(NotificationActions.CoverAlwaysPrefix, StringComparison.Ordinal):
+                var person = always[NotificationActions.CoverAlwaysPrefix.Length..].Split(':', 2);
+                CoverAlways(long.Parse(person[0]), person[1]);
+                break;
+            case var cover when cover.StartsWith(NotificationActions.CoverPrefix, StringComparison.Ordinal):
+                var who = cover[NotificationActions.CoverPrefix.Length..].Split(':', 2);
+                CoverToday(long.Parse(who[0]), who[1]);
                 break;
             case Notifier.ActionUpdate:
                 _updates.RestartToUpdate();
@@ -470,6 +503,41 @@ public sealed class TrayAppContext : ApplicationContext
     }
 
     /// <summary>
+    /// "Cover today" on the question about a colleague who hasn't been active: covered until midnight, as if ticked on
+    /// Colleagues; saved right away (the checks share these settings). An open Settings window takes it over too.
+    /// </summary>
+    private void CoverToday(long id, string name)
+    {
+        _settings.CoverToday(id, name);
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not save settings after Cover today", ex);
+        }
+        Log.Info($"Covering user {id} today");
+        _settingsForm?.CoveredTodaySaved(id, name); // no confirmation: the question already said what Cover today does
+    }
+
+    /// <summary>"Always" on the question about a colleague who hasn't been active: ticked on Colleagues for good, saved right away.</summary>
+    private void CoverAlways(long id, string name)
+    {
+        _settings.CoverAlways(id, name);
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Could not save settings after covering a colleague", ex);
+        }
+        Log.Info($"Covering user {id} from now on");
+        _settingsForm?.CoveredAlwaysSaved(id, name); // no confirmation: the question already said what Always does
+    }
+
+    /// <summary>
     /// A choice from a notification's "Options ▾" menu: saved right away for the client (Clients page). The checks share
     /// this settings object, so the next check already uses it. An open Settings window takes it over too.
     /// </summary>
@@ -535,11 +603,14 @@ public sealed class TrayAppContext : ApplicationContext
                 WakeUp();          // and the greeting comes
             }
             _settingsForm = null;
+            // A choice from a notification while the window was open (Cover today, a client's Options ▾) left it a
+            // copy of the settings: the checks restart with that one, or later choices wouldn't reach them.
+            var replaced = !ReferenceEquals(_settings, form.Result);
             _settings = form.Result; // the last saved settings
             UI.SoundVolume.Apply(_settings.SoundVolume); // not what ▶ tried, if that wasn't saved
             MemoryTrim.Soon();       // the window and its controls are gone (closed forms dispose themselves)
-            if (_loopCts is null)
-                Start(openSettingsIfNeeded: false); // was paused (or never started): resume
+            if (_loopCts is null || replaced)
+                Start(openSettingsIfNeeded: false); // was paused (or never started), or has the window's copy: (re)start
         };
         form.Show();
         form.Activate();
@@ -635,6 +706,7 @@ public sealed class TrayAppContext : ApplicationContext
         _loopCts?.Cancel();
         _updates.Dispose();
         _catchUpHotkey.Dispose();
+        SetNotificationHotkeys(false); // the notification shortcuts too
         _tray.Dispose();
         _browser?.Dispose();
         base.ExitThreadCore();

@@ -177,6 +177,27 @@ public class UnassignedTicketTests
     }
 
     [Fact]
+    public async Task An_only_urgent_clients_ticket_raised_to_high_comes_as_priority_raised()
+    {
+        _zendesk.Organizations[70] = "Contoso";
+        _settings.SetClientChoice(new ClientChoice { Id = 70, Name = "Contoso", GroupId = 10, Mode = ClientMode.OnlyUrgent });
+        var watcher = await StartAsync();
+        await watcher.PollAsync(CancellationToken.None);
+
+        var ticket = _zendesk.AddUnassigned(103);
+        ticket.OrganizationId = 70;
+        ticket.Priority = "normal";
+        await watcher.PollAsync(CancellationToken.None);
+        Assert.Empty(TakeShown()); // the group takes All, but the client only urgent: the stricter wins
+
+        ticket.Priority = "high";
+        await watcher.PollAsync(CancellationToken.None);
+        var shown = Assert.Single(TakeShown());
+        Assert.Equal("Priority raised", shown.Heading);
+        Assert.Equal(103, shown.TicketId);
+    }
+
+    [Fact]
     public async Task Unticked_priorities_stay_quiet_until_raised()
     {
         _settings.NewTicketPriorities[10] = ["urgent", "high"];

@@ -85,27 +85,53 @@ public sealed class Settings
     /// shown once, your own region counts as unticked (<see cref="HelpRegionDefaultDone"/>).
     /// </summary>
     public bool CoversColleague(long id, TimeRegion region, TimeRegion myRegion) =>
-        HelpOffRegions.Contains(region) || (HelpRegionDefaultDone != true && region == myRegion)
+        CoveredToday(id) ||
+        (HelpOffRegions.Contains(region) || (HelpRegionDefaultDone != true && region == myRegion)
             ? HelpIncludedAssignees.Any(c => c.Id == id)
-            : HelpExcludedAssignees.All(c => c.Id != id);
+            : HelpExcludedAssignees.All(c => c.Id != id));
 
     /// <summary>
-    /// Choices per client (Zendesk organization) on the Clients page or from a notification: muted (for good or for a
-    /// while), only urgent, important, an own sound. Only clients with a choice are stored; everyone else is Normal,
-    /// so new clients are included automatically. See <see cref="ClientChoice"/>.
+    /// Colleagues covered for today only ("Cover today" when one hasn't been active, <see cref="TodayCover"/>): as if
+    /// ticked on Colleagues, until midnight. Shown ticked there with "today".
+    /// </summary>
+    public List<TodayCover> HelpCoveredToday { get; set; } = [];
+
+    /// <summary>Covered for today (until <see cref="TodayCover.Until"/>).</summary>
+    public bool CoveredToday(long id) => HelpCoveredToday.Any(c => c.Id == id && c.Until > DateTimeOffset.UtcNow);
+
+    /// <summary>"Always" on the question about a colleague who hasn't been active: ticked on Colleagues for good.</summary>
+    public void CoverAlways(long id, string name)
+    {
+        // New lists instead of changing them: the checks read them meanwhile, on another thread.
+        HelpCoveredToday = [.. HelpCoveredToday.Where(c => c.Id != id)];
+        HelpExcludedAssignees = [.. HelpExcludedAssignees.Where(c => c.Id != id)];
+        if (HelpIncludedAssignees.All(c => c.Id != id))
+            HelpIncludedAssignees = [.. HelpIncludedAssignees, new Colleague { Id = id, Name = name }]; // ticked even in an unticked region
+    }
+
+    /// <summary>"Cover today": covers the colleague until the coming midnight (this PC's time).</summary>
+    public void CoverToday(long id, string name) =>
+        // A new list instead of changing it: the checks read it meanwhile, on another thread.
+        HelpCoveredToday = [.. HelpCoveredToday.Where(c => c.Id != id), new TodayCover { Id = id, Name = name, Until = TodayCover.Midnight() }];
+
+    /// <summary>
+    /// Choices per client (Zendesk organization) and group, on the Clients page or from a notification: muted (for good
+    /// or for a while), only urgent, important, an own sound. Only clients with a choice are stored; everyone else is
+    /// Normal, so new clients are included automatically. See <see cref="ClientChoice"/> and <see cref="ClientChoices"/>.
     /// </summary>
     public List<ClientChoice> Clients { get; set; } = [];
 
-    /// <summary>The choice for a client (organization id; <see cref="ClientChoice.NoClientId"/> for none), if any.</summary>
-    public ClientChoice? ClientChoiceFor(long? organizationId) =>
-        Clients.FirstOrDefault(c => c.Id == (organizationId ?? ClientChoice.NoClientId));
+    /// <summary>The choice for a client (organization id; <see cref="ClientChoice.NoClientId"/> for none) in a group, if any.</summary>
+    public ClientChoice? ClientChoiceFor(long? organizationId, long groupId) =>
+        ClientChoices.Find(Clients, organizationId ?? ClientChoice.NoClientId, groupId);
 
-    /// <summary>Sets a client's choice (replacing any earlier one); a choice back to the defaults is removed.</summary>
+    /// <summary>Sets a client's choice in its group (replacing any earlier one there).</summary>
     public void SetClientChoice(ClientChoice choice)
     {
-        Clients.RemoveAll(c => c.Id == choice.Id);
-        if (!choice.IsDefaultAt(DateTimeOffset.UtcNow))
-            Clients.Add(choice.Copy());
+        // On a copy, then swapped in: the checks read the list meanwhile, on another thread.
+        var clients = new List<ClientChoice>(Clients);
+        ClientChoices.Set(clients, choice);
+        Clients = clients;
     }
 
     /// <summary>The groups "Help colleagues" actually covers (none when it's off).</summary>
@@ -328,6 +354,12 @@ public sealed class Settings
     /// <summary>Popups don't count down while the screen is locked or there's been no input for a minute.</summary>
     public bool PausePopupsWhenAway { get; set; } = true;
 
+    /// <summary>
+    /// Very busy (keyboard or mouse nearly every second, <see cref="Tracking.BusyRule"/>): ticket notifications wait
+    /// until you slow down, at most 10 minutes; P1, important clients and SLAs due soon never wait (Behavior).
+    /// </summary>
+    public bool HoldWhileBusy { get; set; } = true;
+
     /// <summary>A short glow at the screen edge for Urgent, important clients and SLA breaches (Look & sound).</summary>
     public bool EdgeGlow { get; set; }
 
@@ -426,7 +458,8 @@ public sealed class Settings
         if (!Enum.IsDefined(Theme)) Theme = NotificationTheme.NeonDark;
         if (!Enum.IsDefined(AppTheme)) AppTheme = Theme;
         Clients.ForEach(c => c.Upgrade());
-        Clients.RemoveAll(c => c.IsDefaultAt(DateTimeOffset.UtcNow)); // e.g. a mute for a day that has run out
+        HelpCoveredToday.RemoveAll(c => c.Until <= DateTimeOffset.UtcNow); // yesterday's
+        Clients.RemoveAll(c => !ClientChoices.Worth(Clients, c, DateTimeOffset.UtcNow)); // e.g. a mute for a day that has run out
         WorkdayStartHour = Math.Clamp(WorkdayStartHour, 0, 23);
         WorkdayEndHour = Math.Clamp(WorkdayEndHour, WorkdayStartHour + 1, 24);
         MyWorkdayStartHour = Math.Clamp(MyWorkdayStartHour, 0, 23);
@@ -520,8 +553,26 @@ public sealed class ClientChoice
     public long Id { get; set; }
     public string Name { get; set; } = "";
 
-    /// <summary>The group it was set in, so the Clients list can show it there even before it's loaded.</summary>
+    /// <summary>The group it applies in (and where the Clients list shows it, even before it's loaded).</summary>
     public long GroupId { get; set; }
+
+    /// <summary>Applies only in <see cref="GroupId"/>. Every choice made now is; older saved ones aren't (<see cref="AllGroups"/>).</summary>
+    public bool PerGroup { get; set; }
+
+    /// <summary>
+    /// Made before choices were per group: applies in every group without its own choice for this client. Never made
+    /// any more; a choice in a group (even back to Normal) wins over it there.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool AllGroups
+    {
+        get => !PerGroup;
+        set => PerGroup = !value;
+    }
+
+    /// <summary>The group's name for menus and confirmations ("Mute in Tier 1"); not saved.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? GroupName { get; set; }
 
     /// <summary>The client's own choice: Normal, Only urgent or Important. Kept while muted, so unmuting brings it back.</summary>
     public ClientMode Mode { get; set; }
@@ -557,11 +608,57 @@ public sealed class ClientChoice
     public ClientChoice Copy() => (ClientChoice)MemberwiseClone();
 }
 
+/// <summary>Finding and keeping client choices, which are per group (<see cref="ClientChoice.GroupId"/>).</summary>
+public static class ClientChoices
+{
+    /// <summary>The client's choice in this group: its own there, else an old one for every group.</summary>
+    public static ClientChoice? Find(IEnumerable<ClientChoice> choices, long clientId, long groupId)
+    {
+        ClientChoice? everywhere = null;
+        foreach (var c in choices.Where(c => c.Id == clientId))
+        {
+            if (!c.AllGroups && c.GroupId == groupId)
+                return c;
+            if (c.AllGroups)
+                everywhere = c;
+        }
+        return everywhere;
+    }
+
+    /// <summary>Sets the choice in its group, replacing the one there (an old every-group one stays for the other groups).</summary>
+    public static void Set(List<ClientChoice> choices, ClientChoice choice)
+    {
+        var copy = choice.Copy();
+        copy.AllGroups = false;
+        choices.RemoveAll(c => c.Id == copy.Id && !c.AllGroups && c.GroupId == copy.GroupId);
+        if (Worth(choices, copy, DateTimeOffset.UtcNow))
+            choices.Add(copy);
+    }
+
+    /// <summary>
+    /// Worth keeping: not the defaults, or back to Normal in a group where an old every-group choice would apply otherwise.
+    /// </summary>
+    public static bool Worth(IEnumerable<ClientChoice> choices, ClientChoice choice, DateTimeOffset now) =>
+        !choice.IsDefaultAt(now) ||
+        !choice.AllGroups && choices.Any(c => c.Id == choice.Id && c.AllGroups && !c.IsDefaultAt(now));
+}
+
 /// <summary>A Zendesk agent, by id, with the name as last seen.</summary>
 public sealed class Colleague
 {
     public long Id { get; set; }
     public string Name { get; set; } = "";
+}
+
+/// <summary>A colleague covered for today only (<see cref="Settings.HelpCoveredToday"/>).</summary>
+public sealed class TodayCover
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public DateTimeOffset Until { get; set; }
+
+    /// <summary>The coming midnight on this PC.</summary>
+    public static DateTimeOffset Midnight() => new DateTimeOffset(DateTime.Today.AddDays(1)).ToUniversalTime();
 }
 
 public sealed class NotificationStyle

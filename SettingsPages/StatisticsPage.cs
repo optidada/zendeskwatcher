@@ -61,7 +61,7 @@ internal sealed class StatisticsPage : SettingsPage
     private bool _fillingTeamGroups;
     private int _teamVersion;
     private readonly TableLayoutPanel _now = new() { ColumnCount = 3, AutoSize = true, BackColor = Theme.Surface, Margin = new Padding(0, 4, 0, 0) };
-    private readonly ToolTip _tips = new();
+    private readonly ThemedToolTip _tips = new(); // in the app's colors
     private readonly Label _summary = Theme.Label("", Theme.Body, Theme.Text, Kit.CardWidth - 44);
     private readonly GridTable _table = new() { Margin = new Padding(0, 8, 0, 8) };
     private readonly Button _clear = Theme.SecondaryButton("Clear statistics");

@@ -18,7 +18,8 @@ internal sealed class ProductsPage : SettingsPage
         [("Never", []), ("P1", ["urgent"]), ("P1, P2", ["urgent", "high"])];
 
     private readonly GroupsPage _groups;
-    private readonly ProductChips _chips = new() { Width = ListWidth, Margin = new Padding(0, 4, 0, 6), EmptyText = "None picked: every product notifies." };
+    private readonly ProductChips _chips = new() { Width = ListWidth, Margin = new Padding(0, 4, 0, 6), EmptyText = "No products picked: every product notifies.",
+        CautionText = "The Product field can be wrong. A ticket filed under another product stays quiet, except the priorities chosen below." };
     private readonly Label _suggest = Kit.LinkLabel("Suggest from my tickets");
     private readonly Label _clearAll = Kit.LinkLabel("Remove all");
     private readonly ChoicePills _otherProducts = new([.. OtherProductChoices.Select(c => c.Label)]) { AccessibleName = "Other products notify" };
@@ -28,7 +29,7 @@ internal sealed class ProductsPage : SettingsPage
     };
     private readonly Label _listHint = Theme.Label("", Theme.Small, Theme.TextMuted, ListWidth);
     private readonly Button _count = Theme.SecondaryButton("Count tickets");
-    private readonly ToolTip _tips = new();
+    private readonly ThemedToolTip _tips = new(); // in the app's colors
 
     private List<string> _selected = [];
     private readonly Dictionary<string, CheckBox> _boxes = [];
@@ -48,7 +49,7 @@ internal sealed class ProductsPage : SettingsPage
     private bool _filling;
 
     public ProductsPage(SettingsContext context, GroupsPage groups)
-        : base(context, "Products", "Pick the products you work with: new tickets for other products stay quiet, unless they're urgent. Your own tickets always notify.")
+        : base(context, "Products", "Pick the products you work with: new tickets for other products stay quiet, except the priorities you choose (P1 and P2 to begin with). Your own tickets always notify.")
     {
         _groups = groups;
         var mine = new Card("My products", "New tickets and colleagues' tickets for other products don't notify, except the priorities " +
@@ -81,7 +82,7 @@ internal sealed class ProductsPage : SettingsPage
 
         _chips.Removed += value => SetPicked(value.StartsWith(AreaPrefix) && Field is { } field
             ? AreaValues(field, value[AreaPrefix.Length..]) : [value], false);
-        _clearAll.Click += (_, _) => SetPicked([.. _selected], false);
+        _clearAll.Click += (_, _) => RemoveAll();
         _suggest.Click += (_, _) =>
         {
             if (Suggestion() is { Count: > 0 } suggestion)
@@ -97,6 +98,9 @@ internal sealed class ProductsPage : SettingsPage
     }
 
     public override bool IsSubPage => true; // under Groups
+
+    /// <summary>"Remove all": nothing picked, every product notifies (also for the rendered samples).</summary>
+    internal void RemoveAll() => SetPicked([.. _selected], false);
 
     public override void Load(Settings settings)
     {

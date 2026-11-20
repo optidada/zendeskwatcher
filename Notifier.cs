@@ -26,8 +26,15 @@ public sealed class Notifier : INotificationSink
         {
             Shown = OnShown,
             ClientChosen = (content, choice) => { if (content.IsTicketNotification) ChooseForClient(choice); }, // samples: nothing to change
-            CopiedId = content => { if (content.IsTicketNotification) Count(content, StatOutcome.Copied); }
+            CopiedId = content => { if (content.IsTicketNotification) Count(content, StatOutcome.Copied); },
+            OnScreenChanged = on => NotificationsOnScreenChanged?.Invoke(on)
         };
+
+    /// <summary>Notifications on screen went from none to some (true) or back (false).</summary>
+    public event Action<bool>? NotificationsOnScreenChanged;
+
+    /// <summary>A keyboard shortcut for the oldest notification on screen (see <see cref="PopupManager.ActOnOldest"/>).</summary>
+    public bool ActOnOldest(UI.Popups.PopupForm.Result result) => _popups.ActOnOldest(result);
 
     /// <summary>
     /// A choice from the "Options ▾" menu on a notification (mute, mute for a while, only urgent, important): the app
@@ -267,7 +274,8 @@ public sealed class Notifier : INotificationSink
     /// "While you were away": one notification instead of many waiting ones, e.g. "12 new tickets" / "3 updates on your
     /// tickets" / "2 customers waiting on colleagues' tickets". Click opens Zendesk.
     /// </summary>
-    internal static NotificationContent AwaySummary(IReadOnlyList<NotificationContent> waiting, int dropped)
+    /// <param name="title">"While you were away", or "While you were busy" after a very busy spell.</param>
+    internal static NotificationContent AwaySummary(IReadOnlyList<NotificationContent> waiting, int dropped, string title = "While you were away")
     {
         int Count(NotificationKind kind) => waiting.Where(c => c.Kind == kind).Sum(c => c.TicketCount);
         static string Plural(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
@@ -285,7 +293,7 @@ public sealed class Notifier : INotificationSink
         if (dropped > 0)
             lines.Add($"{Plural(dropped, "other is", "others are")} no longer needed (taken, solved or answered)");
 
-        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", "While you were away", string.Join("\n", lines))
+        return new NotificationContent(NotificationKind.MyTicket, "Zendesk Watcher", title, string.Join("\n", lines))
         {
             Action = ActionOpenZendesk,
             MaxBodyLines = 7

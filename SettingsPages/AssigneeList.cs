@@ -29,7 +29,7 @@ internal sealed class AssigneeList : Control
 
     private readonly Func<long, bool> _isCovered;
     private readonly Action<Person, bool> _setCovered;
-    private readonly ToolTip _tips = new();
+    private readonly ThemedToolTip _tips = new(); // in the app's colors
     private List<Group> _groups = [];
     private List<Item> _items = [];
     private Item? _hover;
@@ -94,6 +94,14 @@ internal sealed class AssigneeList : Control
     /// </summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public Func<long, (string Text, bool Accent)?>? Badge { get; set; }
+
+    /// <summary>Ticked for a while only (e.g. covered today): an outlined tick instead of a filled box.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<long, bool>? IsTemporary { get; set; }
+
+    /// <summary>In their working hours but away (no activity today): an amber dot instead of the green one.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<long, bool>? IsAway { get; set; }
 
     /// <summary>
     /// Optional: a click on the name (or a right-click) asks for a menu at that point (screen coordinates) instead of
@@ -164,6 +172,43 @@ internal sealed class AssigneeList : Control
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     public bool SingleColumn { get; set; }
 
+    /// <summary>Section headings as a title and a line ("Monitored · 3 ———"), without "All · None" (Groups).</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool PlainHeadings { get; set; }
+
+    /// <summary>The row under the mouse is shaded, also without a menu (Groups), as on Clients.</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool HoverRows { get; set; }
+
+    /// <summary>Rows shown in the muted text color (e.g. a group no longer found in Zendesk).</summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public Func<long, bool>? IsDim { get; set; }
+
+    /// <summary>
+    /// Where the visible part ends (in the list's own coordinates) when it scrolls inside a smaller host (Groups,
+    /// Clients): a row cut off there fades into the background ("more below"). Null: no fade.
+    /// </summary>
+    [System.ComponentModel.Browsable(false), System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public int? FadeAt { get; set; }
+
+    private void PaintFade(Graphics g, float s)
+    {
+        if (FadeAt is not { } bottom || bottom >= Height)
+            return; // everything below shows: nothing to fade
+        var height = (int)(18 * s);
+        var area = new Rectangle(0, bottom - height, Width, height);
+        using var brush = new LinearGradientBrush(new Rectangle(area.X, area.Y - 1, area.Width, area.Height + 2),
+            Color.FromArgb(0, Theme.Surface), Theme.Surface, LinearGradientMode.Vertical);
+        g.FillRectangle(brush, area);
+    }
+
+    /// <summary>For the rendered screenshots: the n-th row as if the mouse were over it (-1: none).</summary>
+    internal void PointAtForRender(int index)
+    {
+        _hover = index < 0 ? null : _items.Where(i => i.Kind == ItemKind.Person).Skip(index).FirstOrDefault();
+        Invalidate();
+    }
+
     /// <param name="isCovered">Whether a person is ticked.</param>
     /// <param name="setCovered">Ticks or unticks a person.</param>
     public AssigneeList(int width, Func<long, bool> isCovered, Action<Person, bool> setCovered)
@@ -182,10 +227,23 @@ internal sealed class AssigneeList : Control
 
     public void SetGroups(List<Group> groups)
     {
+        // The same rows again (e.g. Groups' counts after a tick): the row under the mouse stays shaded.
+        var hovered = _hover?.Person?.Id;
         _groups = groups;
         _clock.Enabled = groups.Any(g => g.People.Any(p => p.Zone is not null));
         _hover = null;
-        _tips.SetToolTip(this, null);
+        LayoutItems();
+        _hover = hovered is { } id ? _items.FirstOrDefault(i => i.Kind == ItemKind.Person && i.Person!.Id == id) : null;
+        if (_hover is not null && (!IsHandleCreated || !_hover.Rect.Contains(PointToClient(Cursor.Position))))
+            _hover = null; // re-sorted: that row moved away from under the mouse
+        if (_hover is null)
+            _tips.SetToolTip(this, null);
+        Invalidate();
+    }
+
+    /// <summary>Lays the rows out again in the same order (e.g. a legend line comes or goes), without sorting them anew.</summary>
+    public void Relayout()
+    {
         LayoutItems();
         Invalidate();
     }
@@ -226,6 +284,13 @@ internal sealed class AssigneeList : Control
                     continue;
                 }
             }
+            else if (group.Title is { } plain && PlainHeadings)
+            {
+                // "Monitored · 3 ———": the title and a line across.
+                y += first ? 2 * s : 8 * s;
+                items.Add(new Item(ItemKind.Heading, new RectangleF(0, y, Width, 24 * s), plain, group));
+                y += 24 * s;
+            }
             else if (group.Title is { } title)
             {
                 y += first ? 2 * s : 8 * s;
@@ -254,6 +319,12 @@ internal sealed class AssigneeList : Control
         {
             y += 6 * s;
             items.Add(new Item(ItemKind.Legend, new RectangleF(0, y, Width, 22 * s), "", _groups[0]));
+            y += 22 * s;
+        }
+        // A second line only while someone is covered for a while: what the outlined tick means.
+        if (items.Any(i => i.Person is { } p && IsTemporary?.Invoke(p.Id) == true))
+        {
+            items.Add(new Item(ItemKind.Legend, new RectangleF(0, y, Width, 22 * s), "temporary", _groups[0]));
             y += 22 * s;
         }
         _items = items;
@@ -290,6 +361,16 @@ internal sealed class AssigneeList : Control
                 case ItemKind.Heading:
                     TextRenderer.DrawText(g, item.Text, Theme.Small, rect, Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                    if (PlainHeadings)
+                    {
+                        // The line after the title, halfway between the empty tick box's outline and the background.
+                        var titleWidth = TextRenderer.MeasureText(g, item.Text, Theme.Small, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width;
+                        var n = Theme.Neutral;
+                        var b = BackColor;
+                        using var line = new Pen(Color.FromArgb((n.R + b.R) / 2, (n.G + b.G) / 2, (n.B + b.B) / 2), Math.Max(1, (int)Math.Round(s)));
+                        var lineY = (int)(rect.Y + rect.Height / 2);
+                        g.DrawLine(line, rect.X + titleWidth + 8 * s, lineY, rect.Right - 2 * s, lineY);
+                    }
                     break;
 
                 case ItemKind.All or ItemKind.None:
@@ -302,7 +383,7 @@ internal sealed class AssigneeList : Control
                     // mouse is shaded and its ▾ text turns to the accent color.
                     var locked = item.Group.Locked;
                     var offersMenu = MenuRequested is not null && Active && !locked;
-                    var hovered = offersMenu && item == _hover;
+                    var hovered = (offersMenu || HoverRows && Active && !locked) && item == _hover;
                     if (hovered)
                     {
                         using var row = new SolidBrush(Theme.Window);
@@ -310,9 +391,11 @@ internal sealed class AssigneeList : Control
                         g.FillPath(row, rowPath);
                     }
                     var box = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 16 * s) / 2, 16 * s, 16 * s);
-                    DrawBox(g, box, _isCovered(item.Person!.Id), item == _hover, s, dim: locked);
+                    DrawBox(g, box, _isCovered(item.Person!.Id), item == _hover, s, dim: locked,
+                        temporary: IsTemporary?.Invoke(item.Person.Id) == true);
                     var text = new Rectangle((int)(box.Right + 8 * s), rect.Y, rect.Width - (int)(24 * s), rect.Height);
                     var badge = Badge?.Invoke(item.Person.Id);
+                    var badgeLeft = rect.Right; // where a badge starts, so the local time goes left of it
                     if (offersMenu)
                         badge = badge is { } b ? (b.Text + "  ▾", b.Accent || hovered) : ("Options  ▾", hovered);
                     if (badge is { } shownBadge)
@@ -323,6 +406,7 @@ internal sealed class AssigneeList : Control
                             !Active || locked ? Theme.TextMuted : shownBadge.Accent ? Theme.Accent : Theme.TextMuted,
                             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
                         text.Width = badgeRight - badgeWidth - (int)(8 * s) - text.X;
+                        badgeLeft = badgeRight - badgeWidth;
                     }
                     if (item.Person.Zone is { } zone)
                     {
@@ -330,14 +414,15 @@ internal sealed class AssigneeList : Control
                         var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone);
                         var time = Clock.Time(local);
                         var timeWidth = TextRenderer.MeasureText(time, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
-                        var right = rect.Right - (int)(10 * s);
+                        var right = badge is null ? rect.Right - (int)(10 * s) : badgeLeft - (int)(10 * s);
                         TextRenderer.DrawText(g, time, Theme.Small, new Rectangle(right - timeWidth, rect.Y, timeWidth, rect.Height), Theme.TextMuted,
                             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                         var dotX = right - timeWidth - 12 * s;
-                        DrawDot(g, dotX, item.Rect.Y + item.Rect.Height / 2, IsWorkingAt(local), s);
+                        DrawDot(g, dotX, item.Rect.Y + item.Rect.Height / 2, IsWorkingAt(local), s,
+                            away: IsWorkingAt(local) && IsAway?.Invoke(item.Person.Id) == true);
                         text.Width = (int)(dotX - 8 * s) - text.X;
                     }
-                    TextRenderer.DrawText(g, item.Text, Font, text, Active && !locked ? Theme.Text : Theme.TextMuted,
+                    TextRenderer.DrawText(g, item.Text, Font, text, Active && !locked && IsDim?.Invoke(item.Person.Id) != true ? Theme.Text : Theme.TextMuted,
                         TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                     if (item.Person.Note is { Length: > 0 } personNote)
                     {
@@ -399,13 +484,30 @@ internal sealed class AssigneeList : Control
                     break;
                 }
 
+                case ItemKind.Legend when item.Text == "temporary":
+                {
+                    // "☑ covered today only, until midnight", with the same outlined tick.
+                    var sampleBox = new RectangleF(item.Rect.X + 1, item.Rect.Y + (item.Rect.Height - 14 * s) / 2, 14 * s, 14 * s);
+                    DrawBox(g, sampleBox, true, false, s, temporary: true);
+                    TextRenderer.DrawText(g, "covered today only, until midnight", Theme.Small,
+                        new Rectangle((int)(sampleBox.Right + 6 * s), rect.Y, rect.Width, rect.Height), Theme.TextMuted,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                    break;
+                }
+
                 case ItemKind.Legend:
-                    // "● working now   ○ off work: you hear about their clients' replies", with the same dots.
+                    // "● working now   ◐ away today   ○ off work: you hear about their clients' replies", with the same dots
+                    // ("away today" only while someone is).
                     var x = item.Rect.X + 6 * s;
                     var middle = item.Rect.Y + item.Rect.Height / 2;
-                    foreach (var (working, label) in new[] { (true, "working now"), (false, "off work: you hear about their clients' replies") })
+                    var anyAway = _items.Any(i => i.Person is { } p && IsAway?.Invoke(p.Id) == true);
+                    var entries = new List<(bool Working, bool Away, string Label)> { (true, false, "working now") };
+                    if (anyAway)
+                        entries.Add((true, true, "away today"));
+                    entries.Add((false, false, anyAway ? "off work" : "off work: you hear about their clients' replies"));
+                    foreach (var (working, away, label) in entries)
                     {
-                        DrawDot(g, x, middle, working, s);
+                        DrawDot(g, x, middle, working, s, away);
                         var width = TextRenderer.MeasureText(label, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
                         TextRenderer.DrawText(g, label, Theme.Small, new Rectangle((int)(x + 10 * s), rect.Y, width + 2, rect.Height), Theme.TextMuted,
                             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
@@ -415,36 +517,30 @@ internal sealed class AssigneeList : Control
             }
         }
         PaintFocus(g);
+        PaintFade(g, s);
     }
 
     /// <summary>A tick box: ticked, empty, or (null) mixed with a dash.</summary>
-    private void DrawBox(Graphics g, RectangleF box, bool? state, bool hover, float s, bool dim = false)
-    {
-        var active = Active && !dim;
-        using var path = Theme.RoundedRect(box, 3 * s);
-        if (state is false)
-        {
-            using var border = new Pen(active && hover ? Theme.Accent : Theme.Neutral, 1.2f * s);
-            g.DrawPath(border, path);
-            return;
-        }
-        using var fill = new SolidBrush(active ? Theme.Accent : Theme.Border);
-        g.FillPath(fill, path);
-        using var mark = new Pen(active ? Theme.OnAccent : Theme.Surface, 2 * s) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-        if (state is true)
-            g.DrawLines(mark, [
-                new PointF(box.X + 4 * s, box.Y + 8.5f * s), new PointF(box.X + 7 * s, box.Y + 11.5f * s), new PointF(box.X + 12 * s, box.Y + 5 * s)
-            ]);
-        else
-            g.DrawLine(mark, box.X + 4 * s, box.Y + 8 * s, box.X + 12 * s, box.Y + 8 * s);
-    }
+    private void DrawBox(Graphics g, RectangleF box, bool? state, bool hover, float s, bool dim = false, bool temporary = false) =>
+        Theme.DrawTickBox(g, box, state, hover, s, Active && !dim, temporary);
 
-    /// <summary>A small dot centered at (x, y): filled in the success color when working, an empty ring when off.</summary>
-    private void DrawDot(Graphics g, float x, float y, bool working, float s)
+    /// <summary>
+    /// A small dot centered at (x, y): filled in the success color when working, an empty ring when off, and half
+    /// amber (◐) when in their hours but away today.
+    /// </summary>
+    private void DrawDot(Graphics g, float x, float y, bool working, float s, bool away = false)
     {
         var r = 3.5f * s;
         var dot = new RectangleF(x - r, y - r, 2 * r, 2 * r);
-        if (working)
+        if (away)
+        {
+            var color = Active ? Theme.Warning : Theme.Neutral;
+            using var ring = new Pen(color, 1.2f * s);
+            using var half = new SolidBrush(color);
+            g.FillPie(half, dot.X, dot.Y, dot.Width, dot.Height, 90, 180); // the left half
+            g.DrawEllipse(ring, dot);
+        }
+        else if (working)
         {
             using var fill = new SolidBrush(Active ? Theme.Success : Theme.Neutral);
             g.FillEllipse(fill, dot);

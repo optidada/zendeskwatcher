@@ -48,6 +48,8 @@ internal sealed class HelpColleaguesCard
     private readonly Dictionary<long, string> _excluded = [];
     /// <summary>Ticked colleagues in unticked regions (id -> name).</summary>
     private readonly Dictionary<long, string> _included = [];
+    /// <summary>Covered for today only ("Cover today"): ticked with "today" after the name, until midnight.</summary>
+    private readonly Dictionary<long, (string Name, DateTimeOffset Until)> _today = [];
     /// <summary>Unticked regions: newcomers there aren't covered either. Only exceptions per person are stored.</summary>
     private readonly HashSet<TimeRegion> _offRegions = [];
     /// <summary>The region of each colleague shown (from their time zone), once the members are loaded.</summary>
@@ -89,7 +91,11 @@ internal sealed class HelpColleaguesCard
             // "Working now" uses the hours and days below, as chosen right now (even before saving).
             IsWorkingAt = local => !TicketRules.IsOutsideHours(local, _workHours.Start, _workHours.End, _workDays.Selected),
             GroupTick = group => group.Tag is TimeRegion region ? RegionTick(region, group.People) : null,
-            GroupNote = group => group.Tag is TimeRegion region ? RegionNote(region, group.People) : ""
+            GroupNote = group => group.Tag is TimeRegion region ? RegionNote(region, group.People) : "",
+            // Covered for today only: an outlined tick (the legend says what it means).
+            IsTemporary = CoveredToday,
+            // No activity in Zendesk today, by the daily "Cover today?" check: an amber dot in their working hours.
+            IsAway = Tracking.AwayToday.Contains
         };
         _peopleList.GroupToggled += group =>
         {
@@ -175,6 +181,9 @@ internal sealed class HelpColleaguesCard
         _offRegions.UnionWith(settings.HelpOffRegions);
         foreach (var colleague in settings.HelpIncludedAssignees)
             _included[colleague.Id] = colleague.Name;
+        _today.Clear();
+        foreach (var cover in settings.HelpCoveredToday.Where(c => c.Until > DateTimeOffset.UtcNow))
+            _today[cover.Id] = (cover.Name, cover.Until);
         foreach (var group in settings.HelpGroups)
         {
             _chosen.Add(group.Id);
@@ -197,6 +206,8 @@ internal sealed class HelpColleaguesCard
             .OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         s.HelpExcludedAssignees = Colleagues(_excluded);
         s.HelpIncludedAssignees = Colleagues(_included);
+        s.HelpCoveredToday = _today.Where(t => t.Value.Until > DateTimeOffset.UtcNow)
+            .Select(t => new TodayCover { Id = t.Key, Name = t.Value.Name, Until = t.Value.Until }).OrderBy(t => t.Id).ToList();
         s.HelpOffRegions = _offRegions.Order().ToList();
         s.HelpRegionDefaultDone = _applyRegionDefault ? null : true; // done once applied, or when it was already
         s.WorkdayStartHour = _workHours.Start;
@@ -376,7 +387,8 @@ internal sealed class HelpColleaguesCard
         List<Member> shown;
         _regionOf.Clear();
         if (loaded is null)
-            shown = _excluded.Concat(_included).Select(kv => new Member(kv.Key, kv.Value, null)).ToList();
+            shown = _excluded.Concat(_included).Concat(_today.Select(t => KeyValuePair.Create(t.Key, t.Value.Name)))
+                .DistinctBy(kv => kv.Key).Select(kv => new Member(kv.Key, kv.Value, null)).ToList();
         else
         {
             var meId = _context.Me?.Id;
@@ -420,7 +432,9 @@ internal sealed class HelpColleaguesCard
         _peopleList.SetGroups(sections.Select(section => new AssigneeList.Group(
             section.Region is { } r ? TimeRegions.Name(r) + (r == _myRegion ? " · your region" : "") : null,
             section.Members.Select(m => new AssigneeList.Person(m.Id, m.Name, !isLoaded ? null
-                : m.Zone is { } zone ? $"{m.Name} · {zone.Replace('_', ' ')}" : $"{m.Name} · no time zone in their Zendesk profile",
+                : (m.Zone is { } zone ? $"{m.Name} · {zone.Replace('_', ' ')}" : $"{m.Name} · no time zone in their Zendesk profile") +
+                  (CoveredToday(m.Id) ? " · covered today, until midnight" : "") +
+                  (Tracking.AwayToday.Contains(m.Id) ? " · no activity in Zendesk today" : ""),
                 isLoaded ? TicketRules.ResolveTimeZone(m.Zone) : null)).ToList(),
             Tag: section.Region,
             // A region with exceptions starts open, so you see who they are.
@@ -446,14 +460,37 @@ internal sealed class HelpColleaguesCard
 
     /// <summary>Ticked: by their region's tick, unless they're an exception to it. Region unknown (signed out): the exceptions.</summary>
     private bool IsCovered(long id) =>
-        _regionOf.TryGetValue(id, out var region) && _offRegions.Contains(region) ? _included.ContainsKey(id) : !_excluded.ContainsKey(id);
+        CoveredToday(id) ||
+        (_regionOf.TryGetValue(id, out var region) && _offRegions.Contains(region) ? _included.ContainsKey(id) : !_excluded.ContainsKey(id));
+
+    private bool CoveredToday(long id) => _today.TryGetValue(id, out var t) && t.Until > DateTimeOffset.UtcNow;
+
+    /// <summary>"Always" from a notification while this page is open: ticked for good.</summary>
+    public void CoverAlways(long id, string name)
+    {
+        _today.Remove(id);
+        _excluded.Remove(id);
+        _included[id] = name;
+        RefreshPeople();
+    }
+
+    /// <summary>"Cover today" from a notification while this page is open.</summary>
+    public void CoverToday(long id, string name, DateTimeOffset until)
+    {
+        _today[id] = (name, until);
+        RefreshPeople();
+    }
 
     /// <summary>Unticked in a ticked region, or ticked in an unticked one.</summary>
     private bool IsException(long id, TimeRegion region) =>
-        _offRegions.Contains(region) ? _included.ContainsKey(id) : _excluded.ContainsKey(id);
+        _offRegions.Contains(region) ? _included.ContainsKey(id) || CoveredToday(id) : _excluded.ContainsKey(id);
 
     private void SetCovered(long id, string name, bool covered)
     {
+        // A click on someone covered today: unticking ends it; ticking (after unticking) covers them for good. The rows
+        // stay where they are, as for any other tick (only the legend may lose its "covered today" line).
+        if (_today.Remove(id))
+            _peopleList.Relayout();
         var off = _regionOf.TryGetValue(id, out var region) && _offRegions.Contains(region);
         _excluded.Remove(id);
         _included.Remove(id);
@@ -470,9 +507,13 @@ internal sealed class HelpColleaguesCard
     /// <summary>"5 people · 1 unticked": how many, and the exceptions, so it's clear which way newcomers go.</summary>
     private string RegionNote(TimeRegion region, IReadOnlyList<AssigneeList.Person> people)
     {
-        var exceptions = people.Count(p => IsException(p.Id, region));
+        var off = _offRegions.Contains(region);
+        // Covered today: in an unticked region on top of the ticked ones, in a ticked region instead of being unticked.
+        var today = people.Count(p => CoveredToday(p.Id) && (off ? !_included.ContainsKey(p.Id) : _excluded.ContainsKey(p.Id)));
+        var exceptions = people.Count(p => IsException(p.Id, region)) - today;
         var count = people.Count == 1 ? "1 person" : $"{people.Count} people";
-        return exceptions == 0 ? count : $"{count} · {exceptions} {(_offRegions.Contains(region) ? "ticked" : "unticked")}";
+        return count + (exceptions > 0 ? $" · {exceptions} {(_offRegions.Contains(region) ? "ticked" : "unticked")}" : "") +
+               (today > 0 ? $" · {today} covered today" : "");
     }
 
     /// <summary>A click on a region's box: mixed becomes ticked; otherwise ticked and unticked swap. No exceptions after.</summary>

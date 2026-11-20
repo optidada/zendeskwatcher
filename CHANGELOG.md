@@ -3,6 +3,17 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
+## 1.9.8
+
+- **Cover today?** Once a day, 3 hours into your working day, the app asks about a colleague in your region who hasn't done anything in Zendesk since their day started (e.g. off sick or on holiday): **Cover today** covers their tickets until midnight, **Always** ticks them on Colleagues for good. On Colleagues, an amber dot means "away today" and an outlined tick "covered today only".
+- **Notifications wait while you're typing a lot**: when you type or click almost non-stop, ticket notifications wait until you slow down, at most 10 minutes. P1, important clients and SLAs due within 15 minutes never wait. Only how often you type counts, never what. Switch it off under Notifications → Behavior.
+- **Keyboard shortcuts** while a notification is on screen: **Ctrl+Alt+O** opens the oldest one, **Ctrl+Alt+T** takes it, **Ctrl+Alt+S** snoozes it, **Ctrl+Alt+X** closes it.
+- **Client choices per group**: muting a client (or Only P1 and P2, or Important) now applies only in the group where you set it, so their tickets in your other groups still notify. A group's Options ▾ only changes that group. Choices made before this version still apply everywhere until you change them in a group.
+- **P1–P4 everywhere** instead of Urgent, High, Normal and Low; "Only urgent" is now **Only P1 and P2**. A quiet ticket from an Only P1 and P2 client that's raised to P1 or P2 now comes as "Priority raised".
+- **Groups looks like Clients**: the same list, hover and tick boxes, a soft fade at the bottom edge, and no more odd lines or dots by the scrollbar. Tooltips and the Send feedback window follow your theme too.
+- **Products**: Notifications → New tickets says whether My products is filtering, and the Products page makes "No products picked" and "the Product field can be wrong" stand out.
+- How it works explains that a group's priorities and a client's choice work together: the stricter one wins, and Important always comes.
+
 ## 1.9.7
 
 - **My products**: on the new **Groups › Products** page, pick the products you work with. New tickets and colleagues' tickets for other products then stay quiet, except Urgent (P1) and High (P2) (you choose which under "Other products notify"). Nothing picked: every product notifies, as before.

@@ -62,7 +62,11 @@ internal sealed class ClientsView
     private (Client Client, Rectangle Name)? _cardFor;
 
     /// <summary>The clients in the list, by id (for the card).</summary>
-    private Dictionary<long, Client> _clientById = [];
+    /// <summary>
+    /// The rows in view by their row id: a client in two groups has two rows, each with its own choice (choices are per
+    /// group). Row ids are made up when the list is built; <c>GroupId</c> is the real group (also for an old one).
+    /// </summary>
+    private Dictionary<long, (long GroupId, string GroupTitle, Client Client)> _rows = [];
 
     private void HideCard()
     {
@@ -79,8 +83,8 @@ internal sealed class ClientsView
     };
     private int _scroll;
 
-    /// <summary>Clients with a choice (id -> choice): the only ones stored.</summary>
-    private readonly Dictionary<long, ClientChoice> _choices = [];
+    /// <summary>Clients with a choice, per group (<see cref="ClientChoices"/>): the only ones stored.</summary>
+    private readonly List<ClientChoice> _choices = [];
 
     /// <summary>The filter box's text: only clients whose name contains it are shown ("" for all).</summary>
     private string _filter = "";
@@ -133,7 +137,7 @@ internal sealed class ClientsView
                 Store(choice);
             })
         {
-            Badge = id => _choices.GetValueOrDefault(id) is { } c ? BadgeFor(c) : null,
+            Badge = id => ChoiceOf(id) is { } c ? BadgeFor(c) : null,
             // Each group: a tick box for all its clients (mixed when some are muted) and a count; folded until opened.
             GroupTick = group => group.People.All(p => ModeOf(p.Id) != ClientMode.Muted) ? true
                 : group.People.All(p => ModeOf(p.Id) == ClientMode.Muted) ? false : null,
@@ -156,8 +160,8 @@ internal sealed class ClientsView
         _list.GroupClearRequested += group =>
         {
             // A group no longer monitored: its clients' old choices are forgotten on Save (Discard brings them back).
-            foreach (var client in group.People)
-                _choices.Remove(client.Id);
+            foreach (var row in group.People.Select(p => _rows.GetValueOrDefault(p.Id)).Where(r => r.Client is not null))
+                _choices.RemoveAll(c => c.Id == row.Client.Id && c.GroupId == row.GroupId);
             Arrange(_lastGroups, _inView, keepScroll: true);
             UpdateHint();
             Changed?.Invoke();
@@ -166,7 +170,7 @@ internal sealed class ClientsView
         // Pointing at a client's name: its card beside it after a moment (products, tickets); gone when the mouse leaves.
         _list.NamePointed += (person, name) =>
         {
-            if (person is null || !_clientById.TryGetValue(person.Id, out var client))
+            if (person is null || !_rows.TryGetValue(person.Id, out var row) || row.Client is not { } client)
             {
                 HideCard();
                 return;
@@ -261,29 +265,34 @@ internal sealed class ClientsView
             return "not monitored · " + string.Join(" · ", new[] { mutedOld > 0 ? $"{mutedOld} muted" : null, otherOld > 0 ? $"{otherOld} customized" : null }.OfType<string>());
         }
         var muted = group.People.Count(p => ModeOf(p.Id) == ClientMode.Muted);
-        var customized = group.People.Count(p => ModeOf(p.Id) != ClientMode.Muted && _choices.TryGetValue(p.Id, out var c) && !c.IsDefaultAt(DateTimeOffset.UtcNow));
+        var customized = group.People.Count(p => ModeOf(p.Id) != ClientMode.Muted && ChoiceOf(p.Id) is { } c && !c.IsDefaultAt(DateTimeOffset.UtcNow));
         var text = group.People.Count == 1 ? "1 client" : $"{group.People.Count} clients";
         return text + (muted > 0 ? $" · {muted} muted" : "") + (customized > 0 ? $" · {customized} customized" : "");
     }
 
 
-    private ClientMode ModeOf(long id) => _choices.GetValueOrDefault(id)?.ModeAt(DateTimeOffset.UtcNow) ?? ClientMode.Normal;
+    /// <summary>The choice that applies to a row (the client in that row's group), if any.</summary>
+    private ClientChoice? ChoiceOf(long rowId) =>
+        _rows.TryGetValue(rowId, out var row) && row.Client is not null ? ClientChoices.Find(_choices, row.Client.Id, row.GroupId) : null;
 
-    /// <summary>A copy of the client's choice, or a new Normal one.</summary>
-    private ClientChoice ChoiceFor(AssigneeList.Person client) =>
-        _choices.GetValueOrDefault(client.Id)?.Copy() ?? new ClientChoice { Id = client.Id, Name = client.Name, GroupId = GroupOf(client.Id) };
+    private ClientMode ModeOf(long rowId) => ChoiceOf(rowId)?.ModeAt(DateTimeOffset.UtcNow) ?? ClientMode.Normal;
 
-    /// <summary>Keeps a choice, or forgets it when it's back to the defaults.</summary>
-    private void Store(ClientChoice choice)
+    /// <summary>A copy of the row's choice for its group, or a new Normal one there.</summary>
+    private ClientChoice ChoiceFor(AssigneeList.Person person)
     {
-        if (choice.IsDefaultAt(DateTimeOffset.UtcNow))
-            _choices.Remove(choice.Id);
-        else
-            _choices[choice.Id] = choice;
+        var (groupId, title, client) = _rows[person.Id];
+        var choice = ChoiceOf(person.Id)?.Copy() ?? new ClientChoice { Id = client.Id, Name = client.Name };
+        choice.GroupId = groupId;
+        choice.AllGroups = false;
+        choice.GroupName = title;
+        return choice;
     }
 
+    /// <summary>Keeps a choice in its group, or forgets it when it's back to the defaults.</summary>
+    private void Store(ClientChoice choice) => ClientChoices.Set(_choices, choice);
+
     /// <summary>
-    /// What the row says at its right end: the client's choice ("★ Important", "Urgent only"; also while muted),
+    /// What the row says at its right end: the client's choice ("★ Important", "P1, P2 only"; also while muted),
     /// "until Fri 14:00" for a mute for a while, "♪" for its own sound. In the accent color while it's important.
     /// </summary>
     internal static (string Text, bool Accent)? BadgeFor(ClientChoice choice)
@@ -292,7 +301,7 @@ internal sealed class ClientsView
         var mode = choice.Mode switch
         {
             ClientMode.Important => "\u2605 Important",
-            ClientMode.OnlyUrgent => "Urgent only",
+            ClientMode.OnlyUrgent => "P1, P2 only",
             _ => null
         };
         var until = choice.IsMutedAt(now) && choice.MutedUntil is { } end
@@ -316,10 +325,6 @@ internal sealed class ClientsView
         return parts.Count == 0 ? null : string.Join(" · ", parts);
     }
 
-    /// <summary>The group a client is shown under first (for showing an unticked one there before the list loads).</summary>
-    private long GroupOf(long clientId) =>
-        _shown.FirstOrDefault(s => s.Clients.Any(c => c.Id == clientId)).Group?.Id ?? 0;
-
     private void OnWheel(object? sender, MouseEventArgs e) =>
         ScrollTo(_scroll - e.Delta * SystemInformation.MouseWheelScrollLines * (int)(26 * Host.DeviceDpi / 96f) / 3 / 120);
 
@@ -337,6 +342,8 @@ internal sealed class ClientsView
         HideCard(); // the name moves away from its card
         _scroll = Math.Clamp(position, 0, Math.Max(0, _list.Height - Host.Height));
         _list.Top = -_scroll;
+        _list.FadeAt = _scroll + Host.Height; // the bottom edge fades, as on Groups
+        _list.Invalidate();
         _scrollBar.Invalidate();
     }
 
@@ -355,18 +362,17 @@ internal sealed class ClientsView
     public void Load(Settings settings)
     {
         _choices.Clear();
-        foreach (var client in settings.Clients.Where(c => !c.IsDefaultAt(DateTimeOffset.UtcNow)))
-            _choices[client.Id] = client.Copy();
+        _choices.AddRange(settings.Clients.Where(c => ClientChoices.Worth(settings.Clients, c, DateTimeOffset.UtcNow)).Select(c => c.Copy()));
         _list.Invalidate();
         UpdateHint();
     }
 
     public void Apply(Settings settings)
     {
-        settings.Clients = _choices.Values
-            .Where(c => !c.IsDefaultAt(DateTimeOffset.UtcNow))
+        settings.Clients = _choices
+            .Where(c => ClientChoices.Worth(_choices, c, DateTimeOffset.UtcNow))
             .Select(c => c.Copy())
-            .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ToList();
+            .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(c => c.Id).ThenBy(c => c.GroupId).ToList();
     }
 
     /// <summary>Sorts the list into its sections again (after Save or Discard), scrolled to the top.</summary>
@@ -392,18 +398,19 @@ internal sealed class ClientsView
     /// </summary>
     public int CustomizedCount => ShownCustomized().Count;
 
-    private List<long> ShownCustomized()
+    /// <summary>The choices (client in a group) in the list that aren't Normal.</summary>
+    private List<ClientChoice> ShownCustomized()
     {
         var now = DateTimeOffset.UtcNow;
-        return _shown.SelectMany(s => s.Clients).Select(c => c.Id).Distinct()
-            .Where(id => _choices.GetValueOrDefault(id) is { } c && !c.IsDefaultAt(now)).ToList();
+        return _shown.SelectMany(s => s.Clients.Select(c => ClientChoices.Find(_choices, c.Id, RealGroupId(s.Group.Id))))
+            .OfType<ClientChoice>().Where(c => !c.IsDefaultAt(now)).Distinct().ToList();
     }
 
     /// <summary>"Clear customizations": the clients in the list back to Normal (Save keeps it, Discard brings them back).</summary>
     public void ClearAll()
     {
-        foreach (var id in ShownCustomized())
-            _choices.Remove(id);
+        var shown = _shown.SelectMany(s => s.Clients.Select(c => (c.Id, Group: RealGroupId(s.Group.Id)))).ToHashSet();
+        _choices.RemoveAll(c => c.AllGroups ? shown.Any(r => r.Id == c.Id) : shown.Contains((c.Id, c.GroupId)));
         Resort();
         _list.Invalidate();
         UpdateHint();
@@ -636,22 +643,34 @@ internal sealed class ClientsView
     private void Arrange(IReadOnlyList<WatchedGroup> groups, Dictionary<long, List<Client>>? loaded, bool keepScroll = false)
     {
         _lastGroups = groups;
-        _shown = Sections(groups, loaded, _choices.Values.ToList(), GroupName);
-        foreach (var (_, clients) in _shown)
-            foreach (var c in clients.Where(c => _choices.ContainsKey(c.Id) && c.Tickets > 0))
-                _choices[c.Id].Name = c.Name; // keep the stored name current
+        _shown = Sections(groups, loaded, _choices, GroupName);
+        var names = _shown.SelectMany(s => s.Clients).Where(c => c.Tickets > 0).DistinctBy(c => c.Id).ToDictionary(c => c.Id, c => c.Name);
+        foreach (var choice in _choices)
+            if (names.TryGetValue(choice.Id, out var name))
+                choice.Name = name; // keep the stored name current
 
         // Unfiltered, a loaded group without clients still shows, with "no tickets in the last 90 days".
-        var visible = Layout(_shown, _choices.Values.ToList(), _filter, ShowsWorked,
+        var visible = Layout(_shown, _choices, _filter, ShowsWorked,
             _filter.Length == 0 && _worked == Worked.All && loaded is not null ? loaded.Keys.ToHashSet() : null);
         if (visible.All(s => s.Clients.Count == 0))
             visible = []; // nothing at all: the message below says why
-        _clientById = visible.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToDictionary(c => c.Id);
         HideCard();
         _list.Filtering = _filter.Length > 0 || _worked != Worked.All;
-        _list.SetGroups(visible.Select(s => new AssigneeList.Group(s.Title,
-            s.Clients.Select(c => new AssigneeList.Person(c.Id, c.Name, TipFor(c), Note: NoteFor(c))).ToList(),
-            StartOpen: s.Changed && !s.Old, Locked: s.Old)).ToList()); // groups with muted or customized clients start open
+        // One row per client and group, each with a made-up id that leads back to both (see _rows).
+        _rows = [];
+        var groupsInView = new List<AssigneeList.Group>();
+        foreach (var s in visible)
+        {
+            var people = new List<AssigneeList.Person>();
+            foreach (var c in s.Clients)
+            {
+                var rowId = _rows.Count + 1;
+                _rows[rowId] = (RealGroupId(s.GroupId), s.Title, c);
+                people.Add(new AssigneeList.Person(rowId, c.Name, TipFor(c), Note: NoteFor(c)));
+            }
+            groupsInView.Add(new AssigneeList.Group(s.Title, people, StartOpen: s.Changed && !s.Old, Locked: s.Old)); // groups with muted or customized clients start open
+        }
+        _list.SetGroups(groupsInView);
         if (!keepScroll)
             _scroll = 0;
         LayoutList();
@@ -676,26 +695,28 @@ internal sealed class ClientsView
     /// tickets in 90 days: shown with a note). With a <paramref name="filter"/>, only clients whose name contains it
     /// (and groups with any). <c>Old</c>: a group no longer monitored (<see cref="Sections"/>), shown greyed.
     /// </summary>
-    internal static List<(string Title, List<Client> Clients, bool Changed, bool Old)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
+    internal static List<(string Title, List<Client> Clients, bool Changed, bool Old, long GroupId)> Layout(IReadOnlyList<(WatchedGroup Group, List<Client> Clients)> sections,
         IReadOnlyList<ClientChoice> choices, string filter = "", Func<Client, bool>? shows = null, IReadOnlySet<long>? keepEmpty = null)
     {
         var now = DateTimeOffset.UtcNow;
-        var byId = choices.ToDictionary(c => c.Id);
-        bool Changed(Client c) => byId.GetValueOrDefault(c.Id) is { } choice && !choice.IsDefaultAt(now);
+        bool Changed(Client c, long sectionId) => ClientChoices.Find(choices, c.Id, RealGroupId(sectionId)) is { } choice && !choice.IsDefaultAt(now);
         return sections
             .Select(s => (s.Group, Clients: filter.Length == 0 && shows is null ? s.Clients
                 : s.Clients.Where(c => Matches(c, filter) && (shows?.Invoke(c) ?? true)).ToList()))
             .Where(s => s.Clients.Count > 0 || keepEmpty?.Contains(s.Group.Id) == true)
-            .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(Changed), s.Group.Id < 0))
+            .Select(s => (s.Group.IsNoGroup ? "No group" : s.Group.Name, s.Clients, s.Clients.Any(c => Changed(c, s.Group.Id)), s.Group.Id < 0, s.Group.Id))
             .ToList();
     }
 
+    /// <summary>The real group of a section: its own id, or for an old group (<see cref="OldGroupId"/>) the id it stands for.</summary>
+    internal static long RealGroupId(long sectionId) => sectionId < 0 ? -sectionId - 1 : sectionId;
+
     /// <summary>
     /// One section per group: clients with a choice, then other ticked ones, then muted, each by name with "(No client)"
-    /// last. Clients with a choice the loaded lists don't
-    /// have (no recent tickets, or not loaded) are added under the group the choice was made in. When that group isn't
-    /// monitored any more, they get a section of their own after the others, as it was when monitored: a choice is per
-    /// client, so it still counts in every group. Its <see cref="WatchedGroup.Id"/> is the group's id negated (shown
+    /// last. Clients with a choice in a group whose loaded list doesn't
+    /// have them (no recent tickets, or not loaded) are added under that group. When that group isn't
+    /// monitored any more, they get a section of their own after the others, as it was when monitored (an old choice
+    /// for every group still counts everywhere). Its <see cref="WatchedGroup.Id"/> is the group's id negated (shown
     /// greyed, see <see cref="OldGroupId"/>), its name from <paramref name="groupName"/> ("Another group" when unknown).
     /// </summary>
     internal static List<(WatchedGroup Group, List<Client> Clients)> Sections(IReadOnlyList<WatchedGroup> groups,
@@ -704,10 +725,13 @@ internal sealed class ClientsView
         var sections = groups.Select(g => (Group: g, Clients: (loaded?.GetValueOrDefault(g.Id) ?? []).ToList())).ToList();
         if (sections.Count == 0)
             return [];
-        var listed = sections.SelectMany(s => s.Clients).Select(c => c.Id).ToHashSet();
+        var listed = sections.SelectMany(s => s.Clients.Select(c => (c.Id, s.Group.Id))).ToHashSet();
+        var anywhere = listed.Select(l => l.Item1).ToHashSet();
         var now = DateTimeOffset.UtcNow;
         var old = new List<(WatchedGroup Group, List<Client> Clients)>();
-        foreach (var client in excluded.Where(c => !listed.Contains(c.Id) && !c.IsDefaultAt(now)))
+        // An old every-group choice only needs a row of its own when the client isn't in any list.
+        foreach (var client in excluded.Where(c => !c.IsDefaultAt(now) && (c.AllGroups ? !anywhere.Contains(c.Id) : !listed.Contains((c.Id, c.GroupId))))
+                     .DistinctBy(c => (c.Id, c.GroupId)))
         {
             var section = sections.FirstOrDefault(s => s.Group.Id == client.GroupId);
             if (section.Group is null)
@@ -725,13 +749,12 @@ internal sealed class ClientsView
         sections.AddRange(old.OrderBy(s => s.Group.Name, StringComparer.CurrentCultureIgnoreCase));
         // Clients with a choice (important, only urgent, own sound) first, then the other ticked ones, then muted; by
         // name, "(No client)" last in each. Sorted when the list is built, so ticking a box doesn't make it jump.
-        var choices = excluded.ToDictionary(c => c.Id);
-        int Rank(Client c) => choices.GetValueOrDefault(c.Id) is not { } choice ? 1
+        int Rank(Client c, long sectionId) => ClientChoices.Find(excluded, c.Id, RealGroupId(sectionId)) is not { } choice ? 1
             : choice.ModeAt(now) == ClientMode.Muted ? 2
             : choice.IsDefaultAt(now) ? 1 : 0;
         return sections
             .Select(s => (s.Group, s.Clients
-                .OrderBy(Rank)
+                .OrderBy(c => Rank(c, s.Group.Id))
                 .ThenBy(c => c.Id == ClientChoice.NoClientId ? 1 : 0)
                 .ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase).ToList()))
             .ToList();
@@ -755,16 +778,21 @@ internal sealed class ClientsView
 
     private void UpdateHint()
     {
-        var clients = _shown.SelectMany(s => s.Clients).DistinctBy(c => c.Id).ToList();
-        var muted = clients.Count(c => ModeOf(c.Id) == ClientMode.Muted);
-        var important = clients.Count(c => ModeOf(c.Id) == ClientMode.Important);
-        var onlyUrgent = clients.Count(c => ModeOf(c.Id) == ClientMode.OnlyUrgent);
+        // Per client (a client in two groups counts once): muted when muted in every group it's in.
+        var now = DateTimeOffset.UtcNow;
+        var modes = _shown.SelectMany(s => s.Clients.Select(c => (Client: c,
+                Mode: ClientChoices.Find(_choices, c.Id, RealGroupId(s.Group.Id))?.ModeAt(now) ?? ClientMode.Normal)))
+            .GroupBy(r => r.Client.Id).ToList();
+        var clients = modes.Select(g => g.First().Client).ToList();
+        var muted = modes.Count(g => g.All(r => r.Mode == ClientMode.Muted));
+        var important = modes.Count(g => g.Any(r => r.Mode == ClientMode.Important));
+        var onlyUrgent = modes.Count(g => g.Any(r => r.Mode == ClientMode.OnlyUrgent));
         var matching = _filter.Length == 0 ? 0 : clients.Count(c => Matches(c, _filter));
         var text = clients.Count == 0 ? ""
             : _filter.Length > 0
                 ? (matching == 0 ? "" : $"{matching} of {clients.Count} clients match · a group's box applies to {(matching == 1 ? "this one" : $"these {matching}")}")
             : (muted == 0 ? $"All {clients.Count} clients notify" : $"{clients.Count - muted} of {clients.Count} clients notify")
-              + (important > 0 ? $" · {important} important" : "") + (onlyUrgent > 0 ? $" · {onlyUrgent} only urgent" : "");
+              + (important > 0 ? $" · {important} important" : "") + (onlyUrgent > 0 ? $" · {onlyUrgent} only P1, P2" : "");
         if (_failed > 0)
             text += $" · could not load {_failed} group(s)";
         SetHint(text);

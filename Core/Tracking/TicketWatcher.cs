@@ -52,6 +52,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         {
             _state = new WatchState { Subdomain = settings.Subdomain, UserId = Me.Id };
         }
+        // The amber dots on Colleagues, after a restart (this account's only: another one starts without).
+        AwayToday.Set(DateTime.Today, _state.MissingColleaguesChecked.Date == DateTime.Today ? _state.AwayTodayIds : []);
 
         SlaLearning.Current = _state.Sla; // kept with what the app has seen (also across a sign-in as someone else: it's about the account)
 
@@ -164,6 +166,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
         var mine = settings.TrackMyTickets ? InBatch(part => CheckMyTicketsAsync(ct, part)) : null;
         var cc = settings.TrackCcTickets ? InBatch(part => CheckCcTicketsAsync(ct, part)) : null;
         var checks = new List<Task> { Timed("unassigned", unassigned) };
+        if (MissingCheckDue())
+            MissingCheck = AskAboutMissingColleaguesAsync(ct); // once a day ("Cover today?"), beside the check: it doesn't hold it up
 
         if (mine is not null)
             checks.Add(Timed("my tickets", mine));
@@ -260,6 +264,10 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             var fresh = tickets.Where(t => !_state.SeenUnassigned.ContainsKey(t.Id)).OrderBy(t => t.CreatedAt).ToList();
             foreach (var ticket in tickets)
                 _state.SeenUnassigned[ticket.Id] = now;
+            // An "only urgent" client's lower ones keep their priority, so one raised to High or Urgent while still
+            // unassigned comes as "Priority raised" (like a group's priorities below).
+            foreach (var ticket in tickets.Where(t => ClientMode(t) == ZendeskWatcher.ClientMode.OnlyUrgent && !TicketRules.IsWantedClient(t, ZendeskWatcher.ClientMode.OnlyUrgent)))
+                _state.QuietPriority[ticket.Id] = ticket.Priority ?? "normal";
             tickets = tickets.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
             fresh = fresh.Where(t => TicketRules.IsWantedClient(t, ClientMode(t))).ToList();
 
@@ -1170,12 +1178,14 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private async Task<string?> RequesterNameAsync(Ticket ticket, CancellationToken ct) =>
         ticket.RequesterId is { } id && (await zendesk.GetUserAsync(id, ct))?.Name is { Length: > 0 } name ? name : null;
 
-    /// <summary>The client as the "Options ▾" menu needs it: its current choice (or a Normal one), current name and group.</summary>
-    private static ClientChoice MenuTarget(ClientChoice? choice, long id, string name, long groupId)
+    /// <summary>The client as the "Options ▾" menu needs it: its current choice in the group (or a Normal one), current name and group.</summary>
+    private ClientChoice MenuTarget(ClientChoice? choice, long id, string name, long groupId)
     {
         var target = choice?.Copy() ?? new ClientChoice { Id = id };
         target.Name = name;
         target.GroupId = groupId;
+        target.AllGroups = false; // a choice from here applies in this group only
+        target.GroupName = settings.WatchedGroups.FirstOrDefault(g => g.Id == groupId)?.Name ?? GroupName(groupId) ?? "this group";
         return target;
     }
 
@@ -1213,7 +1223,8 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
     private async Task<NotificationContent> WithClientAsync(NotificationContent content, Ticket ticket, WatchedGroup? group, CancellationToken ct,
         (DateTimeOffset Start, bool FirstReply)? sla = null, IReadOnlyList<string>? customerTexts = null, DateTimeOffset? waitingSince = null)
     {
-        var choice = settings.ClientChoiceFor(ticket.OrganizationId);
+        var choiceGroup = ticket.GroupId ?? WatchedGroup.NoGroupId; // as TicketRules.ClientMode decides
+        var choice = settings.ClientChoiceFor(ticket.OrganizationId, choiceGroup);
         var important = ClientMode(ticket) == ZendeskWatcher.ClientMode.Important;
         content = content with
         {
@@ -1257,7 +1268,7 @@ public sealed partial class TicketWatcher(Settings settings, ZendeskClient zende
             ClientName = name,
             // Own/CC tickets too (in any group), but their Options ▾ only offers what applies there (Important), see ClientMenu.Build.
             MuteTarget = content.Kind == NotificationKind.MyTicket
-                ? MenuTarget(choice, orgId, name, group?.Id ?? ticket.GroupId ?? 0)
+                ? MenuTarget(choice, orgId, name, choiceGroup)
                 : group is not null && content.Kind is NotificationKind.NewTicket or NotificationKind.HelpColleague
                     ? MenuTarget(choice, orgId, name, group!.Id)
                     : null

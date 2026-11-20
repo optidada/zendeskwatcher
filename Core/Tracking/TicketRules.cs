@@ -38,28 +38,30 @@ public static class TicketRules
 
 
     /// <summary>
-    /// How the ticket's client should notify right now (Clients page): Normal unless a choice was made. A ticket
-    /// without an organization is "(No client)"; a mute for a while that has run out is Normal again.
+    /// How the ticket's client should notify right now (Clients page): Normal unless a choice was made in the ticket's
+    /// group. A ticket without an organization is "(No client)"; a mute for a while that has run out is Normal again.
     /// </summary>
     public static ClientMode ClientMode(Ticket ticket, Settings settings, DateTimeOffset now) =>
-        settings.ClientChoiceFor(ticket.OrganizationId)?.ModeAt(now) ?? ZendeskWatcher.ClientMode.Normal;
+        settings.ClientChoiceFor(ticket.OrganizationId, ticket.GroupId ?? WatchedGroup.NoGroupId)?.ModeAt(now) ?? ZendeskWatcher.ClientMode.Normal;
 
     /// <summary>The confirmation after a choice from a notification's "Options ▾" menu: a title and what it means.</summary>
     public static (string Title, string Body) ClientChoiceConfirmation(ClientChoice choice, DateTimeOffset now)
     {
         const string where = "Change it under Settings → Groups → Clients.";
+        var inGroup = choice.GroupName is { Length: > 0 } g ? $" in {g}" : "";
+        var other = inGroup.Length > 0 ? " Their tickets in other groups aren't affected." : "";
         return choice.ModeAt(now) switch
         {
             ZendeskWatcher.ClientMode.Muted when choice.MutedUntil is { } until =>
-                ($"Muted {choice.Name} until {Clock.DayTime(until.ToLocalTime().DateTime)}",
-                 $"No notifications about their new tickets or colleagues' tickets until then. Your own tickets still notify. {where}"),
+                ($"Muted {choice.Name}{inGroup} until {Clock.DayTime(until.ToLocalTime().DateTime)}",
+                 $"No notifications about their new tickets or colleagues' tickets until then. Your own tickets still notify.{other} {where}"),
             ZendeskWatcher.ClientMode.Muted =>
-                ($"Muted {choice.Name}", $"No more notifications about their new tickets or colleagues' tickets. Your own tickets still notify. {where}"),
+                ($"Muted {choice.Name}{inGroup}", $"No more notifications about their new tickets or colleagues' tickets. Your own tickets still notify.{other} {where}"),
             ZendeskWatcher.ClientMode.OnlyUrgent =>
-                ($"{choice.Name}: only urgent", $"Only Urgent (P1) and High (P2) new tickets and colleagues' tickets notify. {where}"),
+                ($"{choice.Name}{inGroup}: only P1 and P2", $"Only P1 and P2 new tickets and colleagues' tickets notify.{other} {where}"),
             ZendeskWatcher.ClientMode.Important =>
-                ($"{choice.Name} is important ★", $"Their tickets always notify, also outside your hours, and stay until you close them. {where}"),
-            _ => ($"{choice.Name}: back to normal", where)
+                ($"{choice.Name} is important{inGroup} ★", $"Their tickets always notify, also outside your hours, and stay until you close them.{other} {where}"),
+            _ => ($"{choice.Name}{inGroup}: back to normal", where)
         };
     }
 
@@ -257,11 +259,11 @@ public static class TicketRules
         return "To work on:\n" + string.Join("\n", lines);
     }
 
-    /// <summary>A priority in a notification's text: "Urgent [P1]" (a tag, kept on the line with its word); "None" for none.</summary>
+    /// <summary>A priority in a notification's text: its tag ("[P1]", the team says P1–P4, not Urgent…); "None" for none.</summary>
     public static string PriorityWithTag(string? priority) => priority?.ToLowerInvariant() switch
     {
         null or "" => "None",
-        "urgent" or "high" or "normal" or "low" => $"{char.ToUpperInvariant(priority[0])}{priority[1..].ToLowerInvariant()}{Nbsp}{Markdown.Tag(priority)}",
+        "urgent" or "high" or "normal" or "low" => Markdown.Tag(priority),
         _ => Markdown.Escape(priority)
     };
 

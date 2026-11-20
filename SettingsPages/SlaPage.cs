@@ -30,7 +30,7 @@ internal sealed class SlaPage : SettingsPage
     private readonly Label _gridTitle = Theme.Label("", Theme.BodyBold, Theme.Text);
     private readonly Label _warning = Theme.Label("You changed some targets (✎), so your deadlines differ from your colleagues'.", Theme.Small, Theme.Warning, Kit.CardWidth - 44);
     private readonly Label _reset = Kit.LinkLabel("Remove all my changes", Theme.Small);
-    private readonly ToolTip _tips = new();
+    private readonly ThemedToolTip _tips = new(); // in the app's colors
 
     /// <summary>The SLA types shown: the known ones, then any others seen in Zendesk (or in your changes).</summary>
     private readonly List<string> _types;
@@ -142,7 +142,7 @@ internal sealed class SlaPage : SettingsPage
         }
 
         _grid.Controls.Add(Cell("", Theme.Small, Theme.TextMuted, left: true), 0, 0);
-        (string Text, string Priority)[] headers = [("Urgent", "urgent"), ("High", "high"), ("Normal", "normal"), ("Low", "low")];
+        (string Text, string Priority)[] headers = [("P1", "urgent"), ("P2", "high"), ("P3", "normal"), ("P4", "low")];
         for (var c = 0; c < headers.Length; c++)
             _grid.Controls.Add(new PriorityLabel("", headers[c].Priority) { AccessibleName = headers[c].Text, Margin = new Padding(14, 4, 4, 2), Anchor = AnchorStyles.Left }, c + 1, 0);
         for (var r = 0; r < _types.Count; r++)

@@ -28,35 +28,48 @@ internal sealed class GroupsPage : SettingsPage
     private const int ListWidth = Kit.CardWidth - 44;
 
     private readonly InputBox _filter = new(ListWidth, "Filter groups…", searchIcon: true);
-    private readonly SmoothListView _list = new()
-    {
-        Width = ListWidth, Height = 280, View = View.Details, CheckBoxes = true, HeaderStyle = ColumnHeaderStyle.None,
-        FullRowSelect = true, MultiSelect = false, ShowGroups = true, BorderStyle = BorderStyle.None, HideSelection = false,
-        BackColor = Theme.Surface, ForeColor = Theme.Text, Font = Theme.Body, Margin = new Padding(0, 10, 0, 10)
-    };
+    /// <summary>The groups, in the app's own list (as Clients and Colleagues): sections, tick boxes, hover, keyboard.</summary>
+    private readonly AssigneeList _list;
     private readonly Label _loading = new LinkedLabel
     {
         AutoSize = false,
         Text = "Loading your groups…", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
         Font = Theme.Body, ForeColor = Theme.TextMuted, BackColor = Theme.Surface, Visible = false
     };
-    private readonly Panel _listHost = new() { BackColor = Theme.Surface };
+    private readonly Panel _listHost = new() { BackColor = Theme.Surface, Size = new Size(ListWidth, 280), Margin = new Padding(0, 10, 0, 10) };
     private readonly ThinScrollBar _scrollBar = new() { BackColor = Theme.Surface };
+
+    /// <summary>How far the list is scrolled (it moves up inside its host, as on Clients).</summary>
+    private int _scroll;
 
     private void LayoutList()
     {
         var s = _listHost.DeviceDpi / 96f;
         var bar = (int)(10 * s);
         _scrollBar.Bounds = new Rectangle(_listHost.Width - bar, 0, bar, _listHost.Height);
-        _list.VisibleWidth = _listHost.Width - bar - (int)(4 * s); // the column stops before the themed bar: no sideways scrolling
-        _list.Bounds = new Rectangle(0, 0, _listHost.Width - bar + SystemInformation.GetVerticalScrollBarWidthForDpi(_listHost.DeviceDpi), _listHost.Height);
+        _list.Left = 0;
+        _list.Width = _listHost.Width - bar - (int)(6 * s);
+        ScrollTo(_scroll);
         _scrollBar.BringToFront();
         _loading.BringToFront();
     }
 
-    private readonly ListViewGroup _monitoredSection = new("Monitored");
-    private readonly ListViewGroup _suggestedSection = new("Suggested");
-    private readonly ListViewGroup _otherSection = new("Other groups");
+    private void ScrollTo(int position)
+    {
+        _scroll = Math.Clamp(position, 0, Math.Max(0, _list.Height - _listHost.Height));
+        _list.Top = -_scroll;
+        _list.FadeAt = _scroll + _listHost.Height; // the bottom edge fades (drawn by the list, so it moves along)
+        _list.Invalidate();
+        _scrollBar.Invalidate();
+    }
+
+    private void OnWheel(object? sender, MouseEventArgs e) =>
+        ScrollTo(_scroll - e.Delta * SystemInformation.MouseWheelScrollLines * (int)(26 * _listHost.DeviceDpi / 96f) / 3 / 120);
+
+    private enum Section { Monitored, Suggested, Other }
+
+    /// <summary>The sections as shown (rows stay put when ticked; they move to their sections after Save or Discard).</summary>
+    private List<(Section Section, List<GroupItem> Groups)> _shown = [];
     private readonly Label _hint = Theme.Label("Sign in to load your groups.", Theme.Small, Theme.TextMuted);
     private readonly Button _reload = Theme.SecondaryButton("Reload");
 
@@ -68,7 +81,6 @@ internal sealed class GroupsPage : SettingsPage
     private const string SignInText = "Sign in on the Account page to see your groups.";
     private readonly HashSet<long> _selected = [];
     private Dictionary<long, Suggestion> _suggestions = [];
-    private bool _suppressEvents;
 
     /// <summary>Groups loaded from Zendesk, remembered for a day (until the app restarts) so reopening Settings is instant.</summary>
     private static (string Subdomain, DateTime At, List<GroupItem> Groups, Dictionary<long, Suggestion> Suggestions)? _cache;
@@ -100,19 +112,43 @@ internal sealed class GroupsPage : SettingsPage
     {
         var card = new Card("Monitored groups",
             "To skip some clients: [[Groups → Clients|Clients]].", Kit.CardWidth); // "(No group)" is explained on How it works
-        _list.Columns.Add("Group");
-        _list.Groups.AddRange([_monitoredSection, _suggestedSection, _otherSection]);
-        _listHost.Size = _list.Size;
-        _listHost.Margin = _list.Margin;
+        _list = new AssigneeList(ListWidth,
+            isCovered: id => _selected.Contains(id),
+            setCovered: (group, monitored) =>
+            {
+                // The row stays where it is (moving it away from under the mouse was confusing): only its tick
+                // changes. The list is sorted into its sections again after Save or Discard, or next time.
+                if (monitored) _selected.Add(group.Id); else _selected.Remove(group.Id);
+                _needsSort = true;
+            })
+        {
+            SingleColumn = true, PlainHeadings = true, HoverRows = true,
+            IsDim = id => _allGroups.Any(g => g.Id == id && g.Missing) // not found in Zendesk any more
+        };
+        _list.Changed += () =>
+        {
+            SetListGroups(); // "Monitored · 4": the counts follow the ticks
+            UpdateHint();
+            Changed();
+        };
         _listHost.Controls.Add(_loading); // overlay, shown while loading
         _listHost.Controls.Add(_scrollBar);
         _listHost.Controls.Add(_list);
 
-        // Windows' scrollbar only comes in light or dark gray, which clashes with colored themes: the list is made
-        // wider than its host so that one is cut off, and a thin themed scrollbar sits at the right edge instead.
-        _scrollBar.State = _list.VerticalScrollState;
-        _scrollBar.ScrollTo = _list.ScrollToPosition;
-        _list.ScrollChanged += () => _scrollBar.Invalidate();
+        // The app's thin scrollbar; the list moves up and down inside its host (Windows draws nothing here).
+        _scrollBar.State = () => (0, Math.Max(0, _list.Height - 1), _listHost.Height, _scroll);
+        _scrollBar.ScrollTo = ScrollTo;
+        _listHost.MouseWheel += OnWheel;
+        _list.MouseWheel += OnWheel;
+        _list.Resize += (_, _) => ScrollTo(_scroll);
+        _list.FocusMoved += row =>
+        {
+            // Scroll just enough to show the keyboard's row.
+            if (row.Top < _scroll)
+                ScrollTo(row.Top);
+            else if (row.Bottom > _scroll + _listHost.Height)
+                ScrollTo(row.Bottom - _listHost.Height);
+        };
         _listHost.Resize += (_, _) => LayoutList();
         LayoutList();
         card.Body.Controls.Add(_filter);
@@ -138,51 +174,13 @@ internal sealed class GroupsPage : SettingsPage
         _filter.TextChanged += (_, _) =>
         {
             ShowList(); // only the matching groups, sorted into their sections
-            _list.ScrollToPosition(0);
-            _scrollBar.Invalidate();
+            ScrollTo(0);
         };
         UseSignedOutStrip(_ => ColorAll());
-        UpdateCheckImages();
-        _list.HandleCreated += (_, _) =>
-        {
-            _checkImagesFor = null; // set again now that the list exists (and its real DPI is known)
-            UpdateCheckImages();
-        };
-        // Dark/light styling (and Windows' own theme changes) make Windows swap in its own, faint tick boxes: ours again.
-        _list.ThemeChanged += () =>
-        {
-            _checkImagesFor = null;
-            UpdateCheckImages();
-        };
         context.SignedOutChanged += () =>
         {
             if (Context.SignedOut)
                 ShowCached();
-        };
-        _list.ItemCheck += (_, e) =>
-        {
-            if (Context.SignedOut && !_suppressEvents)
-                e.NewValue = e.CurrentValue; // read-only while signed out (see the strip)
-        };
-        _list.ItemChecked += (_, e) =>
-        {
-            if (_suppressEvents)
-                return;
-            var item = e.Item;
-            var group = (GroupItem)item.Tag!;
-            if (item.Checked) _selected.Add(group.Id); else _selected.Remove(group.Id);
-
-            // The row stays where it is (moving it away from under the mouse was confusing): it only looks
-            // monitored or not. The list is sorted into its sections again when the page is shown next time.
-            _list.BeginInvoke(() => { RestyleInPlace(item); Changed(); });
-            _needsSort = true;
-        };
-        _list.MouseClick += (_, e) =>
-        {
-            // Clicking anywhere on the row toggles it, not just the checkbox.
-            var hit = _list.HitTest(e.Location);
-            if (hit.Item is not null && hit.Location != ListViewHitTestLocations.StateImage)
-                hit.Item.Checked = !hit.Item.Checked;
         };
     }
 
@@ -247,7 +245,7 @@ internal sealed class GroupsPage : SettingsPage
     /// <summary>Sizes the group list so the page fits the window: only the list scrolls, not the page.</summary>
     public override void OnShowing()
     {
-        UpdateCheckImages(); // the theme may have changed on the General page
+        _list.Invalidate(); // the theme may have changed on the General page
         FitList();
         if (_needsSort)
             ShowList(); // groups ticked or unticked last time move to their sections now
@@ -270,6 +268,9 @@ internal sealed class GroupsPage : SettingsPage
         }
     }
 
+    /// <summary>For the rendered screenshots: a row as if the mouse were over it.</summary>
+    internal void ShowHoverForRender(int index) => _list.PointAtForRender(index);
+
     /// <summary>After Save or Discard: the filter starts empty again (all groups, in their new sections).</summary>
     public void ClearFind() => _filter.Text = "";
 
@@ -279,25 +280,11 @@ internal sealed class GroupsPage : SettingsPage
         if (!_needsSort)
             return;
         ShowList();
-        _list.ScrollToPosition(0);
-        _scrollBar.Invalidate();
+        ScrollTo(0);
     }
 
     /// <summary>Groups were ticked or unticked since the list was last sorted into its sections.</summary>
     private bool _needsSort;
-
-    /// <summary>A ticked or unticked row: monitored look (highlighted, bold) or not, without moving it.</summary>
-    private void RestyleInPlace(ListViewItem item)
-    {
-        if (item.ListView != _list)
-            return; // the list was rebuilt in the meantime
-        var group = (GroupItem)item.Tag!;
-        var monitored = _selected.Contains(group.Id);
-        item.BackColor = monitored ? Theme.AccentSoft : Theme.Surface;
-        item.Font = monitored ? Theme.BodyBold : Theme.Body;
-        UpdateSectionHeaders();
-        UpdateHint();
-    }
 
     public void SetReloadEnabled(bool enabled) => _reload.Enabled = enabled;
 
@@ -444,7 +431,7 @@ internal sealed class GroupsPage : SettingsPage
     /// <summary>The list says so when the filter matches nothing (over the empty list, like the loading text).</summary>
     private void ShowNoMatch()
     {
-        var none = FilterText.Length > 0 && _list.Items.Count == 0 && _allGroups.Count > 0;
+        var none = FilterText.Length > 0 && _shown.Sum(sec => sec.Groups.Count) == 0 && _allGroups.Count > 0;
         if (none)
         {
             _loading.Text = $"{NoMatchPrefix} \"{FilterText}\".";
@@ -455,45 +442,54 @@ internal sealed class GroupsPage : SettingsPage
             _loading.Visible = false;
     }
 
-    /// <summary>Monitored groups first (highlighted), then suggestions, then the rest.</summary>
+    /// <summary>Monitored groups first, then suggestions, then the rest.</summary>
     private void ShowList()
     {
         _needsSort = false;
         _allGroups.RemoveAll(g => g.Missing && !_selected.Contains(g.Id)); // gone from Zendesk and unticked: nowhere to go
-        var ordered = _allGroups
+        _shown = _allGroups
             .Where(Matches)
-            .OrderBy(g => SectionFor(g) == _monitoredSection ? 0 : SectionFor(g) == _suggestedSection ? 1 : 2)
-            .ThenBy(g => g, Comparer<GroupItem>.Create((x, y) => CompareInSection(x, y, SectionFor(x))))
+            .GroupBy(SectionFor)
+            .OrderBy(sec => sec.Key)
+            .Select(sec => (sec.Key, sec.OrderBy(g => g, Comparer<GroupItem>.Create((x, y) => CompareInSection(x, y, sec.Key))).ToList()))
             .ToList();
-
-        _suppressEvents = true;
-        _list.BeginUpdate();
-        _list.Items.Clear();
-        foreach (var group in ordered)
-        {
-            var item = new ListViewItem { Tag = group };
-            Style(item, group, SectionFor(group));
-            _list.Items.Add(item);
-        }
-        UpdateSectionHeaders();
-        _list.EndUpdate();
-        _list.FitColumn();
-        _suppressEvents = false;
-
+        SetListGroups();
         UpdateHint();
         ShowNoMatch();
     }
 
+    /// <summary>The shown sections into the list, with their counts ("Monitored · 3"); the rows keep their order.</summary>
+    private void SetListGroups()
+    {
+        int Count(Section section) => _shown.Where(sec => sec.Section == section).Sum(sec => sec.Groups.Count);
+        var monitored = Count(Section.Monitored);
+        var suggested = Count(Section.Suggested);
+        string Title(Section section, int count) => section switch
+        {
+            // How many are ticked, also before the rows have moved to their sections (on the next visit).
+            Section.Monitored => $"Monitored · {(FilterText.Length > 0 ? count : _selected.Count)}",
+            Section.Suggested => $"Suggested · {count}",
+            // "Other groups" only makes sense next to monitored or suggested ones; alone it's just "Groups".
+            _ => monitored + suggested == 0 ? $"Groups · {count}" : $"Other groups · {count}"
+        };
+        _list.SetGroups(_shown.Select(sec => new AssigneeList.Group(Title(sec.Section, sec.Groups.Count),
+            sec.Groups.Select(g => new AssigneeList.Person(g.Id, sec.Section == Section.Suggested ? g.Name : g.DisplayName, Tip: null,
+                Note: sec.Section == Section.Suggested && _suggestions.TryGetValue(g.Id, out var why) ? why.Reason : null)).ToList(),
+            Tag: sec.Section)).ToList());
+        _list.ReadOnly = Context.SignedOut;
+        ScrollTo(_scroll);
+    }
+
     /// <summary>Monitored if ticked; suggested if it's one of your groups or has your tickets; otherwise the rest.</summary>
-    private ListViewGroup SectionFor(GroupItem group) =>
-        _selected.Contains(group.Id) ? _monitoredSection
-        : !group.Missing && _suggestions.ContainsKey(group.Id) ? _suggestedSection
-        : _otherSection;
+    private Section SectionFor(GroupItem group) =>
+        _selected.Contains(group.Id) ? Section.Monitored
+        : !group.Missing && _suggestions.ContainsKey(group.Id) ? Section.Suggested
+        : Section.Other;
 
     /// <summary>Suggestions: groups you're a member of first, then by how many of your tickets they have. Others: by name.</summary>
-    private int CompareInSection(GroupItem a, GroupItem b, ListViewGroup section)
+    private int CompareInSection(GroupItem a, GroupItem b, Section section)
     {
-        if (section == _suggestedSection && _suggestions.TryGetValue(a.Id, out var sa) && _suggestions.TryGetValue(b.Id, out var sb))
+        if (section == Section.Suggested && _suggestions.TryGetValue(a.Id, out var sa) && _suggestions.TryGetValue(b.Id, out var sb))
         {
             var byMember = sb.Member.CompareTo(sa.Member);
             if (byMember != 0) return byMember;
@@ -503,94 +499,11 @@ internal sealed class GroupsPage : SettingsPage
         return _allGroups.IndexOf(a).CompareTo(_allGroups.IndexOf(b));
     }
 
-    private void Style(ListViewItem item, GroupItem group, ListViewGroup section)
-    {
-        var monitored = section == _monitoredSection;
-        item.Text = section == _suggestedSection && _suggestions.TryGetValue(group.Id, out var why)
-            ? $"{group.Name}  ·  {why.Reason}"
-            : group.DisplayName;
-        item.Checked = monitored;
-        item.Group = section;
-        item.Font = monitored ? Theme.BodyBold : Theme.Body;
-        ColorRow(item, group, monitored);
-    }
-
-    /// <summary>Monitored rows are highlighted; signed out, every row is grey (the list can't be changed then).</summary>
-    private void ColorRow(ListViewItem item, GroupItem group, bool monitored)
-    {
-        var readOnly = Context.SignedOut;
-        item.BackColor = monitored && !readOnly ? Theme.AccentSoft : Theme.Surface;
-        item.ForeColor = group.Missing || readOnly ? Theme.TextMuted : Theme.Text;
-    }
-
-    private (UiPalette Palette, int Size, bool ReadOnly)? _checkImagesFor;
-
-    /// <summary>
-    /// The tick boxes drawn in the theme's colors, like the other lists: Windows' own boxes are faint on dark themes
-    /// (e.g. Optimizely). Greyed while signed out.
-    /// </summary>
-    private void UpdateCheckImages()
-    {
-        var size = (int)Math.Round(16 * _list.DeviceDpi / 96f);
-        var key = (Theme.Current, size, Context.SignedOut);
-        if (_checkImagesFor == key)
-            return;
-        _checkImagesFor = key;
-        // A new image list each time; the previous one isn't disposed while the list may still use it (disposing it
-        // left the boxes blank after a theme change), only when the page goes.
-        var images = new ImageList { ColorDepth = ColorDepth.Depth32Bit, ImageSize = new Size(size, size) };
-        images.Images.Add(CheckImage(size, on: false, Context.SignedOut));
-        images.Images.Add(CheckImage(size, on: true, Context.SignedOut));
-        if (_list.StateImageList is { } previous)
-            _list.Disposed += (_, _) => previous.Dispose();
-        _list.StateImageList = images;
-        _list.Invalidate();
-    }
-
-    private static Bitmap CheckImage(int size, bool on, bool readOnly)
-    {
-        var bitmap = new Bitmap(size, size);
-        using var g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        var s = size / 16f;
-        var box = new RectangleF(1 * s, 1 * s, size - 2.5f * s, size - 2.5f * s);
-        using var path = Theme.RoundedRect(box, 3 * s);
-        if (on)
-        {
-            using var fill = new SolidBrush(readOnly ? Theme.TextMuted : Theme.Accent); // grey but still clearly ticked
-            g.FillPath(fill, path);
-            using var tick = new Pen(readOnly ? Theme.Surface : Theme.OnAccent, 2 * s)
-                { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
-            g.DrawLines(tick, [new PointF(box.X + 3 * s, box.Y + 7.5f * s), new PointF(box.X + 6 * s, box.Y + 10.5f * s), new PointF(box.X + 11 * s, box.Y + 4 * s)]);
-        }
-        else
-        {
-            using var border = new Pen(Theme.TextMuted, 1.4f * s);
-            g.DrawPath(border, path);
-        }
-        return bitmap;
-    }
-
+    /// <summary>Signed out: greyed and read-only (the strip says why); the list still scrolls.</summary>
     private void ColorAll()
     {
-        UpdateCheckImages();
-        _list.BeginUpdate();
-        foreach (ListViewItem item in _list.Items)
-            if (item.Tag is GroupItem group)
-                ColorRow(item, group, item.Group == _monitoredSection);
-        _list.EndUpdate();
-    }
-
-    /// <summary>"Other groups" only makes sense next to monitored or suggested ones; alone it's just "Groups".</summary>
-    private void UpdateSectionHeaders()
-    {
-        var monitored = _monitoredSection.Items.Count;
-        var suggested = _suggestedSection.Items.Count;
-        var others = _otherSection.Items.Count;
-        // How many are ticked, also before the rows have moved to their sections (on the next visit).
-        _monitoredSection.Header = $"Monitored · {(FilterText.Length > 0 ? monitored : _selected.Count)}";
-        _suggestedSection.Header = $"Suggested · {suggested}";
-        _otherSection.Header = monitored + suggested == 0 ? $"Groups · {others}" : $"Other groups · {others}";
+        _list.ReadOnly = Context.SignedOut;
+        _list.Invalidate();
     }
 
     /// <summary>Loads the suggestions with the group list; never fatal.</summary>

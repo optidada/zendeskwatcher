@@ -676,6 +676,16 @@ public sealed class ZendeskClient(Settings settings, IZendeskSession session)
         SearchTicketsAsync($"type:ticket group:{groupId} -assignee:none status<solved updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}", ct);
 
     /// <summary>
+    /// Tickets the agent ever commented on (whoever has them now) that were updated since <paramref name="since"/>,
+    /// newest first, up to 5: did they write on someone else's ticket, or one they passed on? ("Cover today?")
+    /// </summary>
+    public async Task<List<Ticket>> GetCommentedTicketsUpdatedSinceAsync(long userId, DateTimeOffset since, CancellationToken ct)
+    {
+        var query = $"type:ticket commenter:{userId} updated>{since.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}";
+        return (await GetAsync<SearchResponse>($"/api/v2/search.json?query={Uri.EscapeDataString(query)}&sort_by=updated_at&sort_order=desc&per_page=5", ct)).Results;
+    }
+
+    /// <summary>
     /// An agent's tickets (any status) updated since <paramref name="since"/>, newest first, up to 10: where to look for
     /// what they did lately (Colleagues: are they active in Zendesk?).
     /// </summary>

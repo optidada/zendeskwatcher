@@ -23,7 +23,8 @@ public class SettingsLinksTests
 
     [Fact]
     public void The_products_page_in_a_sentence_is_a_link() =>
-        Assert.Equal("Products", Assert.Single(SettingsLinks.Parse("Only the products you work with: the Products page.").Links).Page);
+        Assert.All([SettingsPages.NotificationsPage.ProductsHint(0), SettingsPages.NotificationsPage.ProductsHint(3)],
+            hint => Assert.Equal("Products", Assert.Single(SettingsLinks.Parse(hint).Links).Page));
 
     [Fact]
     public void Brackets_sentences_and_written_out_links()

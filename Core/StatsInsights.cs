@@ -44,14 +44,20 @@ public static class StatsInsights
     internal static IEnumerable<Insight> Clients(IReadOnlyList<(long Id, string Name, int Shown, int Acted)> clients, Settings settings)
     {
         var now = DateTimeOffset.UtcNow;
+        // Choices are per group: Important or Only urgent anywhere was decided on purpose; a mute only counts when it's
+        // in every monitored group (otherwise the ones shown came from a group where it isn't muted).
+        bool HasChoice(long id) =>
+            settings.Clients.Any(choice => choice.Id == id && choice.ModeAt(now) is ClientMode.Important or ClientMode.OnlyUrgent) ||
+            settings.WatchedGroups.Count > 0 &&
+            settings.WatchedGroups.All(g => (ClientChoices.Find(settings.Clients, id, g.Id)?.ModeAt(now) ?? ClientMode.Normal) != ClientMode.Normal);
         return clients
             .Where(c => c.Shown >= MinPerClient && c.Acted * 10 < c.Shown)
-            .Where(c => (settings.ClientChoiceFor(c.Id)?.ModeAt(now) ?? ClientMode.Normal) == ClientMode.Normal)
+            .Where(c => !HasChoice(c.Id))
             .OrderByDescending(c => c.Shown)
             .Take(2)
             .Select(c => new Insight(Tone.Hint, c.Acted == 0
-                ? $"{c.Name}: {c.Shown} notifications and you opened none. Mute them, or hear only urgent ones (Groups → Clients, or Options ▾ on a notification)."
-                : $"{c.Name}: {c.Shown} notifications and you opened only {c.Acted}. Mute them, or hear only urgent ones (Groups → Clients, or Options ▾ on a notification)."));
+                ? $"{c.Name}: {c.Shown} notifications and you opened none. Mute them, or hear only their P1 and P2 (Groups → Clients, or Options ▾ on a notification)."
+                : $"{c.Name}: {c.Shown} notifications and you opened only {c.Acted}. Mute them, or hear only their P1 and P2 (Groups → Clients, or Options ▾ on a notification)."));
     }
 
     private static List<Insight> AnalyzeKinds(IReadOnlyDictionary<(NotificationKind Kind, StatOutcome Outcome), int> totals, int activeDays, Settings settings)
@@ -120,12 +126,12 @@ public static class StatsInsights
     /// <summary>How to get fewer notifications of a kind, with where to change it.</summary>
     private static string Fewer(NotificationKind kind, Settings settings) => kind switch
     {
-        NotificationKind.NewTicket => "Muting clients or hearing only their urgent tickets (Groups → Clients), or monitoring fewer groups, gives fewer.",
+        NotificationKind.NewTicket => "Muting clients or hearing only their P1 and P2 (Groups → Clients), or monitoring fewer groups, gives fewer.",
         NotificationKind.MyTicket => settings.MyTicketPriorities.Count == Settings.AllPriorities.Length
             ? "Fewer priorities (Notifications → Ticket changes) or change types (Notifications → Which changes) give fewer."
             : "Fewer change types (Notifications → Which changes) give fewer, e.g. without status changes.",
         NotificationKind.CcTicket => settings.CcTicketPriorities.Count > 1
-            ? "Only Urgent (P1) for CC / following tickets (Notifications → Ticket changes) gives fewer."
+            ? "Only P1 for CC / following tickets (Notifications → Ticket changes) gives fewer."
             : "Turning off CC / following tickets (Notifications → Ticket changes) stops them.",
         _ => "Fewer priorities or groups (Notifications → Colleagues) give fewer."
     };

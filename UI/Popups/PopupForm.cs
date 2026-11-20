@@ -10,7 +10,7 @@ namespace ZendeskWatcher.UI.Popups;
 /// </summary>
 public sealed class PopupForm : Form
 {
-    public enum Result { None, Open, Take, Snooze, Dismiss, Timeout }
+    public enum Result { None, Open, Take, Snooze, Dismiss, Timeout, Second }
 
     /// <summary>The button between Open and Snooze/Close: "Take it" on new tickets.</summary>
     private bool HasExtraButton => _content.CanTake;
@@ -207,7 +207,7 @@ public sealed class PopupForm : Form
     internal static string TicketNumberText(long id) => id.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>Says what the two copy buttons do while the mouse is on them.</summary>
-    private readonly ToolTip _tips = new() { InitialDelay = 400, ShowAlways = true }; // the window never takes focus: without ShowAlways no tip shows
+    private readonly ThemedToolTip _tips; // in the notification's own colors (set in the constructor) // the window never takes focus: without ShowAlways no tip shows
     private Font? _iconFont, _hashFont;
 
     /// <param name="scale">Screen DPI scale.</param>
@@ -220,6 +220,8 @@ public sealed class PopupForm : Form
         _content = content;
         _decoration = decoration;
         _palette = palette;
+        // The window never takes focus: without ShowAlways no tip shows. In the notification's colors, not the app theme's.
+        _tips = new ThemedToolTip { InitialDelay = 400, ShowAlways = true, Colors = () => (_palette.Background, _palette.Border, _palette.Text) };
         _s = scale * size;
         _durationMs = Math.Max(0, seconds) * 1000; // 0: until dismissed
         _accent = palette.Accent(content.Priority, content.Kind);
@@ -380,7 +382,8 @@ public sealed class PopupForm : Form
 
     /// <summary>What the second button does: snooze tickets, close app messages; nothing for "OK" messages (OK closes).</summary>
     private Result SecondButton =>
-        _content.ResolvedAction == Notifier.ActionInfo ? Result.None
+        _content.SecondChoice is not null ? Result.Second // its own choice, e.g. "Always" next to "Cover today"
+        : _content.ResolvedAction == Notifier.ActionInfo ? Result.None
         : _content.IsTicketNotification || _content.ResolvedAction == Notifier.ActionNone ? Result.Snooze // tickets, and their samples
         : Result.Dismiss; // the start summary, welcome, update ready, sign-in, …
 
@@ -388,6 +391,9 @@ public sealed class PopupForm : Form
 
     /// <summary>"Taken by Anna", shown in the footer while it closes by itself (<see cref="ShowTaken"/>).</summary>
     private string? _takenNote;
+
+    /// <summary>Saying "Taken by Anna" before it closes: its buttons are done, and so are the shortcuts.</summary>
+    public bool Taken => _takenNote is not null;
 
     /// <summary>
     /// Someone took the ticket (or it was solved): says so where Take it was, for a few seconds, then closes. Without
@@ -432,6 +438,9 @@ public sealed class PopupForm : Form
         _clickable = clickable;
         Log.Info($"Notification {(clickable ? "takes clicks again" : "disabled by Windows (a dialog is open?)")}: {_content.LogName}");
     }
+
+    /// <summary>Closing already (its slide-out runs): a shortcut goes to the next one.</summary>
+    public bool Leaving => _phase == Phase.Leaving;
 
     public void Dismiss(Result outcome)
     {
@@ -730,6 +739,8 @@ public sealed class PopupForm : Form
             Notifier.ActionSignIn => _palette.Terminal ? "[ sign in ]" : "Sign in",
             Notifier.ActionSettings => _palette.Terminal ? "[ settings ]" : "Open Settings",
             Notifier.ActionInfo => _palette.Terminal ? "[ close ]" : "Close",
+            var c when c.StartsWith(NotificationActions.CoverPrefix, StringComparison.Ordinal) =>
+                _palette.Terminal ? "[ cover today ]" : "Cover today",
             var u when u.StartsWith(NotificationActions.UrlPrefix, StringComparison.Ordinal) =>
                 _palette.Terminal ? "[ notes ]" : "Release notes",
             var a when a.StartsWith(NotificationActions.SearchPrefix, StringComparison.Ordinal) || _content.TicketCount > 1 =>
@@ -741,6 +752,7 @@ public sealed class PopupForm : Form
         _snoozeLabel = SecondButton switch
         {
             Result.Snooze => _palette.Terminal ? "[ snooze ]" : "Snooze",
+            Result.Second => _palette.Terminal ? $"[ {_content.SecondChoice!.Value.Label.ToLowerInvariant()} ]" : _content.SecondChoice!.Value.Label,
             Result.Dismiss => _palette.Terminal ? "[ close ]" : "Close",
             _ => ""
         };
@@ -751,7 +763,7 @@ public sealed class PopupForm : Form
 
         // Right to left: Open, Take it, Snooze; Close (the same as ✕ and right-click) always at the bottom left, so it's
         // in the same place on every notification. If they don't fit, slimmer buttons; if still not, no extra Close.
-        var withDismiss = SecondButton == Result.Snooze;
+        var withDismiss = SecondButton is Result.Snooze or Result.Second;
         int Fit(int padding, bool dismiss) =>
             new[] { _openLabel, HasExtraButton ? _takeLabel : "", _snoozeLabel, dismiss ? DismissLabel : "" }
                 .Where(l => l.Length > 0).Sum(l => TextRenderer.MeasureText(l, _smallFont).Width + Px(padding) + Px(8)) - Px(8) + WhoWidth;
@@ -1286,7 +1298,16 @@ public sealed class PopupForm : Form
         foreach (var theme in new[] { NotificationTheme.Optimizely, NotificationTheme.NeonDark, NotificationTheme.Terminal, NotificationTheme.CleanLight, NotificationTheme.CozyPurple, NotificationTheme.Night, NotificationTheme.Retro, NotificationTheme.WindowsNative })
         {
             var i = 0;
-            foreach (var content in Notifier.AllSamples())
+            // Also the "Cover today?" question (not a Try it sample: it's an app message with two choices).
+            var cover = new NotificationContent(NotificationKind.MyTicket, "Colleague away?", "Peter Gibbons hasn't been active in Zendesk today",
+                "No changes or comments on their tickets since their day started (Fri 11:10 their time). **Cover today**: when their " +
+                "clients write, you get a notification as for the colleagues you cover, until midnight. **Always** ticks them on " +
+                "Settings → Notifications → Colleagues.")
+            {
+                Action = NotificationActions.Cover(9, "Peter Gibbons"),
+                SecondChoice = ("Always", NotificationActions.CoverAlways(9, "Peter Gibbons"))
+            };
+            foreach (var content in Notifier.AllSamples().Append(cover))
             {
                 using var form = new PopupForm(content with { IsSample = true }, PopupPalette.For(theme), 0, 1f) { _phase = Phase.Showing };
                 using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);

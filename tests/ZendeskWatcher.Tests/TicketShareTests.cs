@@ -14,7 +14,7 @@ public class TicketShareTests
         var (html, _) = TicketShare.Format(Update, "https://acme.zendesk.com/agent/tickets/123456");
 
         Assert.Equal(
-            "<b><a href=\"https://acme.zendesk.com/agent/tickets/123456\">#123456 Login &lt;broken&gt; &amp; slow</a></b> · High (P2) · You&#39;re CC" +
+            "<b><a href=\"https://acme.zendesk.com/agent/tickets/123456\">#123456 Login &lt;broken&gt; &amp; slow</a></b> · P2 · You&#39;re CC" +
             "<br>Jane Customer replied: Still broken<br>Status Pending (P) → Open (Jane)", html);
     }
 
@@ -24,7 +24,7 @@ public class TicketShareTests
         var (_, text) = TicketShare.Format(Update, "https://acme.zendesk.com/agent/tickets/123456");
 
         Assert.Equal(
-            "#123456 Login <broken> & slow · High (P2) · You're CC\r\nhttps://acme.zendesk.com/agent/tickets/123456\r\n" +
+            "#123456 Login <broken> & slow · P2 · You're CC\r\nhttps://acme.zendesk.com/agent/tickets/123456\r\n" +
             "Jane Customer replied: Still broken\r\nStatus Pending (P) → Open (Jane)", text);
     }
 

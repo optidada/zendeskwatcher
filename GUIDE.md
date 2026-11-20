@@ -90,7 +90,7 @@ tickets are. Your own tickets notify you in any group.
 ### Clients
 
 Control which clients you get notifications from. You hear about every client in your groups to begin with. Untick a
-client to mute it, or use **Options ▾** to make one Important (always notifies, stays until you close it), only urgent,
+client to mute it, or use **Options ▾** to make one Important (always notifies, stays until you close it), only P1 and P2,
 muted until your shift ends or your next shift, or give it its own sound. **Options ▾** on a group's row sets it
 for all its clients at once. Point at a client's name to see a card with who usually handles its tickets ("Usually: Maria S. 12 ·
 Alex K. 5 · you 3": who they're assigned to now) and the products Zendesk lists for it; the filter finds products too
@@ -100,7 +100,20 @@ days ("you 6" after the name), or only the others. It only changes what's shown,
 untick the group, tick back the few you want. On a "Ticket updated" notification, **Options ▾** only offers Normal and
 Important: your own tickets always notify.
 
+A choice applies only in the group where you make it: mute a client in Tier 1 and their tickets in other groups still
+notify. Together with a group's priorities the stricter one wins (a group on All and a client on Only P1 and P2 gives
+that client's P1 and P2 only); Important always comes.
+
 ![Clients](docs/images/settings-clients.png)
+
+### Products
+
+Pick the products you work with (from the ticket's Product field). New tickets and colleagues' tickets for other
+products then stay quiet, except the priorities you choose (P1 and P2 to begin with). When unsure (no product, or one
+that doesn't fit the client) it notifies. Nothing picked: every product notifies. Your own and CC'd tickets always
+notify.
+
+![Products](docs/images/settings-products.png)
 
 ### Notifications
 
@@ -116,19 +129,28 @@ outside them wait for Catch up, unless you're active in Zendesk.
 ### Colleagues
 
 Choose whose tickets you cover when a colleague is off, by region or one by one. Each colleague's local time shows
-whether they're working now.
+whether they're working now (green), off work (empty) or away today (amber: no Zendesk activity all day).
+
+**Cover today?** Once a day, 3 hours into your working day, a colleague in your region with open tickets in the groups
+you cover who hasn't done anything in Zendesk since their day started (e.g. off sick or on holiday) gets one
+question: **Cover today** covers them until midnight (an outlined tick here), **Always** ticks them for good.
 
 ![Colleagues](docs/images/settings-colleagues.png)
 
 ### Behavior
 
-How long notifications stay, what happens to ones that waited while you were away, and Snooze.
+How long notifications stay, what happens to ones that waited while you were away, and Snooze. "Hold ticket
+notifications while I'm typing a lot" (on by default) lets them wait until you slow down, at most 10 minutes; P1
+tickets, important clients and SLAs due within 15 minutes never wait. Only how often you type or click counts, never what.
+
+**Keyboard**, while a notification is on screen: **Ctrl+Alt+O** opens the oldest one, **Ctrl+Alt+T** takes it (new
+tickets), **Ctrl+Alt+S** snoozes it, **Ctrl+Alt+X** closes it.
 
 ![Behavior](docs/images/settings-behavior.png)
 
 ### Look & sound
 
-The notification style, position and size, the glow at the screen edge for urgent tickets, a sound per kind of
+The notification style, position and size, the glow at the screen edge for P1 tickets, a sound per kind of
 notification, and the volume. **Try it** sends samples with your choices.
 
 ![Look & sound](docs/images/settings-look-and-sound.png)

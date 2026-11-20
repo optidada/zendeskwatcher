@@ -23,7 +23,7 @@ public sealed class GridTable : Control
     private int[] _widths = [];
     private int[] _heights = [];
     private (int Row, int Column)? _hover;
-    private readonly ToolTip _tip = new();
+    private readonly ThemedToolTip _tip = new(); // in the app's colors
 
     /// <summary>The widest the table may get: <see cref="ShrinkColumn"/> gives way.</summary>
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]

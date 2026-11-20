@@ -104,6 +104,9 @@ public sealed record NotificationContent(
     /// <summary>Show a "Take it" button that assigns the (unassigned) ticket to the user and opens it.</summary>
     public bool CanTake { get; init; }
 
+    /// <summary>A second choice next to the main button (e.g. "Always" next to "Cover today"): its label and action. Null: none.</summary>
+    public (string Label, string Action)? SecondChoice { get; init; }
+
 
     /// <summary>The user asked for it (Catch up): shown even while notifications are paused.</summary>
     public bool RequestedByUser { get; init; }
@@ -141,7 +144,7 @@ public sealed record NotificationContent(
     /// <summary>The client's own sound (Clients page), instead of the sound of the notification's type.</summary>
     public ToastSound? Sound { get; init; }
 
-    /// <summary>The priority for display, e.g. "High (P2)".</summary>
+    /// <summary>The priority for display, e.g. "P2".</summary>
     public string? PriorityLabel => LabelForPriority(Priority);
 
     /// <summary>The priority in the heading: "P1" … "P4"; null for no priority.</summary>
@@ -158,14 +161,14 @@ public sealed record NotificationContent(
     /// <summary>"New ticket · P2 · Support Tier 2": kind, priority and where it's from.</summary>
     public string FullHeading => string.Join(" · ", new[] { Heading, PriorityShort, Context }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
-    /// <summary>"urgent" → "Urgent (P1)", … ; null for no priority.</summary>
+    /// <summary>"urgent" → "P1", … (the team says P1–P4, never Urgent…); null for no priority.</summary>
     public static string? LabelForPriority(string? priority) => priority?.ToLowerInvariant() switch
     {
         null or "" => null,
-        "urgent" => "Urgent (P1)",
-        "high" => "High (P2)",
-        "normal" => "Normal (P3)",
-        "low" => "Low (P4)",
+        "urgent" => "P1",
+        "high" => "P2",
+        "normal" => "P3",
+        "low" => "P4",
         var other => char.ToUpperInvariant(other[0]) + other[1..]
     };
 

@@ -46,8 +46,8 @@ public class ClientFilterTests
     public void Every_client_is_normal_by_default_and_no_organization_is_its_own_client()
     {
         var now = DateTimeOffset.UtcNow;
-        var withOrg = new Ticket { OrganizationId = Contoso, Priority = "normal" };
-        var without = new Ticket();
+        var withOrg = new Ticket { OrganizationId = Contoso, Priority = "normal", GroupId = 10 };
+        var without = new Ticket { GroupId = 10 };
         Assert.Equal(ClientMode.Normal, TicketRules.ClientMode(withOrg, _settings, now));
         Exclude(ClientChoice.NoClientId, ClientChoice.NoClientName);
         Assert.Equal(ClientMode.Muted, TicketRules.ClientMode(without, _settings, now));

@@ -16,6 +16,7 @@ internal sealed class BehaviorPage : SettingsPage
     private readonly Label _otherTimes = Theme.Label("", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44);
     private readonly ToggleSwitch _dropAnswered = new("Also drop it when someone from your side already replied");
     private readonly ToggleSwitch _pauseAway = new("Hold the countdown while I'm away");
+    private readonly ToggleSwitch _holdBusy = new("Hold ticket notifications while I'm typing a lot");
     private readonly ChoiceBox _snoozeMinutes = Kit.Combo(SnoozeMinuteOptions, width: 140);
 
     public BehaviorPage(SettingsContext context)
@@ -31,6 +32,10 @@ internal sealed class BehaviorPage : SettingsPage
         _ticketLength.SelectedIndexChanged += (_, _) => ShowTicketTimes();
         screen.Body.Controls.Add(_pauseAway);
         screen.Body.Controls.Add(Theme.Label("Away means the screen is locked, or no mouse or keyboard for a minute.", Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
+        _holdBusy.Margin = new Padding(_holdBusy.Margin.Left, 10, _holdBusy.Margin.Right, _holdBusy.Margin.Bottom);
+        screen.Body.Controls.Add(_holdBusy);
+        screen.Body.Controls.Add(Theme.Label("They come when you slow down, at most 10 minutes later. P1, important clients and SLAs due soon never wait.",
+            Theme.Small, Theme.TextMuted, Kit.CardWidth - 44));
         Panel.Controls.Add(screen);
 
         var back = new Card("Already handled", "A notification that had to wait is checked again first, and dropped if the ticket was " +
@@ -47,7 +52,7 @@ internal sealed class BehaviorPage : SettingsPage
         snooze.Body.Controls.Add(snoozeGrid);
         Panel.Controls.Add(snooze);
 
-        TrackChanges(_pauseAway, _dropAnswered, _snoozeMinutes);
+        TrackChanges(_pauseAway, _holdBusy, _dropAnswered, _snoozeMinutes);
         _ticketLength.SelectedIndexChanged += (_, _) => Changed();
     }
 
@@ -58,6 +63,7 @@ internal sealed class BehaviorPage : SettingsPage
         _ticketLength.SelectedIndex = Math.Max(0, Array.IndexOf(Lengths, settings.TicketDisplayLength));
         ShowTicketTimes();
         _pauseAway.Checked = settings.PausePopupsWhenAway;
+        _holdBusy.Checked = settings.HoldWhileBusy;
         _dropAnswered.Checked = settings.DropAnswered;
         Kit.Select(_snoozeMinutes, settings.SnoozeMinutes, fallback: 10);
     }
@@ -68,11 +74,12 @@ internal sealed class BehaviorPage : SettingsPage
         s.ApplyDisplayLength(); // Catch up and app messages follow the same choice
         // Only the duration: the sound is set on Look & sound.
         s.PausePopupsWhenAway = _pauseAway.Checked;
+        s.HoldWhileBusy = _holdBusy.Checked;
         s.DropAnswered = _dropAnswered.Checked;
         s.SnoozeMinutes = Kit.Selected<int>(_snoozeMinutes);
     }
 
-    /// <summary>"Urgent until dismissed · High 1 min · Normal 30 s · Low 15 s" for the chosen length.</summary>
+    /// <summary>"P1 until closed · P2 1 min · P3 30 s · P4 15 s" for the chosen length.</summary>
     private void ShowTicketTimes()
     {
         // Short enough for one line in every choice (a second line made the page jump).
@@ -80,8 +87,8 @@ internal sealed class BehaviorPage : SettingsPage
         static string Time(int seconds) => seconds == 0 ? "until closed" : seconds >= 60 ? $"{seconds / 60} min" : $"{seconds} s";
         var (high, normal, low) = (TicketDisplayTimes.For(length, "high"), TicketDisplayTimes.For(length, "normal"), TicketDisplayTimes.For(length, "low"));
         _ticketTimes.Text = high == 0
-            ? $"Tickets: Urgent and High until closed · Normal {Time(normal)} · Low {Time(low)}"
-            : $"Tickets: Urgent until closed · High {Time(high)} · Normal {Time(normal)} · Low {Time(low)}";
+            ? $"Tickets: P1 and P2 until closed · P3 {Time(normal)} · P4 {Time(low)}"
+            : $"Tickets: P1 until closed · P2 {Time(high)} · P3 {Time(normal)} · P4 {Time(low)}";
         var (summary, app) = TicketDisplayTimes.Others(length);
         _otherTimes.Text = $"Catch up {Time(summary.Seconds())} · App messages {Time(app.Seconds())} · Sign-in required until closed";
     }
