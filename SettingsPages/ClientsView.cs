@@ -453,8 +453,29 @@ internal sealed class ClientsView
     private static Dictionary<long, GroupDigest> DigestsFor(string subdomain)
     {
         if (_digests is not { } d || d.Subdomain != subdomain)
-            _digests = (subdomain, ClientHistory.Load(subdomain)); // shared with "Only clients I've worked with"
+        {
+            // Read on another thread when Settings opened (PreloadDigests): usually done by now, else waited for.
+            var preloaded = _preload is { } p && p.Subdomain == subdomain ? p.Read.Result : null;
+            _preload = null;
+            _digests = (subdomain, preloaded ?? ClientHistory.Load(subdomain)); // shared with "Only clients I've worked with"
+        }
         return _digests.Value.Groups;
+    }
+
+    private static (string Subdomain, Task<Dictionary<long, GroupDigest>> Read)? _preload;
+
+    /// <summary>The groups monitored as last shown or counted: the saved records keep only these (<see cref="ClientHistory.Save"/>).</summary>
+    private static HashSet<long>? _monitored;
+
+    /// <summary>
+    /// Settings opened: the saved tickets (cache\clients-digest.json, a few MB) are read on another thread, so Products and
+    /// Clients don't spend ~60 ms reading them on screen the first time. UI thread only, like <see cref="DigestsFor"/>.
+    /// </summary>
+    internal static void PreloadDigests(string subdomain)
+    {
+        if (_digests is { } d && d.Subdomain == subdomain || _preload is { } p && p.Subdomain == subdomain || subdomain.Length == 0)
+            return;
+        _preload = (subdomain, Task.Run(() => ClientHistory.Load(subdomain)));
     }
 
     /// <summary>The groups' tickets as last read (no request), shared with the Clients list.</summary>
@@ -469,7 +490,8 @@ internal sealed class ClientsView
         var digests = DigestsFor(subdomain);
         foreach (var id in groupIds)
             digests[id] = (await client.ReadGroupDigestAsync(id, digests.GetValueOrDefault(id), CancellationToken.None)).Digest;
-        ClientHistory.Save(subdomain, digests);
+        _monitored = [.. groupIds];
+        ClientHistory.Save(subdomain, digests, _monitored);
         return digests;
     }
 
@@ -502,7 +524,7 @@ internal sealed class ClientsView
                     Remember(_old.Groups);
                 var (clients, digest) = await client.GetGroupClientsAsync(groupId, digests.GetValueOrDefault(groupId), known, CancellationToken.None);
                 digests[groupId] = digest;
-                ClientHistory.Save(subdomain, digests);
+                ClientHistory.Save(subdomain, digests, _monitored);
                 return clients.Select(c => new Client(c.Id, c.Name, c.Tickets, c.Products, c.Handlers)).ToList();
             }
             catch (Exception ex)
@@ -534,6 +556,7 @@ internal sealed class ClientsView
         Dictionary<long, List<Client>>? loaded = null;
         var failed = 0;
         var refreshed = false; // the old clients were in view while loading: the scroll position stays
+        _monitored = [.. groups.Select(g => g.Id)];
 
         if (client is not null && groups.Count > 0)
         {

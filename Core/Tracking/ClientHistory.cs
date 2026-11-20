@@ -5,7 +5,8 @@ namespace ZendeskWatcher.Tracking;
 
 /// <summary>
 /// The groups' ticket records (<see cref="GroupDigest"/>), saved in cache\clients-digest.json: read by the Clients page
-/// (only what changed is asked for next time). Ticket number, client, assignee and date only.
+/// (only what changed is asked for next time). Ticket number, client, assignee and date only. Only monitored groups are
+/// kept (and others for <see cref="KeepUnmonitored"/>, so unticking and ticking a group again doesn't read it all again).
 /// </summary>
 public static class ClientHistory
 {
@@ -42,8 +43,21 @@ public static class ClientHistory
         }
     }
 
-    public static void Save(string subdomain, Dictionary<long, GroupDigest> digests)
+    /// <summary>A group no longer monitored keeps its records this long after it was last read.</summary>
+    public static readonly TimeSpan KeepUnmonitored = TimeSpan.FromDays(1);
+
+    /// <summary>
+    /// Saves the records. With <paramref name="monitored"/>: groups not in it, read over <see cref="KeepUnmonitored"/> ago,
+    /// are dropped (from <paramref name="digests"/> too). A group ticked for a while once kept 10,000 tickets on disk for good.
+    /// </summary>
+    public static void Save(string subdomain, Dictionary<long, GroupDigest> digests, IReadOnlySet<long>? monitored = null)
     {
+        if (monitored is not null)
+            foreach (var (id, digest) in digests.Where(kv => !monitored.Contains(kv.Key) && DateTimeOffset.UtcNow - kv.Value.ReadAt > KeepUnmonitored).ToList())
+            {
+                digests.Remove(id);
+                Log.Info($"Client history: group {id} is no longer monitored, its {digest.Tickets.Count} ticket records are dropped");
+            }
         try
         {
             lock (Gate)

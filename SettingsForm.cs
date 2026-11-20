@@ -230,6 +230,7 @@ public sealed class SettingsForm : Form
         _context.ShowAccount = () => SelectPage(Array.IndexOf(_pages!, _account));
         _groups = new GroupsPage(_context);
         _account = new AccountPage(_context, _groups);
+        ClientsView.PreloadDigests(settings.Subdomain); // for Products and Clients, while the window builds
         _makePage =
         [
             () => _account, () => _groups, () => new ClientsPage(_context, _groups), () => new ProductsPage(_context, _groups),
@@ -953,7 +954,10 @@ public sealed class SettingsForm : Form
     /// </summary>
     internal static void MeasureIdle(int page, int seconds, string file)
     {
-        var settings = new Settings { Subdomain = "example", HelpColleagues = true, WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }] };
+        // ZW_MEASURE_REAL=1 with ZENDESKWATCHER_DATA_DIR pointing at a copy of a real data folder: that folder's settings and
+        // cached lists (products, clients), as a signed-out real window would show them.
+        var settings = Environment.GetEnvironmentVariable("ZW_MEASURE_REAL") == "1" ? Settings.Load()
+            : new Settings { Subdomain = "example", HelpColleagues = true, WatchedGroups = [new WatchedGroup { Id = 1, Name = "Support Tier 2" }] };
         var opening = System.Diagnostics.Stopwatch.StartNew();
         using var form = new SettingsForm(settings, _ => new SignedOutSession(), new Notifier((_, _) => { }) { Stats = StatisticsPage.SampleStats() });
         var built = opening.ElapsedMilliseconds;

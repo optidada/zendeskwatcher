@@ -327,6 +327,18 @@ internal sealed class ProductsPage : SettingsPage
                     if (!_filling)
                         SetPicked(values, all.Checked);
                 };
+                // An area's products are made the first time it's opened: most stay closed, and ~60 tick boxes with
+                // their numbers made up most of the page's first showing (~350 ms → about a third).
+                var filled = false;
+                void Fill()
+                {
+                    if (filled)
+                        return;
+                    filled = true;
+                    grid.SuspendLayout();
+                    FillArea(grid, values, field, counts, mine, counted);
+                    grid.ResumeLayout();
+                }
                 foreach (var target in new Control[] { head, title, picked, total, chevron })
                 {
                     target.Cursor = Cursors.Hand;
@@ -334,37 +346,47 @@ internal sealed class ProductsPage : SettingsPage
                     {
                         var nowOpen = !grid.Visible;
                         if (nowOpen) Opened.Add(areaName); else Opened.Remove(areaName);
+                        if (nowOpen)
+                            Fill();
                         chevron.Open = nowOpen;
                         grid.Visible = nowOpen;
                     };
                 }
-                for (var row = 0; row < values.Count; row++)
-                {
-                    var value = values[row];
-                    var n = counts.GetValueOrDefault(value);
-                    var box = Kit.Check(field.NameOf(value));
-                    box.Margin = new Padding(0, 1, 0, 1);
-                    if (counted && n == 0)
-                        box.ForeColor = Theme.TextMuted; // none in your groups: dimmed
-                    box.Checked = _selected.Contains(value);
-                    box.CheckedChanged += (_, _) =>
-                    {
-                        if (!_filling)
-                            SetPicked([value], box.Checked);
-                    };
-                    if (mine.GetValueOrDefault(value) is > 0 and var m)
-                        _tips.SetToolTip(box, $"{m} of them assigned to you");
-                    var number = Theme.Label(counted ? n.ToString() : "", Theme.Body, n == 0 ? Theme.TextMuted : Theme.Text);
-                    number.Anchor = AnchorStyles.Right;
-                    number.Margin = new Padding(0, 0, 4, 0);
-                    grid.Controls.Add(box, 0, row);
-                    grid.Controls.Add(number, 1, row);
-                    _boxes[value] = box;
-                }
+                if (open)
+                    Fill();
                 _list.Controls.Add(grid);
             }
         }
         _list.ResumeLayout();
         ShowPicked(); // names known now
+    }
+
+    /// <summary>One area's products: a tick box (ticked when picked) and its tickets in your groups each.</summary>
+    private void FillArea(TableLayoutPanel grid, List<string> values, ProductField field, Dictionary<string, int> counts,
+        Dictionary<string, int> mine, bool counted)
+    {
+        for (var row = 0; row < values.Count; row++)
+        {
+            var value = values[row];
+            var n = counts.GetValueOrDefault(value);
+            var box = Kit.Check(field.NameOf(value));
+            box.Margin = new Padding(0, 1, 0, 1);
+            if (counted && n == 0)
+                box.ForeColor = Theme.TextMuted; // none in your groups: dimmed
+            box.Checked = _selected.Contains(value);
+            box.CheckedChanged += (_, _) =>
+            {
+                if (!_filling)
+                    SetPicked([value], box.Checked);
+            };
+            if (mine.GetValueOrDefault(value) is > 0 and var m)
+                _tips.SetToolTip(box, $"{m} of them assigned to you");
+            var number = Theme.Label(counted ? n.ToString() : "", Theme.Body, n == 0 ? Theme.TextMuted : Theme.Text);
+            number.Anchor = AnchorStyles.Right;
+            number.Margin = new Padding(0, 0, 4, 0);
+            grid.Controls.Add(box, 0, row);
+            grid.Controls.Add(number, 1, row);
+            _boxes[value] = box;
+        }
     }
 }

@@ -132,8 +132,8 @@ public static class GroupWorkloadCache
             Groups.Clear();
             People.Clear();
             _loaded = true;
+            try { File.Delete(FileFor()); } catch (IOException) { }
         }
-        try { lock (FileGate) File.Delete(FileFor()); } catch (IOException) { }
     }
 
     /// <summary>Tests: waits for the reads under way (background ones too).</summary>
@@ -244,31 +244,29 @@ public static class GroupWorkloadCache
         }
     }
 
-    private static readonly object FileGate = new();
-
+    /// <summary>
+    /// Written under <see cref="Gate"/> with the snapshot: two reads ending together otherwise could write in the wrong
+    /// order, the older snapshot last, and the file would miss the newer group.
+    /// </summary>
     private static void Save()
     {
-        string json;
         lock (Gate)
         {
-            var now = DateTime.UtcNow;
-            json = JsonSerializer.Serialize(new Saved
+            try
             {
-                Groups = [.. Groups.Values.Where(g => now - g.MembersAt <= CacheAges.MembersKeep)],
-                People = [.. People.Values.Where(p => now - p.At <= CacheAges.WorkloadKeep)]
-            }, JsonOptions);
-        }
-        try
-        {
-            lock (FileGate)
-            {
+                var now = DateTime.UtcNow;
+                var json = JsonSerializer.Serialize(new Saved
+                {
+                    Groups = [.. Groups.Values.Where(g => now - g.MembersAt <= CacheAges.MembersKeep)],
+                    People = [.. People.Values.Where(p => now - p.At <= CacheAges.WorkloadKeep)]
+                }, JsonOptions);
                 Directory.CreateDirectory(Path.GetDirectoryName(FileFor())!);
                 File.WriteAllText(FileFor(), json);
             }
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Could not save the group workload", ex);
+            catch (Exception ex)
+            {
+                Log.Error("Could not save the group workload", ex);
+            }
         }
     }
 
