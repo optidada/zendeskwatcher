@@ -79,8 +79,11 @@ public class CoverTodayTests
     [Fact]
     public async Task Once_a_day_it_asks_about_an_idle_colleague_in_my_region()
     {
-        if (DateTime.Now.Hour < 3)
-            return; // "3 hours into my working day" can't be true yet on this clock
+        // "3 hours into their working day" can't be true yet before 03:00 in Berlin (and Stockholm, my zone): the
+        // colleague's clock counts, not this machine's (GitHub's runs on UTC, an hour behind; it failed there at 23:25).
+        var berlin = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TicketRules.ResolveTimeZone("Europe/Berlin")!);
+        if (berlin.Hour < 3)
+            return;
         // Everyone works around the clock, every day: 3 hours into the day has passed for all.
         _settings.MyWorkdayStartHour = _settings.WorkdayStartHour = 0;
         _settings.MyWorkdayEndHour = _settings.WorkdayEndHour = 24;
