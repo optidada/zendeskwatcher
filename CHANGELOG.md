@@ -3,7 +3,7 @@
 Each release takes its notes from the section with its version number. The first bullet points also show in the
 app's "Update ready" notification, so put the most interesting changes first.
 
-## 1.9.9
+## 1.9.10
 
 - **Faster "Take it ▾"**: the list of who could take a ticket usually comes up in well under a second, also right after the app starts. The app now remembers on your PC who is in each group, how many tickets everyone has, who usually handles a client and when colleagues were last active (names, numbers and times; never ticket text or email addresses), and refreshes them in the background when needed.
 - **Drop notifications** (Notifications → Behavior, was "Already handled"): six switches, all on, for tickets that were assigned to a colleague or to you, replied to by a colleague, or solved by you, a colleague or the client while the notification waited. Switch one off to see those anyway, with a line like "Taken by Anna meanwhile".

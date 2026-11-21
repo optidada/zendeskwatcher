@@ -13,7 +13,7 @@
     <!-- Each monitor's own scaling (laptop 150 %, big monitor 100 %): notifications are drawn sharp and the right size
          on the monitor they appear on (UI/Popups/NotificationScreen.cs), instead of stretched by Windows. -->
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.9.9</Version>
+    <Version>1.9.10</Version>
     <Authors>Claude &amp; Daniel Dahlin @ Optimizely</Authors>
     <Company>Optimizely</Company>
     <Product>Zendesk Watcher</Product>
